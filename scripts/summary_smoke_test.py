@@ -1,12 +1,17 @@
 # ------------------------------------------------------------------
-# 요약 배치 스모크 테스트 스크립트
+# 4줄 요약 프롬프트 검증 스크립트 (스모크 테스트)
 # ------------------------------------------------------------------
-# 목적: 8만 건 전체 요약 배치(OpenAI 저비용 모델)를 돌리기 전에,
-#       30~35건 샘플로 아래를 먼저 검증한다.
+# [v9] 4줄 요약은 72,913건을 여기서 배치로 미리 만드는 게 아니라, 상세 API에서
+# 온디맨드로 생성 + DB 캐싱하는 방식으로 바뀜(architecture.md §4.5). 이 스크립트는
+# "본 배치를 돌린다"가 아니라, 상세 API가 실제로 쓸 프롬프트/모델이 기대대로
+# 동작하는지 30~35건 샘플로 미리 검증하는 용도로만 씀.
+#
+# 목적: 아래를 30~35건 샘플로 미리 검증한다 (본 배치는 이제 없음, §4.5 참고).
 #   1) 프롬프트가 실제로 "정확히 4줄" 포맷을 지키는지
 #   2) parsing_quality(partial/fallback)별로 이상한 요약(할루시네이션 등)이 없는지
 #   3) 재시도/백오프 로직이 실제로 동작하는지
-#   4) 8만 건 기준 실제 비용/소요시간을 실측치로 추정
+#   4) 온디맨드 호출 1건당 실제 비용/응답시간을 실측치로 추정 (72,913건 전체를
+#      한 번에 돌릴 일은 없지만, 상한선 감 잡는 용도로 여전히 유효)
 #
 # 실행 전 준비:
 #   pip install openai
@@ -49,12 +54,12 @@ SAMPLE_SIZE_PER_BUCKET = {
     "fallback": 5,
 }
 
-MAX_CONCURRENCY = 5           # 동시 요청 수 제한 (본 배치 때 이 값 자체를 튜닝하는 게 목적 중 하나)
+MAX_CONCURRENCY = 5           # 이 스모크 테스트에서의 동시 요청 수 제한 (상세 API는 요청 1건당 1회 호출이라 이 값이 그대로 쓰이진 않음)
 MAX_RETRIES_PER_REQUEST = 4   # SDK가 429/5xx/네트워크 에러에 자동으로 exponential backoff 재시도
-FULL_BATCH_SIZE = 72_913      # documents_final.jsonl 확정 건수 기준 (기존 "8만 건" 추정치 대신 실측치)
+FULL_BATCH_SIZE = 72_913      # documents_final.jsonl 확정 건수 — "72,913건 전부 조회된다면" 가정한 상한선 비용/시간 추정용 (실제로 배치로 다 돌리진 않음, §4.5)
 
 # gpt-4o-mini 가격: $0.15 / 1M input, $0.60 / 1M output (참고치 — OpenAI 가격 정책은
-# 자주 바뀌므로 본 배치 실행 직전 platform.openai.com/pricing에서 반드시 재확인)
+# 자주 바뀌므로 상세 API에 반영하기 전 platform.openai.com/pricing에서 반드시 재확인)
 PRICE_PER_M_INPUT = 0.15
 PRICE_PER_M_OUTPUT = 0.60
 
@@ -207,7 +212,7 @@ def run_smoke_test(samples: list[dict]) -> list[dict]:
 
 
 # ------------------------------------------------------------------
-# 5) 결과 저장 + 요약 통계 + 8만 건 기준 비용/시간 추정
+# 5) 결과 저장 + 요약 통계 + 72,913건 전부 조회된다고 가정했을 때의 상한선 비용/시간 추정
 # ------------------------------------------------------------------
 def save_results(results: list[dict], path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
@@ -287,15 +292,16 @@ def print_report(results: list[dict]) -> None:
     total_time_serial_hr = (avg_time * FULL_BATCH_SIZE) / 3600
     total_time_concurrent_hr = total_time_serial_hr / MAX_CONCURRENCY
 
-    print(f"\n--- 8만 건 본 배치 추정치 ({MODEL} 기준) ---")
+    print(f"\n--- {FULL_BATCH_SIZE}건 전부 온디맨드로 조회된다고 가정한 상한선 추정치 ({MODEL} 기준) ---")
+    print("(실제로는 이만큼 한 번에 돌리지 않음 — 상세 API가 조회 시점마다 1건씩 생성+캐싱함, §4.5)")
     if DRY_RUN:
         print("[DRY_RUN] 아래 수치는 실제 토큰이 아니라 근사치이므로 참고만 할 것 — "
               "실제 비용 추정은 DRY_RUN 없이 다시 돌려야 함")
     print(f"건당 평균: 입력 {avg_in:.0f}토큰 / 출력 {avg_out:.0f}토큰 / {avg_time:.2f}초")
-    print(f"예상 총 비용: ${total_cost:.2f}")
-    print(f"예상 총 소요시간 (동시 {MAX_CONCURRENCY}건 기준, 대략치): 약 {total_time_concurrent_hr:.1f}시간")
-    print("주의: 이 추정치는 표본 30~35건 기준 — 본 배치는 이 스크립트에 "
-          "resume/checkpoint 로직(embedding 스크립트처럼)을 추가해서 돌릴 것")
+    print(f"건당 비용: ${cost_per_doc:.5f}")
+    print(f"{FULL_BATCH_SIZE}건 전부 조회 시 상한선 총 비용: ${total_cost:.2f} (참고용, 실제 조회량은 이보다 훨씬 적을 것)")
+    print("주의: 이 추정치는 표본 30~35건 기준 — 실제 상세 API 온디맨드 호출 지연시간(§4.4)이 "
+          "상세페이지 캐시 미스 시 허용 가능한 수준인지 참고할 것")
 
 
 if __name__ == "__main__":
