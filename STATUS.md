@@ -2,6 +2,44 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (3차 — Railway DB 스키마 적용)
+
+### 완료
+- **Railway Postgres 서비스 생성** — Public Networking 활성화 (`DATABASE_PUBLIC_URL` 확보, Colab에서 쓸 때는 `DATABASE_URL` 환경변수명으로 매핑해서 사용)
+- **`scripts/schema.sql`을 Railway에 실제 적용** — Railway 대시보드 Query 탭에서 실행, `documents`/`chunks` 테이블과 인덱스 5개 생성 확인 완료 (`information_schema.tables`, `pg_indexes`로 검증)
+
+### DB 스키마 요약 (테이블은 만들었고, 데이터는 아직 안 들어간 상태)
+
+**`documents`** — 사례 1건 = 행 1개, 상세페이지용
+| 컬럼 | 용도 |
+|---|---|
+| `id` (PK) | 사례 고유번호 |
+| `institution`, `year` | 기관명, 감사연도 |
+| `raw_text` | 원문 전체 (상세페이지 "펼쳐보기") |
+| `parsing_quality` | standard/partial/fallback — 신뢰도 배지용, CHECK 제약 있음 |
+| `summary_point/cause/action/result` | 4줄 요약 (아직 비어있음, 추후 Haiku 배치로 채움) |
+
+**`chunks`** — 문서를 쪼갠 검색 단위
+| 컬럼 | 용도 |
+|---|---|
+| `id` (PK), `document_id` (FK → documents.id) | 청크 식별 + 소속 문서 |
+| `text` | 청크 원문 |
+| `embedding vector(1024)` | BGE-m3 임베딩 벡터 (현재 Colab에서 생성 중) |
+| `tsv` | 키워드 검색용, `text` 저장 시 Postgres가 자동 생성(GENERATED ALWAYS) |
+
+**인덱스 5개** (검색 속도용 — 없으면 검색할 때마다 테이블 전체를 훑어야 함)
+- `chunks_embedding_hnsw_idx` (HNSW, `embedding`) — 벡터 유사도 검색
+- `chunks_tsv_gin_idx` (GIN, `tsv`) — 키워드 검색
+- `chunks_document_id_idx` (btree, `document_id`) — 청크→문서 조인
+- pgvector 확장이 내부적으로 생성하는 인덱스 등
+
+이 벡터 검색 + 키워드 검색 결과를 RRF로 합쳐서 최종 Top-10을 뽑는 게 검색 로직의 핵심 (architecture.md 참고).
+
+### 다음
+- 예상 건수: `documents` 72,913건, `chunks` 96,355건 (build_final_dataset.py 최신 실행 결과 기준)
+- 임베딩(`embed_chunks.py`, 124,066개 중 진행 중) 완료 대기
+- 완료되면 `load_to_postgres.py`로 실제 데이터 적재 → 1주차 체크포인트(SQL로 유사 사례 순위 확인)
+
 ## 2026-08-06
 
 ### 완료
