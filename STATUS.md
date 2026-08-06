@@ -2,6 +2,24 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔜 다음 세션 시작할 것 (2026-08-06 저녁 기준)
+
+1. **Supabase 비밀번호를 "재설정 즉시 화면에 뜨는 값을 그 자리에서 바로 복사"** — Database 설정 →
+   Reset database password → 뜨는 순간 바로 복사해서 메모장에 저장 (이전 시도들은 이 타이밍을
+   놓쳐서 `[YOUR-PASSWORD]` placeholder가 그대로 남아있었을 가능성이 유력한 원인)
+2. Session Pooler URI로 연결 문자열 재구성: `postgresql://postgres.hrhecriwbstcsgbhxotg:새비밀번호@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres`
+3. 그래도 `password authentication failed` 나오면 → `psql` CLI로 직접 접속 테스트해서
+   Python/psycopg2 쪽 문제인지 순수 인증 문제인지 분리 확인
+4. 연결되면: `scripts/schema_tables.sql` 실행(Supabase SQL Editor) → `scripts/load_to_postgres.py`
+   실행(Colab, documents+chunks 전부 새로 적재 — Supabase는 새 DB라 Railway에서 넣었던 건 안 남아있음)
+   → `scripts/schema_indexes.sql` 실행(Supabase SQL Editor)
+5. 적재 성공하면 1주차 체크포인트(SQL로 유사 사례 순위 확인) 진행 → 그다음 2주차(검색 API) 착수
+
+**코드/스크립트는 전부 준비 완료 상태** (어제 다 테스트하고 GitHub에 푸시함) — 막힌 건 순수히
+Supabase 자격증명 문제뿐입니다.
+
+---
+
 ## 2026-08-06 (12차 — 오늘 마무리: Supabase 연결 인증 문제로 중단)
 
 ### 오늘 세션 마지막 상태: Supabase 연결이 계속 안 됨 (다음 세션에서 이어갈 것)
