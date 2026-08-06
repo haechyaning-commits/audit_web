@@ -2,6 +2,34 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (11차 — Railway 디스크 부족으로 DB 다운 → Supabase로 이전)
+
+### 사건: chunks 적재 도중 Railway 디스크 꽉 참 → DB 다운
+- documents(72,913건)는 완전히 적재 성공, chunks(벡터 포함, 96,355건) 적재 중
+  `psycopg2.errors.DiskFull: could not extend file ... No space left on device` 발생
+- 추정 원인: 벡터(1024차원) 96,355개 원본 데이터만 약 395MB, HNSW 인덱스까지 합치면
+  약 1~1.2GB 필요 — Railway Trial(무료 체험) 티어의 디스크 할당량을 넘은 것으로 추정
+- 이후 DB 자체가 응답 없음(`server closed the connection unexpectedly`) — 재시작도 안 되는
+  상태로 보임 (디스크가 없어서 부팅에 필요한 만큼도 못 만드는 것으로 추정)
+- Railway 유료 업그레이드($5/월) vs 무료 대안(Supabase/Neon) 논의 → **사용자가 Supabase로
+  이전하기로 결정**
+
+### 재발 방지: 스키마를 "테이블 → 데이터 → 인덱스" 순서로 분리
+- 기존 `schema.sql`은 인덱스(특히 HNSW)까지 먼저 만들어두고 그 상태로 데이터를 넣는 방식이었음
+  → 96,355건 INSERT마다 HNSW 인덱스를 실시간 갱신해야 해서 디스크를 더 쓰고 비효율적
+- **`scripts/schema_tables.sql`**(테이블만) / **`scripts/schema_indexes.sql`**(인덱스만, 데이터
+  적재 후 실행)로 분리 — 데이터를 먼저 다 넣고 인덱스는 마지막에 벌크로 한 번에 생성
+- 기존 `schema.sql`은 로컬 테스트/소량 데이터용으로 남겨두되, 대량 적재 시엔 분리된 버전
+  쓰도록 주석에 명시
+- 로컬 Postgres로 전체 흐름(테이블 생성 → 데이터 적재 → 인덱스 생성 → 벡터 검색 쿼리) 재검증
+  완료, 정상 동작 확인
+
+### 다음
+- Supabase 프로젝트 생성 완료(사용자), `DATABASE_URL` 새로 받아서 진행 예정
+- 순서: `schema_tables.sql` → `load_to_postgres.py` → `schema_indexes.sql`
+- Supabase 무료 티어도 벡터+인덱스 용량(추정 1~1.2GB)을 못 감당할 가능성 있음 — 안 되면
+  다시 판단 필요 (유료 전환 또는 halfvec 등 벡터 용량 축소 고려)
+
 ## 2026-08-06 (10차 — 실제 적재 중 NUL 문자 에러 + DATABASE_URL 줄바꿈 이슈)
 
 `preflight_check.py` 통과 후 실제 Railway에 `load_to_postgres.py` 돌리다가 겪은 문제 2건.

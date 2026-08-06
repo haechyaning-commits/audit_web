@@ -1,16 +1,20 @@
 -- ------------------------------------------------------------------
--- DB 스키마 — documents / chunks (전체를 한 번에, 테이블+인덱스 같이)
+-- DB 스키마 1단계 — 테이블만 생성 (인덱스는 나중에, schema_indexes.sql 참고)
 -- ------------------------------------------------------------------
--- Postgres에서 실행. pgvector 확장 필요.
--- 실행 순서: 이 파일 전체를 psql 또는 SQL 콘솔에 붙여넣기
+-- Supabase(또는 Railway) Postgres에서 실행. pgvector 확장 필요.
 --
--- [주의] 96,355건 같은 대량 청크를 로딩할 때는 이 파일 대신
--- schema_tables.sql(테이블만) -> load_to_postgres.py(데이터 적재) ->
--- schema_indexes.sql(인덱스는 맨 마지막에) 순서로 나눠서 실행하는 걸 권장함 —
--- 인덱스를 먼저 만들어두고 그 상태로 대량 INSERT하면 디스크 사용량이 커져서
--- 저장공간이 빠듯한 환경(Supabase/Railway 무료·최소 티어)에서 문제가 될 수 있음
--- (실제로 이 순서 그대로 하다가 디스크 부족으로 DB가 죽은 사례 있음).
--- 이 파일은 로컬 테스트나 소량 데이터로 빠르게 스키마만 확인할 때 쓰면 됨.
+-- [변경 이유] 원래 schema.sql은 인덱스(특히 HNSW)까지 한 번에 다 만들어두고
+-- 그 상태로 데이터를 넣었음. 그러면 96,355개 청크를 넣는 INSERT 하나하나마다
+-- HNSW 인덱스를 실시간으로 갱신해야 해서 디스크를 더 많이/비효율적으로 씀
+-- (Railway에서 이 방식으로 돌리다가 실제로 디스크가 꽉 차서 DB가 죽는 걸 겪음).
+--
+-- 데이터를 먼저 다 넣고 인덱스는 마지막에 한 번에 만들면(벌크 빌드), 인덱스
+-- 구축 자체가 더 효율적이고 빠르며, 로딩 도중 디스크 사용량 피크도 낮아짐.
+--
+-- 실행 순서:
+--   1) 이 파일(schema_tables.sql) 실행 — 테이블만 생성
+--   2) load_to_postgres.py 실행 — 데이터 적재
+--   3) schema_indexes.sql 실행 — 인덱스 생성 (여기서 시간이 좀 걸릴 수 있음)
 -- ------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -34,7 +38,7 @@ CREATE TABLE IF NOT EXISTS documents (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 
--- chunks: 검색용 (architecture.md §3.2)
+-- chunks: 검색용 (architecture.md §3.2) — 인덱스는 아직 안 만듦, schema_indexes.sql에서
 CREATE TABLE IF NOT EXISTS chunks (
     id              TEXT PRIMARY KEY,   -- 임베딩 스크립트의 chunk_id 그대로 사용
     document_id     TEXT NOT NULL REFERENCES documents(id),
@@ -43,11 +47,3 @@ CREATE TABLE IF NOT EXISTS chunks (
     tsv             tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
-
--- 인덱스 (architecture.md §5.1)
-CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
-    ON chunks USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
-CREATE INDEX IF NOT EXISTS chunks_tsv_gin_idx
-    ON chunks USING GIN (tsv);
-CREATE INDEX IF NOT EXISTS chunks_document_id_idx
-    ON chunks (document_id);
