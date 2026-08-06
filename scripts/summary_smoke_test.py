@@ -171,7 +171,7 @@ def summarize_one(doc: dict) -> dict:
     try:
         resp = client.with_options(max_retries=MAX_RETRIES_PER_REQUEST).chat.completions.create(
             model=MODEL,
-            max_tokens=512,
+            max_completion_tokens=512,  # max_tokens는 OpenAI SDK에서 deprecated, 이걸로 대체됨
             messages=[{"role": "user", "content": prompt}],
         )
         elapsed = time.time() - start
