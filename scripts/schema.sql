@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS documents (
     summary_cause   TEXT,               -- 2번째 줄: 원인/경위
     summary_action  TEXT,               -- 3번째 줄: 조치사항
     summary_result  TEXT,               -- 4번째 줄: 처리결과 ("처리결과 미기재" 포함)
+    summary_failed  BOOLEAN NOT NULL DEFAULT FALSE,  -- 온디맨드 생성 1차+재시도 모두 4줄 전부
+                                                      -- 미기재로 나온 경우 TRUE (architecture.md §4.6).
+                                                      -- TRUE면 상세 API가 재생성 시도 없이 바로
+                                                      -- 원문만 반환 — 실패를 캐싱해서 매번 재시도하며
+                                                      -- API 비용 나가는 것 방지
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 
