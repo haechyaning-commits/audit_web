@@ -37,15 +37,32 @@
   - 벡터 유사도 검색 SQL(`ORDER BY embedding <=>`) + documents JOIN 정상 동작 확인 — 1주차 체크포인트의 "SQL로 순위 확인"이 메커니즘 상 작동함을 확인 (실제 데이터의 순위 품질 자체는 아직 미확인)
   - `summary_smoke_test.py` DRY_RUN 실행 확인 — 합성 documents_final.jsonl(standard 25 / partial 12 / fallback 7)로 35건 층화 샘플링, 동시성, 포맷 검증, 저장, 리포트까지 전부 정상 동작 (실패 0건, 포맷 위반 0건)
 
+### Colab 임베딩 체크포인트 FileNotFoundError 수정 (같은 날, 2차)
+- 사용자가 Colab에서 체크포인트 저장 로직 추가 후 실행하다가
+  `os.replace(tmp_path, EMBEDDINGS_PATH)`에서 `FileNotFoundError` 발생시킴
+- **원인**: `tmp_path = EMBEDDINGS_PATH + ".tmp"` (예: `"embeddings.npy.tmp"`)는 `.npy`로 안 끝나서,
+  `np.save()`가 자동으로 `.npy`를 붙여 실제로는 `"embeddings.npy.tmp.npy"`라는 파일이 생성됨.
+  그 직후 `os.replace`가 찾는 `"embeddings.npy.tmp"`는 존재한 적이 없어서 죽음 — 체크포인트를
+  저장하려는 시도마다 100% 재현되는 버그. 저장 도중 6,400건 단위 진행상황이 매번 유실됐을 것.
+- **수정 + 저장소에 반영**: `scripts/embed_chunks.py`로 새로 커밋 — 임시 파일명을 처음부터
+  `.npy`로 끝나게 바꾸고(`EMBEDDINGS_PATH.replace(".npy", ".tmp.npy")`), 실행 시작 시 이전 실행이
+  남긴 stray 임시 파일도 정리하도록 추가. 모델 로딩 없이 체크포인트 저장/재개 로직만 격리해서
+  로컬에서 재현 테스트 → 수정 후 정상 동작 확인 (`.tmp.npy` 잔여 파일 없이 `embeddings.npy` +
+  `chunk_ids.jsonl`만 남음, resume 시 개수도 정확히 로드됨)
+- **미확인**: 사용자의 실제 Google Drive에 이번 버그로 생긴 `embeddings.npy.tmp.npy` 같은
+  잘못된 이름의 파일이 남아있는지는 이 세션에서 Drive 접근이 안 돼서 직접 확인 못함 —
+  사용자가 Colab에서 `os.listdir(CHECKPOINT_DIR)`로 직접 확인 필요
+
 ### 아직 안 한 것 (다음 세션에서 이어갈 것 — Colab/Railway 실제 환경 필요)
 1. **위 버그 수정을 Colab의 `build_final_dataset.py`에도 반영하고 재실행** — 기존 72,913건 중 extraction_failed로만 이루어진 사례가 있었다면 재확인 필요
 2. **`scripts/summary_smoke_test.py` DRY_RUN을 실제 `documents_final.jsonl`로 실행** — 코드 자체는 이번 세션에서 검증했지만, 실데이터 분포 기준으로는 아직 안 돌려봄
 3. **Railway Postgres 서비스 생성 여부 미확인** — 만들었으면 `DATABASE_URL` 확보 후 `scripts/schema.sql` 실행 → `scripts/load_to_postgres.py` 실행 (스크립트 자체는 로컬에서 검증 끝남)
 4. **1주차 체크포인트** — 실제 DB 적재 후 SQL로 유사 사례 순위 확인 (development-plan.md 1주차 목표, 메커니즘은 검증됨)
 5. 요약 스모크 테스트 소량 실제 실행 (비용 발생, 몇십 원 수준)
-6. *(여유 있으면)* Railway/Vercel 빈 뼈대 배포로 4주차 배포 리스크 선제 검증
-7. *(여유 있으면)* BGE-m3 단독 메모리 실측
+6. **`scripts/embed_chunks.py`로 Colab 임베딩 재개** — Drive에 잘못된 이름으로 남은 파일(있다면) 정리 후 실행
+7. *(여유 있으면)* Railway/Vercel 빈 뼈대 배포로 4주차 배포 리스크 선제 검증
+8. *(여유 있으면)* BGE-m3 단독 메모리 실측
 
 ### 파일 위치 참고
-- 이 저장소(`scripts/`): `schema.sql`, `build_final_dataset.py`, `load_to_postgres.py`, `summary_smoke_test.py`
+- 이 저장소(`scripts/`): `schema.sql`, `build_final_dataset.py`, `load_to_postgres.py`, `summary_smoke_test.py`, `embed_chunks.py`
 - Google Drive `MyDrive/audit_project/`: 원본 데이터, 임베딩 체크포인트, `documents_final.jsonl`, `chunks_final.jsonl` (전부 여기, 이 git 저장소에는 없음)
