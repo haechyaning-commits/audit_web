@@ -60,13 +60,26 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 # dry-run에서는 API 키가 없어도 되므로 client를 필요할 때만 생성
 client = None if DRY_RUN else anthropic.Anthropic()  # ANTHROPIC_API_KEY 환경변수 또는 `ant auth login` 프로필 사용
 
+# [수정] 1~3줄에도 4줄과 동일한 탈출구를 추가함 — 원래는 4줄(처리결과)만
+# "없으면 이렇게 표시해라"가 있었고 1~3줄은 무조건 채우게 되어 있었음.
+# 그러면 원문에 원인/조치가 불명확한 문서(특히 partial/fallback 등급)에서
+# 모델이 없는 내용을 지어낼 위험이 있음.
+# 다만 탈출구 기준을 "불분명하면"처럼 느슨하게 주면 반대로 있는 내용도
+# 귀찮아서 미기재로 때우는 문제가 생길 수 있어서, "원문에 관련 내용이
+# 전혀 없을 때만"으로 문턱을 높여서 균형을 잡음. 이게 실제로 잘 맞는지는
+# 프롬프트만으로 보장 못 하므로, 아래 print_report()의 미기재 비율 집계로
+# 스모크 테스트 결과를 보면서 확인해야 함.
 PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고 정확히 4줄로 요약해라.
-1줄: 지적사항 한 문장
-2줄: 원인/경위 한 문장
-3줄: 조치사항 한 문장
-4줄: 처리결과 한 문장 (원문에 결과 정보가 없으면 "처리결과 미기재"로 표시)
+1줄: 지적사항 한 문장 (원문에 관련 내용이 전혀 없을 때만 "지적사항 불분명"으로 표시)
+2줄: 원인/경위 한 문장 (원문에 관련 내용이 전혀 없을 때만 "원인 미기재"로 표시)
+3줄: 조치사항 한 문장 (원문에 관련 내용이 전혀 없을 때만 "조치사항 미기재"로 표시)
+4줄: 처리결과 한 문장 (원문에 관련 내용이 전혀 없을 때만 "처리결과 미기재"로 표시)
 원문:
 {raw_text}"""
+
+# 위 탈출구 문구들 — print_report()에서 줄 번호별로 이 표현이 얼마나
+# 등장했는지 세어서, "모델이 게으르게 답하고 있는지" 신호로 사용
+FALLBACK_PHRASES = ["지적사항 불분명", "원인 미기재", "조치사항 미기재", "처리결과 미기재"]
 
 
 # ------------------------------------------------------------------
@@ -198,7 +211,41 @@ def save_results(results: list[dict], path: str) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     print(f"\n결과 저장: {path}")
     print("-> summary 필드를 직접 눈으로 열어보고 확인할 것: 정확히 4줄인지, "
-          "처리결과 미기재 처리가 맞는지, partial/fallback 문서에서 이상한 내용을 지어내지 않는지")
+          "미기재/불분명 처리가 맞는지, partial/fallback 문서에서 이상한 내용을 지어내지 않는지 "
+          "(아래 '줄별 미기재/불분명 사용 비율' 리포트로 어느 등급을 우선 확인할지 가늠 가능)")
+
+
+# ------------------------------------------------------------------
+# 5-1) 탈출구 문구("불분명"/"미기재") 남용 여부 체크
+#      — 1~3줄에 탈출구를 열어주면서 생긴 반대쪽 위험(있는 정보도
+#        귀찮아서 미기재로 때우는 것)을 35건 다 눈으로 읽지 않고도
+#        parsing_quality별 비율로 미리 감지하기 위한 자동 집계
+# ------------------------------------------------------------------
+def print_fallback_usage_report(results: list[dict]) -> None:
+    ok = [r for r in results if not r.get("error") and not r.get("format_issues")]
+    if not ok:
+        return
+
+    by_quality: dict[str, list[dict]] = {}
+    for r in ok:
+        by_quality.setdefault(r["parsing_quality"], []).append(r)
+
+    line_labels = ["1줄(지적사항)", "2줄(원인)", "3줄(조치사항)", "4줄(처리결과)"]
+
+    print("\n--- 줄별 '미기재/불분명' 사용 비율 (parsing_quality별) ---")
+    print("standard 등급인데 비율이 높으면 모델이 있는 정보도 귀찮아서 미기재로 때우고 있다는 신호.")
+    print("partial/fallback 등급에서 비율이 높은 건 원문 자체가 부실해서 그런 것일 수 있어 정상 범위로 볼 수 있음.")
+    for quality in sorted(by_quality):
+        items = by_quality[quality]
+        counts = [0, 0, 0, 0]
+        for r in items:
+            lines = [l for l in r["summary"].strip().split("\n") if l.strip()]
+            for i, phrase in enumerate(FALLBACK_PHRASES):
+                if i < len(lines) and phrase in lines[i]:
+                    counts[i] += 1
+        n = len(items)
+        rates = " / ".join(f"{label} {c}건({c / n * 100:.0f}%)" for label, c in zip(line_labels, counts))
+        print(f"  [{quality}, {n}건] {rates}")
 
 
 def print_report(results: list[dict]) -> None:
@@ -220,6 +267,8 @@ def print_report(results: list[dict]) -> None:
         print(f"\n[4줄 포맷 위반] {len(format_bad)}건 — 프롬프트 조정 필요할 수 있음")
         for r in format_bad:
             print(f"  - {r['document_id']} ({r['parsing_quality']}): {r['format_issues']}")
+
+    print_fallback_usage_report(results)
 
     if not ok:
         print("\n성공한 요청이 없어 비용/시간 추정 불가")
