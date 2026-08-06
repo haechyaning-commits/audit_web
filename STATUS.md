@@ -2,6 +2,27 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (12차 — 오늘 마무리: Supabase 연결 인증 문제로 중단)
+
+### 오늘 세션 마지막 상태: Supabase 연결이 계속 안 됨 (다음 세션에서 이어갈 것)
+
+11차(Supabase 이전)에 이어서 실제 연결을 시도했는데, 순서대로 이런 문제들을 겪음:
+1. `[YOUR-PASSWORD]` 자리는 채웠는데 비밀번호에 대괄호(`[`) 포함 → URL 파싱 깨짐 → `quote()`로 인코딩해서 해결
+2. Direct connection(IPv6 전용) → Colab이 IPv6 미지원이라 `Network is unreachable` → Session Pooler(IPv4) 연결로 전환해서 해결
+3. Pooler는 사용자명이 `postgres.프로젝트코드` 형식이어야 함 → 확인/수정함
+4. **그런데도 계속 `FATAL: password authentication failed for user "postgres"`** — 사용자명 로컬 확인은 맞게 나오는데 실제 서버 인증은 계속 실패. 비밀번호 재설정을 이미 한 번 했는데도 동일 에러 반복됨
+5. **원인 미확정 상태로 오늘 중단.** 마지막으로 사용자에게 안내한 것: 비밀번호 길이/앞뒤 2자리를 본인만 직접 확인해서 Supabase에서 재설정한 값과 실제로 일치하는지 눈으로 대조해보라고 안내 (Supabase가 비밀번호 재설정 시 새 비밀번호를 그 순간에만 화면에 보여주고 이후엔 평문으로 다시 안 보여주는 정책이라, 그 타이밍에 못 복사했으면 `[YOUR-PASSWORD]` placeholder만 남아있었을 가능성 있음 — 이게 유력한 원인 후보)
+
+### 다음 세션에서 이어갈 것
+1. Supabase 비밀번호를 **재설정 즉시 화면에 뜨는 값을 그 자리에서 바로 복사**해서 연결 문자열 재구성 (이전 시도들은 이 타이밍을 놓쳤을 가능성 있음)
+2. 그래도 안 되면: `psql` CLI로 직접 접속 테스트해서 Python/psycopg2 쪽 문제인지 순수 인증 문제인지 분리 확인
+3. 연결되면: `schema_tables.sql`(이미 완료됨, 재확인만) → `load_to_postgres.py`(documents는 Railway에서 이미 한 번 성공했었으나 Supabase는 새 DB라 처음부터 다시 넣어야 함) → `schema_indexes.sql`
+4. 적재 성공하면 1주차 체크포인트(SQL로 유사 사례 순위 확인) 진행
+
+### 코드/스크립트 쪽은 오늘 다 준비 완료 (막힌 건 순수 Supabase 자격증명 문제)
+- `scripts/schema_tables.sql`, `scripts/schema_indexes.sql`, `scripts/load_to_postgres.py`(배치 커밋 + NUL 방어 + year 방어 전부 반영) — 전부 로컬 테스트 통과, GitHub에 푸시 완료
+- Railway 인스턴스는 디스크 부족으로 죽은 채로 방치 (더 이상 안 씀, Supabase로 완전히 이전하는 방향)
+
 ## 2026-08-06 (11차 — Railway 디스크 부족으로 DB 다운 → Supabase로 이전)
 
 ### 사건: chunks 적재 도중 Railway 디스크 꽉 참 → DB 다운
