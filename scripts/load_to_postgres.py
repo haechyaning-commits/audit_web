@@ -33,20 +33,28 @@ EMBEDDINGS_PATH = BASE + "embeddings_v2/embeddings.npy"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
-def load_documents(cur, path: str) -> int:
+def load_documents(cur, conn, path: str, batch_size: int = 5000) -> int:
     docs = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             d = json.loads(line)
             docs.append((d["id"], d.get("institution"), d.get("year"), d.get("raw_text"), d.get("parsing_quality")))
 
-    execute_values(
-        cur,
-        "INSERT INTO documents (id, institution, year, raw_text, parsing_quality) "
-        "VALUES %s ON CONFLICT (id) DO NOTHING",
-        docs,
-    )
-    return len(docs)
+    total = len(docs)
+    # 배치별로 나눠서 중간중간 commit -> Railway Public Network 연결이 도중에 끊겨도
+    # 이미 커밋된 배치는 남아있음 (전체 하나의 트랜잭션으로 묶으면 끊기는 순간 전부 롤백됨).
+    # ON CONFLICT DO NOTHING이라 재실행해도 이미 들어간 행은 건드리지 않고 이어서 진행됨.
+    for i in range(0, total, batch_size):
+        batch = docs[i:i + batch_size]
+        execute_values(
+            cur,
+            "INSERT INTO documents (id, institution, year, raw_text, parsing_quality) "
+            "VALUES %s ON CONFLICT (id) DO NOTHING",
+            batch,
+        )
+        conn.commit()
+        print(f"  documents 진행: {min(i + batch_size, total)}/{total}")
+    return total
 
 
 def load_chunk_embeddings(chunk_ids_path: str, embeddings_path: str) -> dict:
@@ -58,7 +66,7 @@ def load_chunk_embeddings(chunk_ids_path: str, embeddings_path: str) -> dict:
     return dict(zip(chunk_ids, embeddings))
 
 
-def load_chunks(cur, path: str, chunk_id_to_vec: dict) -> tuple[int, int]:
+def load_chunks(cur, conn, path: str, chunk_id_to_vec: dict, batch_size: int = 5000) -> tuple[int, int]:
     rows, skipped = [], 0
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -69,12 +77,19 @@ def load_chunks(cur, path: str, chunk_id_to_vec: dict) -> tuple[int, int]:
                 continue
             rows.append((c["id"], c["document_id"], c["text"], vec))
 
-    execute_values(
-        cur,
-        "INSERT INTO chunks (id, document_id, text, embedding) VALUES %s ON CONFLICT (id) DO NOTHING",
-        rows,
-    )
-    return len(rows), skipped
+    total = len(rows)
+    # documents와 동일한 이유로 배치 커밋 — 여기가 특히 중요함: 벡터(1024차원)까지
+    # 같이 실어 나르는 INSERT라 documents보다 훨씬 오래 걸리고, 끊길 위험도 더 큼
+    for i in range(0, total, batch_size):
+        batch = rows[i:i + batch_size]
+        execute_values(
+            cur,
+            "INSERT INTO chunks (id, document_id, text, embedding) VALUES %s ON CONFLICT (id) DO NOTHING",
+            batch,
+        )
+        conn.commit()
+        print(f"  chunks 진행: {min(i + batch_size, total)}/{total}")
+    return total, skipped
 
 
 if __name__ == "__main__":
@@ -85,13 +100,11 @@ if __name__ == "__main__":
     register_vector(conn)
     cur = conn.cursor()
 
-    n_docs = load_documents(cur, DOCUMENTS_PATH)
-    conn.commit()
+    n_docs = load_documents(cur, conn, DOCUMENTS_PATH)
     print(f"documents 적재: {n_docs}건")
 
     chunk_id_to_vec = load_chunk_embeddings(CHUNK_IDS_PATH, EMBEDDINGS_PATH)
-    n_chunks, n_skipped = load_chunks(cur, CHUNKS_PATH, chunk_id_to_vec)
-    conn.commit()
+    n_chunks, n_skipped = load_chunks(cur, conn, CHUNKS_PATH, chunk_id_to_vec)
     print(f"chunks 적재: {n_chunks}건 (임베딩 없어서 스킵: {n_skipped}건)")
 
     cur.close()
