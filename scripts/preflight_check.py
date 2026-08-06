@@ -48,10 +48,19 @@ def check_documents(docs: list[dict]) -> dict:
 
     bad_quality = [d["id"] for d in docs if d.get("parsing_quality") not in ALLOWED_PARSING_QUALITY]
 
-    bad_year = [
-        d["id"] for d in docs
-        if d.get("year") is not None and not isinstance(d.get("year"), int)
-    ]
+    # year는 documents_final.jsonl에 문자열로 들어있는 경우가 정상 케이스임 (예: "2019") —
+    # Postgres/psycopg2가 숫자 문자열은 알아서 int로 캐스팅해주므로 그건 경고 대상이 아님.
+    # 진짜 문제는 "숫자로 변환 자체가 안 되는 값"(빈 문자열, "2020년" 같은 것)만.
+    def _year_unparseable(y) -> bool:
+        if y is None or y == "":
+            return False
+        try:
+            int(y)
+            return False
+        except (ValueError, TypeError):
+            return True
+
+    bad_year = [d["id"] for d in docs if _year_unparseable(d.get("year"))]
 
     missing_raw_text = [d["id"] for d in docs if not d.get("raw_text")]
 
@@ -118,11 +127,12 @@ if __name__ == "__main__":
         print("✅ parsing_quality 전부 정상 값")
 
     if doc_report["bad_year"]:
-        print(f"⚠️  year 필드가 정수가 아닌 문서 {len(doc_report['bad_year'])}건 (문자열 등 — 적재 시 타입 에러 가능성):")
+        print(f"⚠️  year 값이 숫자로 변환 안 되는 문서 {len(doc_report['bad_year'])}건 "
+              f"(load_to_postgres.py가 이런 값은 NULL로 대체하고 경고만 찍음 — 적재는 안 멈춤):")
         for i in doc_report["bad_year"][:10]:
             print(f"    {i}")
     else:
-        print("✅ year 필드 타입 정상")
+        print("✅ year 값 전부 숫자로 변환 가능 (문자열이어도 \"2019\"처럼 숫자면 정상, load_to_postgres.py가 자동 변환함)")
 
     if doc_report["missing_raw_text"]:
         print(f"⚠️  raw_text가 비어있는 문서 {len(doc_report['missing_raw_text'])}건 "

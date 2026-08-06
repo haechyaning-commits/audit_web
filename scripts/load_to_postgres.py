@@ -33,12 +33,26 @@ EMBEDDINGS_PATH = BASE + "embeddings_v2/embeddings.npy"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
+def _parse_year(raw_year) -> int | None:
+    """year가 documents_final.jsonl에 문자열로 들어있는 경우가 대부분이라(예: "2019")
+    명시적으로 int 변환. psycopg2/Postgres가 숫자 문자열은 알아서 캐스팅해주긴 하지만,
+    혹시 지저분한 값("2020년", "" 등)이 하나라도 섞여 있으면 그 배치 전체가 예외로
+    죽는 걸 막기 위해 여기서 방어적으로 처리 — 실패하면 None으로 두고 경고만 출력."""
+    if raw_year is None or raw_year == "":
+        return None
+    try:
+        return int(raw_year)
+    except (ValueError, TypeError):
+        print(f"  [경고] year 값 파싱 실패, NULL로 대체: {raw_year!r}")
+        return None
+
+
 def load_documents(cur, conn, path: str, batch_size: int = 5000) -> int:
     docs = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             d = json.loads(line)
-            docs.append((d["id"], d.get("institution"), d.get("year"), d.get("raw_text"), d.get("parsing_quality")))
+            docs.append((d["id"], d.get("institution"), _parse_year(d.get("year")), d.get("raw_text"), d.get("parsing_quality")))
 
     total = len(docs)
     # 배치별로 나눠서 중간중간 commit -> Railway Public Network 연결이 도중에 끊겨도

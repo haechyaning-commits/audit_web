@@ -100,7 +100,14 @@ def build_clean_documents(path: str) -> dict:
             rep = chosen_sorted[0][1]
             final_docs[key] = {**rep, "raw_text": "\n".join(parts), "parse_tier": best_base}
         else:
-            final_docs[key] = chosen[0][1]
+            # [버그 수정] 여기도 if 분기처럼 parse_tier를 best_base로 정규화해야 함.
+            # 안 그러면 같은 그룹 안에 split된 레코드(idx 있음)와 안 된 레코드(idx=None)가
+            # 섞여서 이 분기를 타는 경우, chosen[0]이 하필 split 레코드면 원본 parse_tier
+            # ("fallback_split1of2" 같은 접미사 붙은 값)가 정리 안 된 채 그대로 저장됨 —
+            # schema.sql의 parsing_quality CHECK(standard/partial/fallback만 허용) 위반으로
+            # DB 적재가 막힘. best_base는 이미 이 그룹에서 채택된 등급이므로 항상 이 값으로
+            # 덮어써야 함.
+            final_docs[key] = {**chosen[0][1], "parse_tier": best_base}
 
     print(f"[1/3] 파싱 완전 실패(extraction_failed)로 제외된 사례: {skipped_extraction_failed}건")
     print(f"[1/3] 정리된 고유 문서 수: {len(final_docs)}")

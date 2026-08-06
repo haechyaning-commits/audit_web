@@ -2,6 +2,37 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (9차 — preflight_check.py가 실전에서 진짜 버그 잡아냄)
+
+**실제 `documents_final.jsonl`(72,913건)로 `preflight_check.py`를 처음 돌려봄 — 바로 문제 2건 발견.**
+
+### 진짜 버그: `build_final_dataset.py`의 parse_tier 정규화 누락
+- 증상: `parsing_quality`가 `standard`/`partial`/`fallback`이 아니라 `fallback_split1of2`,
+  `standard_split1of3` 같은 값으로 88건 남아있었음 (CHECK 제약 위반 → 적재 시 멈췄을 것)
+- 원인: 같은 (source_file, case_number) 그룹 안에 **같은 등급인데 split된 레코드(idx 있음)와
+  안 된 레코드(idx=None)가 섞여 있는 경우**, `else` 분기를 타면서 `chosen[0]`이 하필 split
+  레코드면 원본 `parse_tier`(접미사 안 지워진 값)가 그대로 저장됨. `if` 분기(순수 split
+  병합)만 `best_base`로 정규화하고 있었고 `else` 분기는 빠져있었음
+- 재현: 합성 데이터로 정확히 이 상황(같은 그룹에 `fallback`과 `fallback_split1of2` 혼재)을
+  만들어서 버그 확인 → 수정(`else` 분기도 `best_base`로 정규화) → 같은 재현 케이스로 재검증,
+  정상 값(`fallback`)으로 나오는 것 확인
+- **사용자가 해야 할 일**: Colab에서 `build_final_dataset.py` 최신 버전으로 재실행해서
+  `documents_final.jsonl`/`chunks_final.jsonl` 다시 생성 필요
+
+### 버그 아님으로 판명: `year` 필드가 문자열
+- `year`가 72,911/72,913건에서 문자열(`"2019"` 등)이었지만, 실측 확인 결과 **Postgres/psycopg2가
+  숫자 문자열은 자동으로 int로 캐스팅**해서 문제없음 (로컬 DB에 직접 넣어서 확인)
+- 그래도 방어 코드는 추가: `load_to_postgres.py`에 `_parse_year()` 헬퍼 — 혹시 진짜 파싱 안 되는
+  값(빈 문자열, "2020년" 등)이 하나라도 있으면 그 배치 전체가 죽는 대신 해당 값만 NULL로 대체하고
+  경고 출력
+- `preflight_check.py`도 "정수 타입 아니면 전부 경고"(72,911건 떠서 노이즈만 컸음)에서
+  "진짜 파싱 안 되는 것만 경고"로 개선
+
+### 다음에 할 일
+1. Colab에서 `build_final_dataset.py` 재실행 (parse_tier 버그 수정된 최신 버전)
+2. `preflight_check.py` 재실행해서 "치명적 문제 없음" 확인
+3. `load_to_postgres.py` 실행
+
 ## 2026-08-06 (8차 — DB 적재 전 마지막 보강: 배치 커밋 + 사전 점검 스크립트)
 
 DB 적재(`load_to_postgres.py`) 실행 직전에, float16 벡터 저장 검증 + 코드 보강 2건 진행.
