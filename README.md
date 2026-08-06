@@ -47,7 +47,7 @@
 | 백엔드 | FastAPI | 검색에 쓰는 AI 모델들이 전부 Python 라이브러리라 같은 프로세스에서 상시 로드하기 위해 |
 | DB | PostgreSQL + pgvector | 벡터검색 + 키워드검색 + 메타데이터를 DB 하나로 통합 |
 | 임베딩 모델 | BGE-m3 | 오픈소스, 다국어(한국어) 지원 우수 |
-| 요약 생성 | Claude Haiku | 8만 건 배치 처리에 저비용으로 충분 |
+| 요약 생성 | OpenAI gpt-4o-mini | 8만 건 배치 처리에 저비용으로 충분 |
 | 배포 | Vercel(프론트) + Railway(백엔드/DB) | 개인 프로젝트 규모에 맞는 무료/최소 비용 티어 |
 
 (상세 근거는 `docs/architecture.md` §5.7 참고)

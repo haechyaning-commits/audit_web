@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------
 # 요약 배치 스모크 테스트 스크립트
 # ------------------------------------------------------------------
-# 목적: 8만 건 전체 요약 배치(Claude Haiku)를 돌리기 전에,
+# 목적: 8만 건 전체 요약 배치(OpenAI 저비용 모델)를 돌리기 전에,
 #       30~35건 샘플로 아래를 먼저 검증한다.
 #   1) 프롬프트가 실제로 "정확히 4줄" 포맷을 지키는지
 #   2) parsing_quality(partial/fallback)별로 이상한 요약(할루시네이션 등)이 없는지
@@ -9,8 +9,8 @@
 #   4) 8만 건 기준 실제 비용/소요시간을 실측치로 추정
 #
 # 실행 전 준비:
-#   pip install anthropic
-#   export ANTHROPIC_API_KEY=...   (또는 `ant auth login` 후 실행)
+#   pip install openai
+#   export OPENAI_API_KEY=...
 #   INPUT_PATH는 documents_final.jsonl 기준으로 맞춰져 있음
 #     (필드: id, institution, year, raw_text, parsing_quality —
 #      중복/분할 문서 정리 + overview 레코드 제외까지 끝난 최종 파일)
@@ -30,12 +30,15 @@ import time
 import concurrent.futures
 from datetime import datetime
 
-import anthropic
+import openai
 
 # ------------------------------------------------------------------
 # 0) 설정
 # ------------------------------------------------------------------
-MODEL = "claude-haiku-4-5"  # architecture.md §4.4: 8만 건 1회성 배치라 저비용 모델로 충분
+# [수정] Anthropic Claude Haiku -> OpenAI로 교체. 모델명/가격은 실행 시점에
+# 반드시 재확인할 것 (OpenAI 라인업/가격은 자주 바뀌고, 여기 적힌 값은
+# 이 스크립트를 작성한 시점 기준 참고치일 뿐임).
+MODEL = "gpt-4o-mini"  # 8만 건 1회성 배치라 저비용 모델로 충분 — 배치 직전 더 저렴/신모델 있는지 확인 권장
 INPUT_PATH = "/content/drive/MyDrive/audit_project/documents_final.jsonl"  # Colab 기준 경로, 필요시 수정
 OUTPUT_PATH = "smoke_test_results.jsonl"
 
@@ -50,15 +53,16 @@ MAX_CONCURRENCY = 5           # 동시 요청 수 제한 (본 배치 때 이 값
 MAX_RETRIES_PER_REQUEST = 4   # SDK가 429/5xx/네트워크 에러에 자동으로 exponential backoff 재시도
 FULL_BATCH_SIZE = 72_913      # documents_final.jsonl 확정 건수 기준 (기존 "8만 건" 추정치 대신 실측치)
 
-# Haiku 4.5 가격: $1.00 / 1M input, $5.00 / 1M output (2026-08 기준, 변동 가능 — 배치 직전 재확인 권장)
-PRICE_PER_M_INPUT = 1.00
-PRICE_PER_M_OUTPUT = 5.00
+# gpt-4o-mini 가격: $0.15 / 1M input, $0.60 / 1M output (참고치 — OpenAI 가격 정책은
+# 자주 바뀌므로 본 배치 실행 직전 platform.openai.com/pricing에서 반드시 재확인)
+PRICE_PER_M_INPUT = 0.15
+PRICE_PER_M_OUTPUT = 0.60
 
 # DRY_RUN=1이면 실제 API를 전혀 호출하지 않음 → 비용 0원. 파이프라인 로직만 검증할 때 사용.
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 # dry-run에서는 API 키가 없어도 되므로 client를 필요할 때만 생성
-client = None if DRY_RUN else anthropic.Anthropic()  # ANTHROPIC_API_KEY 환경변수 또는 `ant auth login` 프로필 사용
+client = None if DRY_RUN else openai.OpenAI()  # OPENAI_API_KEY 환경변수 사용
 
 # [수정] 1~3줄에도 4줄과 동일한 탈출구를 추가함 — 원래는 4줄(처리결과)만
 # "없으면 이렇게 표시해라"가 있었고 1~3줄은 무조건 채우게 되어 있었음.
@@ -165,25 +169,25 @@ def summarize_one(doc: dict) -> dict:
     prompt = PROMPT_TEMPLATE.format(raw_text=doc.get("raw_text", ""))
     start = time.time()
     try:
-        resp = client.with_options(max_retries=MAX_RETRIES_PER_REQUEST).messages.create(
+        resp = client.with_options(max_retries=MAX_RETRIES_PER_REQUEST).chat.completions.create(
             model=MODEL,
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
         elapsed = time.time() - start
-        summary = "".join(b.text for b in resp.content if b.type == "text")
+        summary = resp.choices[0].message.content or ""
         return {
             **base,
             "summary": summary,
-            "input_tokens": resp.usage.input_tokens,
-            "output_tokens": resp.usage.output_tokens,
+            "input_tokens": resp.usage.prompt_tokens,
+            "output_tokens": resp.usage.completion_tokens,
             "elapsed_sec": round(elapsed, 2),
             "format_issues": validate_format(summary),
             "error": None,
         }
-    except anthropic.APIStatusError as e:
+    except openai.APIStatusError as e:
         return {**base, "error": f"{type(e).__name__}: {e.status_code} {e.message}"}
-    except anthropic.APIConnectionError as e:
+    except openai.APIConnectionError as e:
         return {**base, "error": f"APIConnectionError: {e}"}
 
 
@@ -297,8 +301,8 @@ def print_report(results: list[dict]) -> None:
 if __name__ == "__main__":
     if DRY_RUN:
         print("[DRY_RUN 모드] 실제 API 호출 없음 — 비용 0원, 파이프라인 로직만 검증합니다.\n")
-    elif not os.environ.get("ANTHROPIC_API_KEY"):
-        raise SystemExit("ANTHROPIC_API_KEY 환경변수를 설정하거나 `ant auth login`을 먼저 실행하세요")
+    elif not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY 환경변수를 설정하세요")
 
     samples = load_and_sample(INPUT_PATH)
     print(f"스모크 테스트 대상: {len(samples)}건 (parsing_quality별 층화 추출, extraction_failed 제외)")

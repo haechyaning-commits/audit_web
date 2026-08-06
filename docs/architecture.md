@@ -309,7 +309,7 @@ query_tokens = tokenize_query(query_text)   # 3.2 SQL의 :query_tokens 파라미
 | extraction_failed | 요약 생성 대상 제외 (청킹도 이미 제외되어 일관성 유지) |
 
 ### 4.4 모델/비용
-- 8만 건 1회성 배치 → Claude Haiku 등 저비용 모델로 충분
+- 8만 건 1회성 배치 → OpenAI 저비용 모델(예: gpt-4o-mini) 등으로 충분
 - 배치 실행 시 rate limit 대응을 위해 동시 요청 수 제한 + 실패 시 재시도(exponential backoff) 필요
 
 ---
@@ -373,7 +373,7 @@ SET hnsw.ef_search = 40;
 | **배포 — 프론트: Vercel / 백엔드·DB: Railway** | 개인 프로젝트라 비용이 1순위 제약. Railway는 매니지드 Postgres와 백엔드 앱을 한 플랫폼에서 같이 운영할 수 있어 인프라 관리 부담이 적고, Vercel은 React SPA 배포의 사실상 표준이며 무료 티어가 넉넉함 |
 | **임베딩 모델** | BGE-m3 | 오픈소스라 API 반복 비용 없음(1회성 배치라 Colab GPU로 무료 처리), 다국어 지원 모델 중 한국어 성능이 검증된 축에 속함 |
 | **리랭커** | bge-reranker-v2-m3 | BGE-m3와 같은 계열 모델이라 한국어 지원 수준이 일관되고, 같은 `sentence-transformers` API로 다뤄 새 생태계를 따로 학습할 필요가 없음. 오픈소스라 API 비용 없음 |
-| **요약 LLM** | Claude Haiku | 8만 건 1회성 배치에서 프롬프트·출력이 둘 다 짧아 저비용 모델로도 §4.1 구조 고정 요약 품질이 충분, 대형 모델 대비 비용이 크게 낮음 |
+| **요약 LLM** | OpenAI gpt-4o-mini (저비용 모델) | 8만 건 1회성 배치에서 프롬프트·출력이 둘 다 짧아 저비용 모델로도 §4.1 구조 고정 요약 품질이 충분, 대형 모델 대비 비용이 크게 낮음 |
 | **캐시** | in-memory LRU (Redis 아님) | 단일 Railway 인스턴스로 운영하는 개인 프로젝트 규모에서 별도 캐시 서버를 두는 건 인프라 복잡도 대비 이득이 없음 (§5.2) |
 
 공통 원칙 2가지: **① Python 생태계 통합** — ML 모델과 백엔드를 분리하지 않기 위해 FastAPI를 고른 것이 나머지 선택들의 전제가 됨. **② 개인 프로젝트 비용/운영 부담 최소화** — pgvector로 벡터DB를 통합하고, LRU로 Redis를 대체하고, 무료/최소 티어로 배포.

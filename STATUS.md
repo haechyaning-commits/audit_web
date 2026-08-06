@@ -2,6 +2,27 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (4차 — 요약 LLM을 Anthropic Claude → OpenAI로 교체)
+
+사용자가 OpenAI API 키로 진행하기로 결정 → **요약 배치 관련 코드/문서에서 Claude Haiku
+언급을 전부 OpenAI(gpt-4o-mini)로 교체.**
+
+### 변경한 파일
+- `scripts/summary_smoke_test.py`: `anthropic` → `openai` SDK로 전면 교체
+  - `MODEL = "gpt-4o-mini"` (기존 `claude-haiku-4-5`)
+  - API 호출부: `client.messages.create(...)` → `client.chat.completions.create(...)`,
+    응답 파싱(`resp.choices[0].message.content`, `resp.usage.prompt_tokens`/`completion_tokens`)도 OpenAI 형식으로 변경
+  - 예외 처리: `anthropic.APIStatusError`/`APIConnectionError` → `openai.APIStatusError`/`APIConnectionError`
+  - 필요 환경변수: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY`
+  - 가격 상수: gpt-4o-mini 참고치로 교체 ($0.15/1M input, $0.60/1M output) — **실행 직전 OpenAI 가격 페이지에서 재확인 필요**로 주석에 명시
+  - DRY_RUN으로 재검증 완료 (openai 2.53.0 기준 `OpenAI`/`APIStatusError`/`APIConnectionError`/`with_options` 전부 존재 확인, 파이프라인 정상 동작)
+- `docs/architecture.md` §4.4, §5.7 ADR 표 — Claude Haiku → OpenAI(gpt-4o-mini)로 갱신
+- `README.md` 기술 스택 표, `docs/development-plan.md` 1주차 표 — 동일하게 갱신
+
+### 참고
+- 프롬프트 구조(1~3줄 탈출구 추가 등)는 이전 커밋에서 이미 반영된 내용 그대로 유지, 모델/SDK만 교체
+- Colab에서 실행 시: `pip install openai`, `OPENAI_API_KEY` 환경변수(Colab Secrets 권장) 설정 필요
+
 ## 2026-08-06 (3차 — Railway DB 스키마 적용)
 
 ### 완료
@@ -17,7 +38,7 @@
 | `institution`, `year` | 기관명, 감사연도 |
 | `raw_text` | 원문 전체 (상세페이지 "펼쳐보기") |
 | `parsing_quality` | standard/partial/fallback — 신뢰도 배지용, CHECK 제약 있음 |
-| `summary_point/cause/action/result` | 4줄 요약 (아직 비어있음, 추후 Haiku 배치로 채움) |
+| `summary_point/cause/action/result` | 4줄 요약 (아직 비어있음, 추후 OpenAI(gpt-4o-mini) 배치로 채움) |
 
 **`chunks`** — 문서를 쪼갠 검색 단위
 | 컬럼 | 용도 |
