@@ -16,6 +16,13 @@
 #       document 레코드가 필요함: document_id, raw_text(원문 전체),
 #       parsing_quality, institution, year 등을 포함한 jsonl 가정.
 #       실제 파이프라인의 필드명이 다르면 load_and_sample()만 맞춰 수정.
+#
+# 비용 없이 먼저 돌려보기 (DRY_RUN):
+#   DRY_RUN=1 python summary_smoke_test.py
+#   -> 실제 API를 호출하지 않고 가짜 요약을 채워 넣어 파이프라인만 검증한다
+#      (샘플링/동시실행/재시도 처리/포맷 체크/파일 저장/비용 계산 로직).
+#      API 키 없이도 실행 가능. 단, 실제 요약 품질·토큰 수·응답시간은
+#      검증되지 않으므로 최종 확인은 DRY_RUN 없이 최소 몇 건이라도 돌려봐야 한다.
 # ------------------------------------------------------------------
 
 import json
@@ -49,7 +56,11 @@ FULL_BATCH_SIZE = 80_000      # 최종 비용/시간 추정용
 PRICE_PER_M_INPUT = 1.00
 PRICE_PER_M_OUTPUT = 5.00
 
-client = anthropic.Anthropic()  # ANTHROPIC_API_KEY 환경변수 또는 `ant auth login` 프로필 사용
+# DRY_RUN=1이면 실제 API를 전혀 호출하지 않음 → 비용 0원. 파이프라인 로직만 검증할 때 사용.
+DRY_RUN = os.environ.get("DRY_RUN") == "1"
+
+# dry-run에서는 API 키가 없어도 되므로 client를 필요할 때만 생성
+client = None if DRY_RUN else anthropic.Anthropic()  # ANTHROPIC_API_KEY 환경변수 또는 `ant auth login` 프로필 사용
 
 PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고 정확히 4줄로 요약해라.
 1줄: 지적사항 한 문장
@@ -103,6 +114,30 @@ def validate_format(summary_text: str) -> list[str]:
 
 
 # ------------------------------------------------------------------
+# 2-1) DRY_RUN용 가짜 응답 — 실제 API를 타지 않고 파이프라인만 검증
+#      (토큰 수는 원문 길이에서 대략 흉내만 낸 값이라 실제 비용 추정치로 쓰면 안 됨)
+# ------------------------------------------------------------------
+def fake_summarize_one(doc: dict, base: dict) -> dict:
+    time.sleep(0.05)  # 네트워크 왕복을 흉내내는 정도 (동시성 로직 테스트용)
+    fake_summary = (
+        "[DRY_RUN] 지적사항 예시 문장\n"
+        "[DRY_RUN] 원인/경위 예시 문장\n"
+        "[DRY_RUN] 조치사항 예시 문장\n"
+        "[DRY_RUN] 처리결과 미기재"
+    )
+    approx_in = max(1, base["raw_text_len"] // 2)  # 대략적인 근사치일 뿐, 실측 아님
+    return {
+        **base,
+        "summary": fake_summary,
+        "input_tokens": approx_in,
+        "output_tokens": 40,
+        "elapsed_sec": 0.05,
+        "format_issues": validate_format(fake_summary),
+        "error": None,
+    }
+
+
+# ------------------------------------------------------------------
 # 3) 요청 1건 실행 — 실패해도 예외를 던지지 않고 결과 dict로 기록
 #    (동시 실행 중 하나 실패했다고 전체가 죽으면 스모크 테스트 의미가 없음)
 # ------------------------------------------------------------------
@@ -112,6 +147,10 @@ def summarize_one(doc: dict) -> dict:
         "parsing_quality": doc.get("parsing_quality"),
         "raw_text_len": len(doc.get("raw_text", "")),
     }
+
+    if DRY_RUN:
+        return fake_summarize_one(doc, base)
+
     prompt = PROMPT_TEMPLATE.format(raw_text=doc.get("raw_text", ""))
     start = time.time()
     try:
@@ -198,6 +237,9 @@ def print_report(results: list[dict]) -> None:
     total_time_concurrent_hr = total_time_serial_hr / MAX_CONCURRENCY
 
     print(f"\n--- 8만 건 본 배치 추정치 ({MODEL} 기준) ---")
+    if DRY_RUN:
+        print("[DRY_RUN] 아래 수치는 실제 토큰이 아니라 근사치이므로 참고만 할 것 — "
+              "실제 비용 추정은 DRY_RUN 없이 다시 돌려야 함")
     print(f"건당 평균: 입력 {avg_in:.0f}토큰 / 출력 {avg_out:.0f}토큰 / {avg_time:.2f}초")
     print(f"예상 총 비용: ${total_cost:.2f}")
     print(f"예상 총 소요시간 (동시 {MAX_CONCURRENCY}건 기준, 대략치): 약 {total_time_concurrent_hr:.1f}시간")
@@ -206,7 +248,9 @@ def print_report(results: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if DRY_RUN:
+        print("[DRY_RUN 모드] 실제 API 호출 없음 — 비용 0원, 파이프라인 로직만 검증합니다.\n")
+    elif not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY 환경변수를 설정하거나 `ant auth login`을 먼저 실행하세요")
 
     samples = load_and_sample(INPUT_PATH)
