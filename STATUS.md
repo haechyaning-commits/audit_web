@@ -2,6 +2,38 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 2026-08-06 (10차 — 실제 적재 중 NUL 문자 에러 + DATABASE_URL 줄바꿈 이슈)
+
+`preflight_check.py` 통과 후 실제 Railway에 `load_to_postgres.py` 돌리다가 겪은 문제 2건.
+
+### DATABASE_URL에 줄바꿈이 낀 채로 Colab Secrets에 저장됨
+- 증상: `psycopg2.OperationalError: ... database "railway\npostgresql://..."` — DB 이름 자리에
+  두 번째 URL이 통째로 이어붙어 나옴
+- 원인: Colab Secrets에 `DATABASE_URL` 값을 복사할 때 줄바꿈+중복 내용이 같이 들어감.
+  `.strip()`은 앞뒤 공백만 제거하지 문자열 중간 줄바꿈은 못 없앰
+- 해결: Secrets 값을 깨끗하게 다시 저장 + 코드에서도 `.split("\n")[0]`으로 방어
+- **주의**: 이 과정에서 실제 DB 비밀번호가 대화(에러 메시지)에 노출됨 — 사용자에게 Railway
+  비밀번호 재발급 안내함
+- 부수적으로 겪은 실수: Secrets 값을 고친 뒤에도 `os.environ["DATABASE_URL"]`은 이전 셀에서
+  설정된 옛날 값이 그대로 메모리에 남아있어서 같은 에러가 재현됨 — Colab에서는 Secrets를
+  고쳐도 `os.environ`에 다시 할당해야 실제로 반영된다는 걸 확인
+
+### NUL(0x00) 문자로 documents 적재가 중간에 멈춤
+- 증상: `ValueError: A string literal cannot contain NUL (0x00) characters` (`execute_values`
+  단계에서 발생)
+- 원인: PDF 원문 추출 과정에서 일부 텍스트에 NUL 바이트가 섞여 들어감 — Postgres text 컬럼은
+  NUL을 아예 거부함. `preflight_check.py`가 이 케이스는 원래 체크 안 하고 있었음
+- 재현: 로컬 Postgres에 NUL 포함 문자열 직접 삽입해서 정확히 같은 에러 재현 확인
+- 수정:
+  - `load_to_postgres.py`에 `_clean_text()` 추가 — `institution`/`raw_text`/`parsing_quality`/
+    청크 `text` 전부에 적용, NUL 발견 시 제거 후 삽입
+  - `preflight_check.py`에도 NUL 포함 여부 체크 추가 (정보성, 치명적 문제로 분류 안 함 —
+    이제 자동으로 정리되니까)
+  - 로컬에서 NUL 포함 fixture로 전체 파이프라인(사전점검 감지 + 실제 적재 성공) 재검증 완료
+
+### 다음
+- 사용자가 DATABASE_URL 다시 정리하고 `load_to_postgres.py` 재실행 예정 (이번엔 NUL 방어까지 반영된 최신 버전으로)
+
 ## 2026-08-06 (9차 — preflight_check.py가 실전에서 진짜 버그 잡아냄)
 
 **실제 `documents_final.jsonl`(72,913건)로 `preflight_check.py`를 처음 돌려봄 — 바로 문제 2건 발견.**

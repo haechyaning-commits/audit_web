@@ -17,6 +17,9 @@
 #   5) chunks_final.jsonl의 각 청크가 embeddings.npy/chunk_ids.jsonl에 실제로
 #      임베딩이 있는지 (없으면 load_chunks()가 자동 스킵하긴 하지만, 몇 건이나
 #      스킵될지 사전에 알아야 "왜 개수가 안 맞지?" 하고 당황하지 않음)
+#   6) 텍스트 필드에 NUL(0x00) 문자가 섞여있는지 (PDF 원문 추출 과정에서 가끔
+#      생김 — Postgres text 컬럼은 NUL을 아예 거부해서 있으면 적재가 멈췄던
+#      실제 사례 있음. load_to_postgres.py가 이제 자동 제거하긴 하지만 개수 참고용)
 #
 # 실행:
 #   python preflight_check.py
@@ -64,11 +67,20 @@ def check_documents(docs: list[dict]) -> dict:
 
     missing_raw_text = [d["id"] for d in docs if not d.get("raw_text")]
 
+    # PDF 원문 추출 과정에서 가끔 NUL(0x00) 바이트가 섞여 들어옴 — Postgres text 컬럼은
+    # NUL을 아예 거부해서(psycopg2 ValueError) 있으면 적재가 멈춤. load_to_postgres.py가
+    # 이제 자동으로 제거해서 넣긴 하지만, 몇 건이나 영향받는지 미리 알아두면 좋음.
+    has_nul = [
+        d["id"] for d in docs
+        if any("\x00" in (d.get(f) or "") for f in ("institution", "raw_text", "parsing_quality"))
+    ]
+
     return {
         "total": len(docs),
         "unique_ids": len(id_counts),
         "dup_ids": dup_ids,
         "bad_quality": bad_quality,
+        "has_nul": has_nul,
         "bad_year": bad_year,
         "missing_raw_text": missing_raw_text,
     }
@@ -85,12 +97,15 @@ def check_chunks(chunks: list[dict], doc_ids: set, chunk_ids_with_embedding: set
 
     missing_embedding = [c["id"] for c in chunks if c["id"] not in chunk_ids_with_embedding]
 
+    has_nul = [c["id"] for c in chunks if "\x00" in (c.get("text") or "")]
+
     return {
         "total": len(chunks),
         "unique_ids": len(id_counts),
         "dup_ids": dup_ids,
         "orphan_chunks": orphan_chunks,  # FK 위반 예방 — 이게 있으면 load_to_postgres.py가 멈춤
         "missing_embedding": missing_embedding,  # 이건 에러는 아니고 자동 스킵됨, 개수만 확인용
+        "has_nul": has_nul,  # load_to_postgres.py가 자동 제거하지만 개수 확인용
     }
 
 
@@ -142,6 +157,14 @@ if __name__ == "__main__":
     else:
         print("✅ raw_text 전부 존재")
 
+    if doc_report["has_nul"]:
+        print(f"ℹ️  NUL(0x00) 문자가 섞인 문서 {len(doc_report['has_nul'])}건 "
+              f"— load_to_postgres.py가 자동으로 제거하고 넣으니 에러는 안 나지만, 참고용으로 개수만 표시:")
+        for i in doc_report["has_nul"][:10]:
+            print(f"    {i}")
+    else:
+        print("✅ NUL 문자 없음")
+
     print_section("3) chunks 점검")
     doc_ids = {d["id"] for d in docs}
     chunk_report = check_chunks(chunks, doc_ids, chunk_ids_with_embedding)
@@ -165,6 +188,12 @@ if __name__ == "__main__":
               f"(임베딩이 다 끝났다면 0건이어야 정상, 0이 아니면 embed_chunks.py가 정말 다 끝났는지 재확인 권장)")
     else:
         print("✅ 모든 청크에 임베딩 존재")
+
+    if chunk_report["has_nul"]:
+        print(f"ℹ️  NUL(0x00) 문자가 섞인 청크 {len(chunk_report['has_nul'])}건 "
+              f"— load_to_postgres.py가 자동으로 제거하고 넣으니 에러는 안 나지만, 참고용으로 개수만 표시")
+    else:
+        print("✅ NUL 문자 없음")
 
     print_section("결론")
     fatal = doc_report["bad_quality"] or doc_report["missing_raw_text"] or chunk_report["orphan_chunks"]

@@ -33,6 +33,15 @@ EMBEDDINGS_PATH = BASE + "embeddings_v2/embeddings.npy"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
+def _clean_text(s):
+    """PDF 원문 추출 과정에서 가끔 NUL(0x00) 바이트가 섞여 들어옴 — Postgres text 컬럼은
+    NUL을 아예 허용하지 않아서(psycopg2가 ValueError로 거부) 있으면 통째로 제거.
+    institution/raw_text/parsing_quality/chunk text 전부에 방어적으로 적용."""
+    if isinstance(s, str) and "\x00" in s:
+        s = s.replace("\x00", "")
+    return s
+
+
 def _parse_year(raw_year) -> int | None:
     """year가 documents_final.jsonl에 문자열로 들어있는 경우가 대부분이라(예: "2019")
     명시적으로 int 변환. psycopg2/Postgres가 숫자 문자열은 알아서 캐스팅해주긴 하지만,
@@ -52,7 +61,13 @@ def load_documents(cur, conn, path: str, batch_size: int = 5000) -> int:
     with open(path, encoding="utf-8") as f:
         for line in f:
             d = json.loads(line)
-            docs.append((d["id"], d.get("institution"), _parse_year(d.get("year")), d.get("raw_text"), d.get("parsing_quality")))
+            docs.append((
+                d["id"],
+                _clean_text(d.get("institution")),
+                _parse_year(d.get("year")),
+                _clean_text(d.get("raw_text")),
+                _clean_text(d.get("parsing_quality")),
+            ))
 
     total = len(docs)
     # 배치별로 나눠서 중간중간 commit -> Railway Public Network 연결이 도중에 끊겨도
@@ -89,7 +104,7 @@ def load_chunks(cur, conn, path: str, chunk_id_to_vec: dict, batch_size: int = 5
             if vec is None:
                 skipped += 1
                 continue
-            rows.append((c["id"], c["document_id"], c["text"], vec))
+            rows.append((c["id"], c["document_id"], _clean_text(c["text"]), vec))
 
     total = len(rows)
     # documents와 동일한 이유로 배치 커밋 — 여기가 특히 중요함: 벡터(1024차원)까지
