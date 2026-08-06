@@ -14,6 +14,9 @@
 #      - "_splitNofM" 형태의 parse_tier는 같은 사례가 여러 조각으로
 #        나뉜 것이므로 순서대로 합침 (그냥 하나만 남기면 원문 유실됨)
 #      - 여러 등급(standard/partial/fallback)이 섞여 있으면 최고 등급만 채택
+#      - 그룹 내 모든 레코드가 "extraction_failed"면(=쓸 수 있는 원문이
+#        하나도 없으면) 통째로 제외 (schema.sql의 parsing_quality CHECK가
+#        standard/partial/fallback만 허용하므로, 여기서 안 거르면 DB 적재 시 실패함)
 #   2) embed_ready_v2.jsonl의 document_id 중 "title이 1개뿐인" 깨끗한
 #      그룹만 채택 (title이 여러 개 섞인 document_id는 실제로는 여러
 #      사례가 하나로 잘못 묶인 것으로 판단, 제외)
@@ -71,6 +74,7 @@ def build_clean_documents(path: str) -> dict:
     print(f"[1/3] overview로 제외된 레코드: {skipped_overview}건")
 
     final_docs = {}
+    skipped_extraction_failed = 0
     for key, records in groups.items():
         by_base = defaultdict(list)
         for r in records:
@@ -78,6 +82,11 @@ def build_clean_documents(path: str) -> dict:
             by_base[base].append((idx, r))
 
         best_base = min(by_base.keys(), key=lambda b: TIER_PRIORITY.get(b, 50))
+        if best_base == "extraction_failed":
+            # 그룹 내 모든 레코드가 파싱 실패 -> 쓸 수 있는 원문이 없으므로 제외
+            # (schema.sql의 parsing_quality CHECK 제약도 standard/partial/fallback만 허용)
+            skipped_extraction_failed += 1
+            continue
         chosen = by_base[best_base]
 
         if all(idx is not None for idx, _ in chosen):
@@ -93,6 +102,7 @@ def build_clean_documents(path: str) -> dict:
         else:
             final_docs[key] = chosen[0][1]
 
+    print(f"[1/3] 파싱 완전 실패(extraction_failed)로 제외된 사례: {skipped_extraction_failed}건")
     print(f"[1/3] 정리된 고유 문서 수: {len(final_docs)}")
     return final_docs
 
