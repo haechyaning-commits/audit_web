@@ -11,11 +11,9 @@
 # 실행 전 준비:
 #   pip install anthropic
 #   export ANTHROPIC_API_KEY=...   (또는 `ant auth login` 후 실행)
-#   INPUT_PATH를 실제 문서 파일 경로로 변경
-#     - 요약은 "문서(사례) 단위"이므로(architecture.md §4), chunk가 아니라
-#       document 레코드가 필요함: document_id, raw_text(원문 전체),
-#       parsing_quality, institution, year 등을 포함한 jsonl 가정.
-#       실제 파이프라인의 필드명이 다르면 load_and_sample()만 맞춰 수정.
+#   INPUT_PATH는 documents_final.jsonl 기준으로 맞춰져 있음
+#     (필드: id, institution, year, raw_text, parsing_quality —
+#      중복/분할 문서 정리 + overview 레코드 제외까지 끝난 최종 파일)
 #
 # 비용 없이 먼저 돌려보기 (DRY_RUN):
 #   DRY_RUN=1 python summary_smoke_test.py
@@ -38,10 +36,10 @@ import anthropic
 # 0) 설정
 # ------------------------------------------------------------------
 MODEL = "claude-haiku-4-5"  # architecture.md §4.4: 8만 건 1회성 배치라 저비용 모델로 충분
-INPUT_PATH = "documents.jsonl"           # TODO: 실제 문서 파일 경로로 교체
+INPUT_PATH = "/content/drive/MyDrive/audit_project/documents_final.jsonl"  # Colab 기준 경로, 필요시 수정
 OUTPUT_PATH = "smoke_test_results.jsonl"
 
-# parsing_quality별 표본 크기 — extraction_failed는 요약 생성 대상에서 제외(§4.3)
+# parsing_quality별 표본 크기 — overview/extraction_failed는 documents_final.jsonl 생성 시 이미 제외됨
 SAMPLE_SIZE_PER_BUCKET = {
     "standard": 20,
     "partial": 10,
@@ -50,7 +48,7 @@ SAMPLE_SIZE_PER_BUCKET = {
 
 MAX_CONCURRENCY = 5           # 동시 요청 수 제한 (본 배치 때 이 값 자체를 튜닝하는 게 목적 중 하나)
 MAX_RETRIES_PER_REQUEST = 4   # SDK가 429/5xx/네트워크 에러에 자동으로 exponential backoff 재시도
-FULL_BATCH_SIZE = 80_000      # 최종 비용/시간 추정용
+FULL_BATCH_SIZE = 72_913      # documents_final.jsonl 확정 건수 기준 (기존 "8만 건" 추정치 대신 실측치)
 
 # Haiku 4.5 가격: $1.00 / 1M input, $5.00 / 1M output (2026-08 기준, 변동 가능 — 배치 직전 재확인 권장)
 PRICE_PER_M_INPUT = 1.00
@@ -82,8 +80,8 @@ def load_and_sample(path: str) -> list[dict]:
         for line in f:
             rec = json.loads(line)
             q = rec.get("parsing_quality")
-            if q == "extraction_failed":
-                continue  # §4.3: 요약 생성 대상에서 이미 제외
+            if q in ("extraction_failed", "overview"):
+                continue  # 이미 documents_final.jsonl 생성 시 제외됐어야 하지만 방어적으로 한 번 더 체크
             by_quality.setdefault(q, []).append(rec)
 
     sample = []
@@ -143,7 +141,7 @@ def fake_summarize_one(doc: dict, base: dict) -> dict:
 # ------------------------------------------------------------------
 def summarize_one(doc: dict) -> dict:
     base = {
-        "document_id": doc.get("document_id"),
+        "document_id": doc.get("id"),  # documents_final.jsonl은 id 필드 사용 (document_id 아님)
         "parsing_quality": doc.get("parsing_quality"),
         "raw_text_len": len(doc.get("raw_text", "")),
     }
