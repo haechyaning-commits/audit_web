@@ -2,19 +2,28 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## 🔜 오늘 할 일 (2026-08-07 기준)
+## 🔜 오늘 할 일 (2026-08-07 기준, 14차 갱신)
 
-어제 막혔던 Supabase 인증 문제는 오늘 세션에서 해결됨 (아래 13차 항목 참고). 오늘 남은 순서:
+**Supabase → Railway Hobby로 전환 결정.** documents(72,913건) 적재 후 chunks 적재 도중
+`ReadOnlySqlTransaction: cannot execute INSERT in a read-only transaction` 발생 — Supabase 무료
+티어 저장공간 한도(500MB) 초과로 DB가 자동 읽기전용 전환된 것으로 판단(벡터만 96,355건 ×
+1024차원 ≈ 370MB+, 텍스트까지 더하면 한도 초과 확실시). 전용 벡터DB(Pinecone 무료 2GB 등) 대안도
+검토했으나, Postgres 통합 설계(벡터+키워드+메타데이터 한 DB)를 유지하는 게 마감(8/31) 리스크가
+작다고 판단해 **Railway Hobby($5/월) 업그레이드로 확정** (11차에서 이미 정해둔 폴백 플랜 그대로 실행).
 
-1. [ ] **데이터 적재 완료 확인** — Colab에서 돌린 `load_to_postgres.py`가 documents(72,913건) +
-   chunks(96,355건, 벡터 포함) 끝까지 정상 적재됐는지 로그 확인. 끊겼으면 재실행(`ON CONFLICT DO
-   NOTHING`이라 안전, 이어서 진행됨)
-2. [ ] **인덱스 생성** — Supabase SQL Editor에서 `scripts/schema_indexes.sql` 실행 (HNSW/GIN/btree
-   3개, 96,355건 규모라 몇 분 소요 가능)
-3. [ ] **1주차 체크포인트** — SQL로 직접 벡터 유사도 검색 쿼리를 날려서 비슷한 사례가 순위대로
+1. [ ] **Railway Hobby 업그레이드 + 기존 인스턴스 생존 확인** — 11차에서 디스크 부족으로 죽은
+   Railway Postgres가 업그레이드 후 살아나는지, `documents`(72,913건)가 남아있는지 확인
+   (`SELECT count(*) FROM documents;`). 살아있으면 chunks부터 이어서, 죽었으면 새 인스턴스로
+   `schema_tables.sql`부터 재시작
+2. [ ] **데이터 적재 완료 확인** — Colab에서 `load_to_postgres.py`를 새 Railway `DATABASE_URL`로
+   다시 실행, documents(72,913건) + chunks(96,355건, 벡터 포함) 끝까지 정상 적재됐는지 로그 확인.
+   끊겼으면 재실행(`ON CONFLICT DO NOTHING`이라 안전, 이어서 진행됨)
+3. [ ] **인덱스 생성** — Railway Query 탭(또는 psql)에서 `scripts/schema_indexes.sql` 실행
+   (HNSW/GIN/btree 3개, 96,355건 규모라 몇 분 소요 가능)
+4. [ ] **1주차 체크포인트** — SQL로 직접 벡터 유사도 검색 쿼리를 날려서 비슷한 사례가 순위대로
    나오는지 확인 (`development-plan.md` 1주차 목표: "DB에 SQL 쿼리 하나 날려보면 비슷한 사례가
    순위대로 나온다")
-4. [ ] **(여유 되면) 2주차 착수** — 1주차 체크포인트 통과하면 FastAPI 프로젝트 뼈대만 만들어서
+5. [ ] **(여유 되면) 2주차 착수** — 1주차 체크포인트 통과하면 FastAPI 프로젝트 뼈대만 만들어서
    서버 켜지는지 확인까지 (development-plan.md 2주차 시작, 필수 아님)
 
 ---
