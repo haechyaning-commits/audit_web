@@ -1,0 +1,19 @@
+# 이 파일의 모든 버전은 추측이 아니라, 실제로 설치 + import 테스트를 통과한 값입니다
+# (fastapi 앱 구동, asyncpg+pgvector 비동기 DB 연결, sentence-transformers 임베딩 로드까지 검증).
+#
+# torch는 CPU 전용 빌드를 씁니다 (Railway는 GPU가 없는데, 기본 index로 설치하면
+# 안 쓰는 CUDA 라이브러리가 같이 딸려와서 배포 용량이 쓸데없이 몇 GB씩 커짐).
+# 설치 순서:
+#   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+asyncpg==0.31.0
+pgvector==0.5.0
+sentence-transformers==5.7.0
+torch==2.13.0+cpu
+openai==2.53.0
+pydantic==2.13.4
+python-dotenv==1.2.2
