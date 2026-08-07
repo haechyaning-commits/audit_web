@@ -9,6 +9,14 @@ await로 바로 처리하고, CPU 연산인 임베딩 인코딩만 asyncio.to_th
 import asyncio
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+
+# db.py가 import되는 시점에 이미 os.environ에서 DATABASE_URL을 읽으므로, 다른 import보다
+# 먼저 .env를 로드해야 함. 이렇게 하면 `export $(cat .env | xargs)`처럼 OS별로 다른 쉘
+# 명령이 필요 없어짐 — .env 파일만 있으면 Windows/Mac/Linux 어디서든 그냥
+# `uvicorn app.main:app`으로 실행 가능
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 
 from . import db, embedding, repository, summary
