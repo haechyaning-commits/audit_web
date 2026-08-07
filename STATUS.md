@@ -2,16 +2,40 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## 🎉 1주차 목표 달성 (2026-08-07)
+## 🎉 2주차 목표 달성 (2026-08-07, 1주차 이어서 같은 날)
 
-**DB는 Railway Hobby($5/월)로 확정. 데이터 적재 + 인덱스 생성 + 1주차 체크포인트까지 전부 완료.**
+**1주차(DB) 완료에 이어, 2주차(검색 API)까지 같은 날 완료.** development-plan.md 2주차 목표
+("Postman이나 브라우저 주소창으로 검색 API를 호출하면 결과가 나온다")를 실제 배포된 서버 +
+실제 72,913건 데이터로 달성.
 
+### 1주차 (완료)
 1. [x] Railway Hobby 업그레이드 + 새 Postgres 서비스 생성
 2. [x] 데이터 적재 완료 — documents + chunks(벡터 포함) 전체
 3. [x] 인덱스 생성 완료 — HNSW/GIN/btree 3개
-4. [x] **1주차 체크포인트 통과** — 벡터 검색(같은 주제 문서들이 distance 순으로 정확히 정렬됨)
-   + 키워드 검색(`ts_headline`으로 실제 매칭 단어 확인) 둘 다 SQL로 직접 검증 완료
-5. [ ] **다음 — 2주차 착수**: FastAPI 프로젝트 뼈대 세팅, 검색 API 구현 (development-plan.md 2주차)
+4. [x] 1주차 체크포인트 통과 — 벡터/키워드 검색 SQL로 직접 검증
+
+### 2주차 (완료) — `backend/` 폴더
+1. [x] FastAPI 프로젝트 세팅 — `db.py`(asyncpg 비동기 연결), `repository.py`(RRF+dedup SQL),
+   `embedding.py`(BGE-m3 쿼리 인코딩), `summary.py`(온디맨드 4줄 요약), `main.py`(라우팅)
+2. [x] 검색 API(`/search`) 구현 — RRF만 사용, 리랭커는 `repository.rerank()`에 no-op 스텁으로
+   자리만 마련(스트레치 목표, architecture.md §3.4)
+3. [x] 상세 API(`/documents/{id}`) 구현 — 온디맨드 요약 생성 + DB 캐싱(§4.5), 실패 시
+   `summary_failed` 캐싱으로 재시도 비용 방지(§4.6)
+4. [x] 로컬 서버 기동 + 3개 엔드포인트(`/health`, `/search`, `/documents/{id}`) 합성 데이터로
+   실동작 검증 (요약 API 실패 시 우아하게 처리되는 것까지 확인)
+5. [x] Railway에 백엔드 배포(PORT 변수 수동 설정 필요했음) → **실제 72,913건 데이터로
+   Swagger UI에서 `/health`, `/search` 성공 확인** → 확인 후 비용 관리를 위해 서비스 삭제
+   (코드는 GitHub에 그대로 있어 재배포 언제든 가능)
+
+### 참고 — 개발 중 정한 것들
+- DB 드라이버: psycopg2(동기) → **asyncpg(비동기)**로 전환 — FastAPI의 비동기 장점을 실제로
+  살리기 위함(CPU 연산인 임베딩만 `asyncio.to_thread`로 스레드에 위임)
+- `requirements.txt`: 버전 전부 실제 설치+import 테스트를 통과한 값으로 고정, torch는
+  CPU 전용 빌드(Railway는 GPU 없음, 안 쓰는 CUDA 라이브러리 제외해서 배포 용량 절감)
+- Railway 비용 관리: Usage → Set Limits에서 Compute Hard limit($10)/Soft limit($7) 설정
+
+### 다음 — 3주차
+- 프론트엔드(검색페이지 + 상세페이지) 구현 (development-plan.md 3주차)
 
 ---
 
