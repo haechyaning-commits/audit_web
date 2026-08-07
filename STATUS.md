@@ -11,14 +11,11 @@
 검토했으나, Postgres 통합 설계(벡터+키워드+메타데이터 한 DB)를 유지하는 게 마감(8/31) 리스크가
 작다고 판단해 **Railway Hobby($5/월) 업그레이드로 확정** (11차에서 이미 정해둔 폴백 플랜 그대로 실행).
 
-1. [ ] **Railway Hobby 업그레이드 + 기존 인스턴스 생존 확인** — 11차에서 디스크 부족으로 죽은
-   Railway Postgres가 업그레이드 후 살아나는지, `documents`(72,913건)가 남아있는지 확인
-   (`SELECT count(*) FROM documents;`). 살아있으면 chunks부터 이어서, 죽었으면 새 인스턴스로
-   `schema_tables.sql`부터 재시작
-2. [ ] **데이터 적재 완료 확인** — Colab에서 `load_to_postgres.py`를 새 Railway `DATABASE_URL`로
-   다시 실행, documents(72,913건) + chunks(96,355건, 벡터 포함) 끝까지 정상 적재됐는지 로그 확인.
-   끊겼으면 재실행(`ON CONFLICT DO NOTHING`이라 안전, 이어서 진행됨)
-3. [ ] **인덱스 생성** — Railway Query 탭(또는 psql)에서 `scripts/schema_indexes.sql` 실행
+1. [x] **Railway Hobby 업그레이드 + 기존 인스턴스 생존 확인** — 기존 인스턴스는 크래시 상태 그대로
+   복구 안 됨 → 새 Postgres 서비스로 새로 생성, Public Networking 활성화해서 진행
+2. [x] **데이터 적재 완료** — Colab에서 `load_to_postgres.py`를 새 Railway 서비스에 실행,
+   documents + chunks(벡터 포함) 전체 적재 완료 로그 확인
+3. [ ] **인덱스 생성** — Railway Data 탭에서 `scripts/schema_indexes.sql` 실행
    (HNSW/GIN/btree 3개, 96,355건 규모라 몇 분 소요 가능)
 4. [ ] **1주차 체크포인트** — SQL로 직접 벡터 유사도 검색 쿼리를 날려서 비슷한 사례가 순위대로
    나오는지 확인 (`development-plan.md` 1주차 목표: "DB에 SQL 쿼리 하나 날려보면 비슷한 사례가
