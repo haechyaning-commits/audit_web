@@ -2,21 +2,13 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## 🔜 오늘 할 일 (2026-08-07 기준, 14차 갱신)
+## 🔜 오늘 할 일 (2026-08-07 기준)
 
-**Supabase → Railway Hobby로 전환 결정.** documents(72,913건) 적재 후 chunks 적재 도중
-`ReadOnlySqlTransaction: cannot execute INSERT in a read-only transaction` 발생 — Supabase 무료
-티어 저장공간 한도(500MB) 초과로 DB가 자동 읽기전용 전환된 것으로 판단(벡터만 96,355건 ×
-1024차원 ≈ 370MB+, 텍스트까지 더하면 한도 초과 확실시). 전용 벡터DB(Pinecone 무료 2GB 등) 대안도
-검토했으나, Postgres 통합 설계(벡터+키워드+메타데이터 한 DB)를 유지하는 게 마감(8/31) 리스크가
-작다고 판단해 **Railway Hobby($5/월) 업그레이드로 확정** (11차에서 이미 정해둔 폴백 플랜 그대로 실행).
+**DB는 Railway Hobby($5/월)로 확정, 데이터 적재 + 인덱스 생성까지 완료.**
 
-1. [x] **Railway Hobby 업그레이드 + 기존 인스턴스 생존 확인** — 기존 인스턴스는 크래시 상태 그대로
-   복구 안 됨 → 새 Postgres 서비스로 새로 생성, Public Networking 활성화해서 진행
-2. [x] **데이터 적재 완료** — Colab에서 `load_to_postgres.py`를 새 Railway 서비스에 실행,
-   documents + chunks(벡터 포함) 전체 적재 완료 로그 확인
-3. [ ] **인덱스 생성** — Railway Data 탭에서 `scripts/schema_indexes.sql` 실행
-   (HNSW/GIN/btree 3개, 96,355건 규모라 몇 분 소요 가능)
+1. [x] Railway Hobby 업그레이드 + 새 Postgres 서비스 생성
+2. [x] 데이터 적재 완료 — documents + chunks(벡터 포함) 전체
+3. [x] 인덱스 생성 완료 — HNSW/GIN/btree 3개
 4. [ ] **1주차 체크포인트** — SQL로 직접 벡터 유사도 검색 쿼리를 날려서 비슷한 사례가 순위대로
    나오는지 확인 (`development-plan.md` 1주차 목표: "DB에 SQL 쿼리 하나 날려보면 비슷한 사례가
    순위대로 나온다")
@@ -41,133 +33,6 @@
 - 셋 다 없어도 검색 자체는 되지만, 96,355건 규모에서는 없으면 눈에 띄게 느려짐
 
 ---
-
-## 2026-08-07 (15차 — 무료 대안 검토 후 Railway 유료로 최종 확정)
-
-### 실측: Supabase 저장공간 한도 초과가 얼마나 심각했는지 확인
-- `pg_total_relation_size`로 테이블별 실측: chunks 75,000건(전체 96,355건 중 일부만 들어간 상태)이
-  이미 **795MB**, documents(72,913건 전체) **154MB** — 합계 949MB로 무료 티어 한도(500MB)의 거의 2배
-- 1건당 평균 약 10.9KB로 계산해 96,355건 전체 적재 시 예상 크기 산출: **약 1.17GB** (인덱스 제외)
-
-### 검토했다가 기각한 대안들
-- **halfvec(반정밀도 벡터)로 용량 절반화**: 벡터 컬럼(4KB/행)만 절반(2KB/행)으로 줄어드는 계산이라,
-  전체 재계산해도 약 987MB — 여전히 무료 티어 한도의 2배 가까이 남아 기각. 텍스트/tsv 컬럼이 이미
-  용량의 더 큰 비중을 차지하고 있어 벡터 압축만으로는 해결 안 됨
-- **로컬 Mac에 Postgres 설치해 1~3주차는 무료로 개발, 4주차 배포 시에만 유료 전환**: 비용은
-  아끼지만 (1) 로컬 Postgres+pgvector 설치 자체가 새로운 실패 지점이 될 수 있고 (2) 개발 기간 내내
-  작업 세션마다 Mac에서 DB가 켜져 있어야 하는 번거로움 (3) 4주차에 로컬→클라우드 이전이라는 작업이
-  하나 더 생겨 마감 직전 리스크 추가 — 지금까지 인프라 문제로 이미 여러 세션을 소모한 전례
-  (Railway 디스크 부족, Supabase 인증 실패, Supabase 저장공간 초과)를 고려해 사용자가 기각
-
-### 최종 결정
-**Railway Hobby($5/월)로 확정, 지금 바로 진행.** 이유: 시간이 돈보다 비싼 리소스라는 판단(마감
-8/31 기준), 기존 스크립트/스키마가 이미 클라우드 Postgres 기준으로 검증되어 있어 재사용 가능,
-새로운 환경(로컬) 도입에 따른 추가 리스크 회피.
-
----
-
-## 2026-08-07 (13차 — Supabase 인증 문제 해결, 테이블 생성, 데이터 적재 착수)
-
-### 어제(12차) 막혔던 Supabase 인증 문제 해결
-- 새 비밀번호를 재설정 화면에서 뜨는 즉시 그 자리에서 복사(대괄호 placeholder 남는 문제 방지) →
-  Colab Secrets에 영숫자만으로 구성된 비밀번호로 `DATABASE_URL` 저장
-- Session Pooler URI(`postgresql://postgres.hrhecriwbstcsgbhxotg:...@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres`)로
-  연결 테스트(`psycopg2.connect` + `SELECT 1;`) 성공 확인
-- 12차에서 겪었던 `FATAL: password authentication failed for user "postgres"`는, Supabase pooler가
-  에러 메시지에서 사용자명을 `postgres`로 정규화해서 보여주는 것뿐이고 실제 원인은 비밀번호
-  placeholder 미교체였을 가능성이 유력했음 — 이번엔 재발 안 함
-
-### 완료
-- **Supabase SQL Editor에서 `scripts/schema_tables.sql` 실행** — `documents`, `chunks` 테이블 생성
-  ("Success. No rows returned" 확인, `information_schema.tables`로 테이블 존재도 확인 가능)
-- **Colab에서 `scripts/load_to_postgres.py` 실행 시작** — documents(72,913건) → chunks(96,355건,
-  벡터 포함) 순서로 5,000건씩 배치 커밋 진행 중
-
-### 다음 (오늘 할 일 섹션과 동일)
-- 적재 완료 확인 → `schema_indexes.sql` 실행 → 1주차 체크포인트 SQL 검증 → (여유되면) 2주차 착수
-
----
-
-## 2026-08-06 (12차 — 오늘 마무리: Supabase 연결 인증 문제로 중단)
-
-### 오늘 세션 마지막 상태: Supabase 연결이 계속 안 됨 (다음 세션에서 이어갈 것)
-
-11차(Supabase 이전)에 이어서 실제 연결을 시도했는데, 순서대로 이런 문제들을 겪음:
-1. `[YOUR-PASSWORD]` 자리는 채웠는데 비밀번호에 대괄호(`[`) 포함 → URL 파싱 깨짐 → `quote()`로 인코딩해서 해결
-2. Direct connection(IPv6 전용) → Colab이 IPv6 미지원이라 `Network is unreachable` → Session Pooler(IPv4) 연결로 전환해서 해결
-3. Pooler는 사용자명이 `postgres.프로젝트코드` 형식이어야 함 → 확인/수정함
-4. **그런데도 계속 `FATAL: password authentication failed for user "postgres"`** — 사용자명 로컬 확인은 맞게 나오는데 실제 서버 인증은 계속 실패. 비밀번호 재설정을 이미 한 번 했는데도 동일 에러 반복됨
-5. **원인 미확정 상태로 오늘 중단.** 마지막으로 사용자에게 안내한 것: 비밀번호 길이/앞뒤 2자리를 본인만 직접 확인해서 Supabase에서 재설정한 값과 실제로 일치하는지 눈으로 대조해보라고 안내 (Supabase가 비밀번호 재설정 시 새 비밀번호를 그 순간에만 화면에 보여주고 이후엔 평문으로 다시 안 보여주는 정책이라, 그 타이밍에 못 복사했으면 `[YOUR-PASSWORD]` placeholder만 남아있었을 가능성 있음 — 이게 유력한 원인 후보)
-
-### 다음 세션에서 이어갈 것
-1. Supabase 비밀번호를 **재설정 즉시 화면에 뜨는 값을 그 자리에서 바로 복사**해서 연결 문자열 재구성 (이전 시도들은 이 타이밍을 놓쳤을 가능성 있음)
-2. 그래도 안 되면: `psql` CLI로 직접 접속 테스트해서 Python/psycopg2 쪽 문제인지 순수 인증 문제인지 분리 확인
-3. 연결되면: `schema_tables.sql`(이미 완료됨, 재확인만) → `load_to_postgres.py`(documents는 Railway에서 이미 한 번 성공했었으나 Supabase는 새 DB라 처음부터 다시 넣어야 함) → `schema_indexes.sql`
-4. 적재 성공하면 1주차 체크포인트(SQL로 유사 사례 순위 확인) 진행
-
-### 코드/스크립트 쪽은 오늘 다 준비 완료 (막힌 건 순수 Supabase 자격증명 문제)
-- `scripts/schema_tables.sql`, `scripts/schema_indexes.sql`, `scripts/load_to_postgres.py`(배치 커밋 + NUL 방어 + year 방어 전부 반영) — 전부 로컬 테스트 통과, GitHub에 푸시 완료
-- Railway 인스턴스는 디스크 부족으로 죽은 채로 방치 (더 이상 안 씀, Supabase로 완전히 이전하는 방향)
-
-## 2026-08-06 (11차 — Railway 디스크 부족으로 DB 다운 → Supabase로 이전)
-
-### 사건: chunks 적재 도중 Railway 디스크 꽉 참 → DB 다운
-- documents(72,913건)는 완전히 적재 성공, chunks(벡터 포함, 96,355건) 적재 중
-  `psycopg2.errors.DiskFull: could not extend file ... No space left on device` 발생
-- 추정 원인: 벡터(1024차원) 96,355개 원본 데이터만 약 395MB, HNSW 인덱스까지 합치면
-  약 1~1.2GB 필요 — Railway Trial(무료 체험) 티어의 디스크 할당량을 넘은 것으로 추정
-- 이후 DB 자체가 응답 없음(`server closed the connection unexpectedly`) — 재시작도 안 되는
-  상태로 보임 (디스크가 없어서 부팅에 필요한 만큼도 못 만드는 것으로 추정)
-- Railway 유료 업그레이드($5/월) vs 무료 대안(Supabase/Neon) 논의 → **사용자가 Supabase로
-  이전하기로 결정**
-
-### 재발 방지: 스키마를 "테이블 → 데이터 → 인덱스" 순서로 분리
-- 기존 `schema.sql`은 인덱스(특히 HNSW)까지 먼저 만들어두고 그 상태로 데이터를 넣는 방식이었음
-  → 96,355건 INSERT마다 HNSW 인덱스를 실시간 갱신해야 해서 디스크를 더 쓰고 비효율적
-- **`scripts/schema_tables.sql`**(테이블만) / **`scripts/schema_indexes.sql`**(인덱스만, 데이터
-  적재 후 실행)로 분리 — 데이터를 먼저 다 넣고 인덱스는 마지막에 벌크로 한 번에 생성
-- 기존 `schema.sql`은 로컬 테스트/소량 데이터용으로 남겨두되, 대량 적재 시엔 분리된 버전
-  쓰도록 주석에 명시
-- 로컬 Postgres로 전체 흐름(테이블 생성 → 데이터 적재 → 인덱스 생성 → 벡터 검색 쿼리) 재검증
-  완료, 정상 동작 확인
-
-### 다음
-- Supabase 프로젝트 생성 완료(사용자), `DATABASE_URL` 새로 받아서 진행 예정
-- 순서: `schema_tables.sql` → `load_to_postgres.py` → `schema_indexes.sql`
-- Supabase 무료 티어도 벡터+인덱스 용량(추정 1~1.2GB)을 못 감당할 가능성 있음 — 안 되면
-  다시 판단 필요 (유료 전환 또는 halfvec 등 벡터 용량 축소 고려)
-
-## 2026-08-06 (10차 — 실제 적재 중 NUL 문자 에러 + DATABASE_URL 줄바꿈 이슈)
-
-`preflight_check.py` 통과 후 실제 Railway에 `load_to_postgres.py` 돌리다가 겪은 문제 2건.
-
-### DATABASE_URL에 줄바꿈이 낀 채로 Colab Secrets에 저장됨
-- 증상: `psycopg2.OperationalError: ... database "railway\npostgresql://..."` — DB 이름 자리에
-  두 번째 URL이 통째로 이어붙어 나옴
-- 원인: Colab Secrets에 `DATABASE_URL` 값을 복사할 때 줄바꿈+중복 내용이 같이 들어감.
-  `.strip()`은 앞뒤 공백만 제거하지 문자열 중간 줄바꿈은 못 없앰
-- 해결: Secrets 값을 깨끗하게 다시 저장 + 코드에서도 `.split("\n")[0]`으로 방어
-- **주의**: 이 과정에서 실제 DB 비밀번호가 대화(에러 메시지)에 노출됨 — 사용자에게 Railway
-  비밀번호 재발급 안내함
-- 부수적으로 겪은 실수: Secrets 값을 고친 뒤에도 `os.environ["DATABASE_URL"]`은 이전 셀에서
-  설정된 옛날 값이 그대로 메모리에 남아있어서 같은 에러가 재현됨 — Colab에서는 Secrets를
-  고쳐도 `os.environ`에 다시 할당해야 실제로 반영된다는 걸 확인
-
-### NUL(0x00) 문자로 documents 적재가 중간에 멈춤
-- 증상: `ValueError: A string literal cannot contain NUL (0x00) characters` (`execute_values`
-  단계에서 발생)
-- 원인: PDF 원문 추출 과정에서 일부 텍스트에 NUL 바이트가 섞여 들어감 — Postgres text 컬럼은
-  NUL을 아예 거부함. `preflight_check.py`가 이 케이스는 원래 체크 안 하고 있었음
-- 재현: 로컬 Postgres에 NUL 포함 문자열 직접 삽입해서 정확히 같은 에러 재현 확인
-- 수정:
-  - `load_to_postgres.py`에 `_clean_text()` 추가 — `institution`/`raw_text`/`parsing_quality`/
-    청크 `text` 전부에 적용, NUL 발견 시 제거 후 삽입
-  - `preflight_check.py`에도 NUL 포함 여부 체크 추가 (정보성, 치명적 문제로 분류 안 함 —
-    이제 자동으로 정리되니까)
-  - 로컬에서 NUL 포함 fixture로 전체 파이프라인(사전점검 감지 + 실제 적재 성공) 재검증 완료
-
-### 다음
-- 사용자가 DATABASE_URL 다시 정리하고 `load_to_postgres.py` 재실행 예정 (이번엔 NUL 방어까지 반영된 최신 버전으로)
 
 ## 2026-08-06 (9차 — preflight_check.py가 실전에서 진짜 버그 잡아냄)
 
@@ -310,27 +175,6 @@ NaN 있는지: False
 - 35건 실제 API(gpt-4o-mini) 테스트: 35/35 성공, 포맷 위반 1건(원인 미확인 — 다음에 확인 필요)
 - 건당 평균 입력 948토큰 / 출력 105토큰 / 1.77초 / 약 $0.0002
 - standard 등급은 1~3줄 미기재 사용 0% (모델이 게으르게 답한 흔적 없음, 좋은 신호)
-
-## 2026-08-06 (4차 — 요약 LLM을 Anthropic Claude → OpenAI로 교체)
-
-사용자가 OpenAI API 키로 진행하기로 결정 → **요약 배치 관련 코드/문서에서 Claude Haiku
-언급을 전부 OpenAI(gpt-4o-mini)로 교체.**
-
-### 변경한 파일
-- `scripts/summary_smoke_test.py`: `anthropic` → `openai` SDK로 전면 교체
-  - `MODEL = "gpt-4o-mini"` (기존 `claude-haiku-4-5`)
-  - API 호출부: `client.messages.create(...)` → `client.chat.completions.create(...)`,
-    응답 파싱(`resp.choices[0].message.content`, `resp.usage.prompt_tokens`/`completion_tokens`)도 OpenAI 형식으로 변경
-  - 예외 처리: `anthropic.APIStatusError`/`APIConnectionError` → `openai.APIStatusError`/`APIConnectionError`
-  - 필요 환경변수: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY`
-  - 가격 상수: gpt-4o-mini 참고치로 교체 ($0.15/1M input, $0.60/1M output) — **실행 직전 OpenAI 가격 페이지에서 재확인 필요**로 주석에 명시
-  - DRY_RUN으로 재검증 완료 (openai 2.53.0 기준 `OpenAI`/`APIStatusError`/`APIConnectionError`/`with_options` 전부 존재 확인, 파이프라인 정상 동작)
-- `docs/architecture.md` §4.4, §5.7 ADR 표 — Claude Haiku → OpenAI(gpt-4o-mini)로 갱신
-- `README.md` 기술 스택 표, `docs/development-plan.md` 1주차 표 — 동일하게 갱신
-
-### 참고
-- 프롬프트 구조(1~3줄 탈출구 추가 등)는 이전 커밋에서 이미 반영된 내용 그대로 유지, 모델/SDK만 교체
-- Colab에서 실행 시: `pip install openai`, `OPENAI_API_KEY` 환경변수(Colab Secrets 권장) 설정 필요
 
 ## 2026-08-06 (3차 — Railway DB 스키마 적용)
 
