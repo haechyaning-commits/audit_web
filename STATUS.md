@@ -2,31 +2,42 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## 🔜 다음 세션 시작할 것 (2026-08-06 저녁 기준)
+## 🔜 오늘 할 일 (2026-08-07 기준)
 
-1. **Supabase 비밀번호를 "재설정 즉시 화면에 뜨는 값을 그 자리에서 바로 복사"** — Database 설정 →
-   Reset database password → 뜨는 순간 바로 복사해서 메모장에 저장 (이전 시도들은 이 타이밍을
-   놓쳐서 `[YOUR-PASSWORD]` placeholder가 그대로 남아있었을 가능성이 유력한 원인)
-2. Session Pooler URI로 연결 문자열 재구성: `postgresql://postgres.hrhecriwbstcsgbhxotg:새비밀번호@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres`
-3. 그래도 `password authentication failed` 나오면 → `psql` CLI로 직접 접속 테스트해서
-   Python/psycopg2 쪽 문제인지 순수 인증 문제인지 분리 확인
-4. 연결되면: `scripts/schema_tables.sql` 실행(Supabase SQL Editor) → `scripts/load_to_postgres.py`
-   실행(Colab, documents+chunks 전부 새로 적재 — Supabase는 새 DB라 Railway에서 넣었던 건 안 남아있음)
-   → `scripts/schema_indexes.sql` 실행(Supabase SQL Editor)
-5. 적재 성공하면 1주차 체크포인트(SQL로 유사 사례 순위 확인) 진행 → 그다음 2주차(검색 API) 착수
+어제 막혔던 Supabase 인증 문제는 오늘 세션에서 해결됨 (아래 13차 항목 참고). 오늘 남은 순서:
 
-**코드/스크립트는 전부 준비 완료 상태** (어제 다 테스트하고 GitHub에 푸시함) — 막힌 건 순수히
-Supabase 자격증명 문제뿐입니다.
+1. [ ] **데이터 적재 완료 확인** — Colab에서 돌린 `load_to_postgres.py`가 documents(72,913건) +
+   chunks(96,355건, 벡터 포함) 끝까지 정상 적재됐는지 로그 확인. 끊겼으면 재실행(`ON CONFLICT DO
+   NOTHING`이라 안전, 이어서 진행됨)
+2. [ ] **인덱스 생성** — Supabase SQL Editor에서 `scripts/schema_indexes.sql` 실행 (HNSW/GIN/btree
+   3개, 96,355건 규모라 몇 분 소요 가능)
+3. [ ] **1주차 체크포인트** — SQL로 직접 벡터 유사도 검색 쿼리를 날려서 비슷한 사례가 순위대로
+   나오는지 확인 (`development-plan.md` 1주차 목표: "DB에 SQL 쿼리 하나 날려보면 비슷한 사례가
+   순위대로 나온다")
+4. [ ] **(여유 되면) 2주차 착수** — 1주차 체크포인트 통과하면 FastAPI 프로젝트 뼈대만 만들어서
+   서버 켜지는지 확인까지 (development-plan.md 2주차 시작, 필수 아님)
 
-### 폴백 계획 (사용자 결정)
-**내일 Supabase에서 똑같은 인증 문제가 또 발생하면, 바로 Railway로 돌아가서 진행한다.**
-- Railway는 Hobby 요금제($5/월)로 업그레이드하는 방향 (11차 항목 참고 — 디스크 부족이 원인이었으므로
-  업그레이드하면 해결될 가능성 높음)
-- Railway Postgres 인스턴스는 죽은 채로 남아있음 — `documents`(72,913건)는 이미 적재되어 있었으니,
-  업그레이드 후 살아나면 그 데이터가 남아있는지부터 확인하고(`SELECT count(*) FROM documents;`),
-  살아있으면 `chunks`부터 이어서 적재하면 됨 (처음부터 다시 안 해도 될 수 있음)
-- Supabase 계속 시도 vs Railway 업그레이드, 둘 중 하나로 시간 너무 끌지 않고 빠르게 판단하는 게
-  마감(8/31) 고려했을 때 중요함
+---
+
+## 2026-08-07 (13차 — Supabase 인증 문제 해결, 테이블 생성, 데이터 적재 착수)
+
+### 어제(12차) 막혔던 Supabase 인증 문제 해결
+- 새 비밀번호를 재설정 화면에서 뜨는 즉시 그 자리에서 복사(대괄호 placeholder 남는 문제 방지) →
+  Colab Secrets에 영숫자만으로 구성된 비밀번호로 `DATABASE_URL` 저장
+- Session Pooler URI(`postgresql://postgres.hrhecriwbstcsgbhxotg:...@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres`)로
+  연결 테스트(`psycopg2.connect` + `SELECT 1;`) 성공 확인
+- 12차에서 겪었던 `FATAL: password authentication failed for user "postgres"`는, Supabase pooler가
+  에러 메시지에서 사용자명을 `postgres`로 정규화해서 보여주는 것뿐이고 실제 원인은 비밀번호
+  placeholder 미교체였을 가능성이 유력했음 — 이번엔 재발 안 함
+
+### 완료
+- **Supabase SQL Editor에서 `scripts/schema_tables.sql` 실행** — `documents`, `chunks` 테이블 생성
+  ("Success. No rows returned" 확인, `information_schema.tables`로 테이블 존재도 확인 가능)
+- **Colab에서 `scripts/load_to_postgres.py` 실행 시작** — documents(72,913건) → chunks(96,355건,
+  벡터 포함) 순서로 5,000건씩 배치 커밋 진행 중
+
+### 다음 (오늘 할 일 섹션과 동일)
+- 적재 완료 확인 → `schema_indexes.sql` 실행 → 1주차 체크포인트 SQL 검증 → (여유되면) 2주차 착수
 
 ---
 
