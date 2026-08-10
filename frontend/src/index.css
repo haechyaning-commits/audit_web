@@ -202,6 +202,41 @@ body {
   opacity: 0;
   overflow: hidden;
 }
+.header-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  margin: 0 4px 0 12px;
+  padding: 6px 12px;
+  background: var(--gray-5);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  min-width: 0;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.header-search:focus-within {
+  border-color: var(--primary-10);
+  background: var(--surface);
+}
+.header-search svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.header-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--text-heading);
+  font-family: inherit;
+}
+.header-search input:focus {
+  outline: none;
+}
+
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -241,6 +276,12 @@ body {
   padding: 48px 24px 36px;
   text-align: center;
   border-bottom: 1px solid var(--border);
+  /* 검색창을 뷰포트 수직 중앙에 두기 (data.go.kr 스타일) — util-bar+헤더 높이(약 90px)를
+     뺀 나머지 화면을 히어로가 채우고, 그 안에서 내용을 세로 중앙 정렬 */
+  min-height: calc(100svh - 90px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .hero-inner {
   max-width: 720px;
@@ -345,7 +386,7 @@ body {
 }
 
 .app-main {
-  max-width: 860px;
+  max-width: 1120px;
   margin: 0 auto;
   width: 100%;
   padding: 32px 24px 0;
@@ -363,16 +404,50 @@ body {
 
 .result-list {
   list-style: none;
-  margin: 0 0 40px;
+  margin: 0 0 24px;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+}
+@media (max-width: 720px) {
+  .result-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pagination {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 40px;
+}
+.page-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-heading);
+  cursor: pointer;
+  font-family: inherit;
+}
+.page-btn:hover {
+  border-color: var(--primary-10);
+  color: var(--primary-dark);
+}
+.page-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .result-card {
   display: block;
-  padding: 18px 20px;
+  padding: 26px 28px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--primary);
@@ -410,7 +485,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 9px;
+  margin-bottom: 14px;
 }
 .result-card-left {
   display: flex;
@@ -431,7 +506,7 @@ body {
 .result-card-institution {
   font-weight: 700;
   color: var(--text-heading);
-  font-size: 14.5px;
+  font-size: 15.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -439,10 +514,10 @@ body {
 .result-card-preview {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13.5px;
-  line-height: 1.6;
+  font-size: 14.5px;
+  line-height: 1.7;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -476,10 +551,15 @@ body {
 
 /* 스켈레톤 로딩 */
 .skeleton-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   margin-bottom: 40px;
+}
+@media (max-width: 720px) {
+  .skeleton-list {
+    grid-template-columns: 1fr;
+  }
 }
 .skeleton-card {
   padding: 18px 20px;
@@ -567,8 +647,9 @@ body {
   color: #7c828b;
 }
 
-/* 상세 페이지 */
+/* 상세 페이지 — 원문/요약 읽기 편하게 검색결과보다 좁게 (app-main 기본 1120px보다 좁힘) */
 .detail-page {
+  max-width: 820px;
   padding-bottom: 24px;
 }
 .back-link {
@@ -580,6 +661,9 @@ body {
   font-size: 13.5px;
   font-weight: 700;
   margin-bottom: 18px;
+}
+.bottom-back-link {
+  margin-top: 4px;
 }
 .back-link:hover {
   text-decoration: underline;
@@ -708,20 +792,21 @@ body {
   white-space: pre-wrap;
 }
 
-.raw-text-toggle {
-  padding: 10px 16px;
-  font-size: 13.5px;
-  font-weight: 700;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-heading);
-  cursor: pointer;
-  font-family: inherit;
+/* 문장형 요약 — 박스 요약과 별개 결과라 위 아래로 구분선을 두고 분리 */
+.summary-freeform-block {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+.summary-freeform-text {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.75;
 }
 
 .raw-text {
-  margin-top: 16px;
+  margin: 0;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -735,18 +820,31 @@ body {
   overflow-y: auto;
 }
 
-/* 관련 사례 */
-.related-section {
-  margin-top: 32px;
-}
-.related-section .result-list {
+/* 4줄 요약 카드 — 원문(detail-card)과 분리, "요약보기" 눌러야 채워짐 (§4.5 온디맨드) */
+.summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 20px 26px;
   margin-bottom: 16px;
 }
-.related-card {
-  padding: 14px 18px;
+.summary-reveal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-5);
+  border: 1px solid var(--primary-10);
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
 }
-.related-card .result-card-preview {
-  -webkit-line-clamp: 2;
+.summary-reveal-btn:hover {
+  background: var(--primary-10);
 }
 
 /* 스크롤 위로가기 */

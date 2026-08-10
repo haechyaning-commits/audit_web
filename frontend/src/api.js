@@ -13,10 +13,10 @@ class ApiError extends Error {
   }
 }
 
-async function request(path) {
+async function request(path, { method = "GET" } = {}) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`);
+    response = await fetch(`${API_BASE_URL}${path}`, { method });
   } catch {
     // 네트워크 자체가 끊긴 경우 (서버 안 켜짐, CORS 차단 등)
     throw new ApiError("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.", 0);
@@ -41,9 +41,14 @@ export function searchCases(query) {
   return request(`/search?q=${encodeURIComponent(query)}`);
 }
 
-/** 사례 상세 (원문 + 4줄 요약) (GET /documents/{id}) */
+/** 사례 상세 — 원문 + (있으면) 캐싱된 요약. 요약 자동 생성은 안 함 (GET /documents/{id}) */
 export function getCaseDetail(documentId) {
   return request(`/documents/${encodeURIComponent(documentId)}`);
+}
+
+/** 4줄 요약 온디맨드 생성 — "요약보기" 버튼 클릭 시에만 호출 (POST /documents/{id}/summary) */
+export function getCaseSummary(documentId) {
+  return request(`/documents/${encodeURIComponent(documentId)}/summary`, { method: "POST" });
 }
 
 export { ApiError };

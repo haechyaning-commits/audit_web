@@ -17,7 +17,8 @@ class SearchResponse(BaseModel):
 
 
 class DocumentDetail(BaseModel):
-    """상세페이지 응답 (§4.5 온디맨드 요약 + §4.6 실패 처리)."""
+    """상세페이지 응답 — 요약 생성은 트리거하지 않고 DB에 캐싱된 값만 반환(없으면 전부 null).
+    요약이 필요하면 프론트가 별도로 POST /documents/{id}/summary를 호출함."""
     id: str
     institution: str | None
     year: int | None
@@ -28,3 +29,18 @@ class DocumentDetail(BaseModel):
     summary_action: str | None
     summary_result: str | None
     summary_failed: bool  # true면 프론트에서 "요약 어려움 — 원문 참고 필요" 배지 표시
+    summary_freeform: str | None  # 항목 구분 없는 자유형 4줄 요약(줄바꿈 구분), 별도 프롬프트
+    summary_freeform_failed: bool
+
+
+class SummaryResponse(BaseModel):
+    """POST /documents/{id}/summary 응답 (§4.5 온디맨드 요약 + §4.6 실패 처리).
+    "요약보기" 버튼 클릭 시에만 호출됨 — 이미 캐싱된 값이 있으면 재생성 없이 그대로 반환.
+    구조화 요약(point/cause/action/result)과 자유형 요약(freeform)을 한 번의 호출로 같이 반환."""
+    summary_point: str | None
+    summary_cause: str | None
+    summary_action: str | None
+    summary_result: str | None
+    summary_failed: bool
+    summary_freeform: str | None
+    summary_freeform_failed: bool

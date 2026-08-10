@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { getCaseDetail, searchCases } from "../api.js";
+import { getCaseDetail, getCaseSummary } from "../api.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
-import ResultCard from "../components/ResultCard.jsx";
 
 const SUMMARY_FIELDS = [
   { key: "summary_point", label: "지적사항" },
@@ -21,10 +20,14 @@ export default function DetailPage() {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showRawText, setShowRawText] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [related, setRelated] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  // 4줄 요약 — "요약보기" 버튼을 눌러야 채워짐(§4.5 온디맨드, POST /documents/{id}/summary).
+  // summary === null이면 아직 안 본 상태. doc에 이미 캐싱된 값이 있으면 API 호출 없이 그대로 씀.
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState(null);
 
   const backLink = query ? `/?q=${encodeURIComponent(query)}` : "/";
 
@@ -33,9 +36,10 @@ export default function DetailPage() {
     setLoading(true);
     setError(null);
     setDoc(null);
-    setShowRawText(false);
     setCopied(false);
-    setRelated([]);
+    setSummary(null);
+    setSummaryLoading(false);
+    setSummaryError(null);
 
     getCaseDetail(id)
       .then((data) => {
@@ -53,28 +57,6 @@ export default function DetailPage() {
     };
   }, [id]);
 
-  // 같이 검색된 관련 사례 — URL에 검색어(q)가 있을 때만 다시 검색해서, 현재 문서를 뺀
-  // 나머지를 보여줌. q가 없으면(직접 URL 접속 등, 검색 컨텍스트가 없으면) 섹션 자체를 숨김
-  useEffect(() => {
-    let cancelled = false;
-    if (!query) {
-      setRelated([]);
-      return;
-    }
-    searchCases(query)
-      .then((data) => {
-        if (cancelled) return;
-        const filtered = data.results.filter((r) => r.document_id !== id).slice(0, 3);
-        setRelated(filtered);
-      })
-      .catch(() => {
-        if (!cancelled) setRelated([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [query, id]);
-
   useEffect(() => {
     function onScroll() {
       setShowScrollTop(window.scrollY > SCROLL_TOP_THRESHOLD);
@@ -83,9 +65,37 @@ export default function DetailPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  function handleShowSummary() {
+    if (summary || summaryLoading || !doc) return;
+
+    // doc 조회 시점에 이미 둘 다 캐싱돼 있으면(예전에 누가 먼저 생성해둔 경우) API 호출 없이
+    // 바로 표시 — 구조화/자유형 둘 중 하나라도 아직 없으면 서버에 다시 요청(그쪽만 새로 생성됨)
+    const structuredCached = doc.summary_point || doc.summary_failed;
+    const freeformCached = doc.summary_freeform || doc.summary_freeform_failed;
+    if (structuredCached && freeformCached) {
+      setSummary({
+        summary_point: doc.summary_point,
+        summary_cause: doc.summary_cause,
+        summary_action: doc.summary_action,
+        summary_result: doc.summary_result,
+        summary_failed: doc.summary_failed,
+        summary_freeform: doc.summary_freeform,
+        summary_freeform_failed: doc.summary_freeform_failed,
+      });
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(null);
+    getCaseSummary(id)
+      .then((data) => setSummary(data))
+      .catch((err) => setSummaryError(err.message || "요약을 가져오지 못했습니다."))
+      .finally(() => setSummaryLoading(false));
+  }
+
   function handleCopy() {
-    if (!doc) return;
-    const text = SUMMARY_FIELDS.map(({ label, key }) => `${label}: ${doc[key] || "미기재"}`).join("\n");
+    if (!summary) return;
+    const text = SUMMARY_FIELDS.map(({ label, key }) => `${label}: ${summary[key] || "미기재"}`).join("\n");
     navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -105,8 +115,7 @@ export default function DetailPage() {
     return (
       <div className="app-main detail-page">
         <BackLink to={backLink} />
-        {/* 온디맨드 요약 생성이 최초 조회 시 몇 초 걸릴 수 있음 (backend/app/main.py) */}
-        <p className="loading-message">불러오는 중… (첫 조회 시 요약 생성으로 몇 초 걸릴 수 있어요)</p>
+        <p className="loading-message">불러오는 중…</p>
       </div>
     );
   }
@@ -133,9 +142,35 @@ export default function DetailPage() {
           <ConfidenceBadge label={doc.confidence} />
         </div>
 
-        {doc.summary_failed ? (
+        {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리) */}
+        <pre className="raw-text">{doc.raw_text}</pre>
+      </div>
+
+      <div className="summary-card">
+        {!summary && !summaryLoading && (
+          <button type="button" className="summary-reveal-btn" onClick={handleShowSummary}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
+            </svg>
+            4줄 요약보기 (AI 생성, 몇 초 걸릴 수 있어요)
+          </button>
+        )}
+
+        {summaryLoading && <p className="loading-message">요약 생성 중…</p>}
+
+        {summaryError && <p className="error-message">{summaryError}</p>}
+
+        {summary && summary.summary_failed && (
           <p className="summary-failed-notice">요약 어려움 — 원문 참고 필요</p>
-        ) : (
+        )}
+
+        {summary && !summary.summary_failed && (
           <>
             <div className="ai-notice">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -178,35 +213,30 @@ export default function DetailPage() {
                     <span className="num">{i + 1}</span>
                     {label}
                   </dt>
-                  <dd>{doc[key] || "미기재"}</dd>
+                  <dd>{summary[key] || "미기재"}</dd>
                 </div>
               ))}
             </dl>
           </>
         )}
+
+        {/* 문장형 요약 — 지적/원인/조치/결과 틀 없이 자유롭게 뽑은 버전. 위 박스 요약의
+            성공/실패와는 별개 결과라 독립적으로 표시함 */}
+        {summary && (summary.summary_freeform || summary.summary_freeform_failed) && (
+          <div className="summary-freeform-block">
+            <p className="summary-toolbar-label">문장으로 보기</p>
+            {summary.summary_freeform_failed ? (
+              <p className="summary-failed-notice">문장형 요약 어려움 — 원문 참고 필요</p>
+            ) : (
+              <p className="summary-freeform-text">{summary.summary_freeform.split("\n").join(" ")}</p>
+            )}
+          </div>
+        )}
       </div>
 
-      <button type="button" className="raw-text-toggle" onClick={() => setShowRawText((v) => !v)}>
-        {showRawText ? "원문 접기 ▲" : "원문 펼쳐보기 ▼"}
-      </button>
-
-      {showRawText && <pre className="raw-text">{doc.raw_text}</pre>}
-
-      {related.length > 0 && (
-        <div className="related-section">
-          <p className="section-label">같이 검색된 관련 사례</p>
-          <ul className="result-list">
-            {related.map((r, i) => (
-              <li key={r.document_id}>
-                <ResultCard result={r} rank={i + 2} query={query} className="related-card" />
-              </li>
-            ))}
-          </ul>
-          <Link to={backLink} className="back-link" style={{ marginBottom: 0 }}>
-            ← 검색 결과 전체 보기
-          </Link>
-        </div>
-      )}
+      <Link to={backLink} className="back-link bottom-back-link">
+        ← 검색 결과 전체 보기
+      </Link>
 
       <button
         type="button"

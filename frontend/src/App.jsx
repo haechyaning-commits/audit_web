@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes, useLocation } from "react-router-dom";
 import SearchPage from "./pages/SearchPage.jsx";
 import DetailPage from "./pages/DetailPage.jsx";
 import Footer from "./components/Footer.jsx";
+import HeaderSearch from "./components/HeaderSearch.jsx";
+import useSearchState from "./useSearchState.js";
 import useTheme from "./useTheme.js";
 
 const GITHUB_URL = "https://github.com/haechyaning-commits/audit_web";
@@ -10,6 +12,12 @@ const GITHUB_URL = "https://github.com/haechyaning-commits/audit_web";
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const [isScrolled, setIsScrolled] = useState(false);
+  const location = useLocation();
+  const search = useSearchState();
+
+  // 헤더 검색창은 "검색 결과 화면"이거나 "다른 페이지(상세페이지 등)"일 때만 보임 —
+  // 랜딩 화면("/", 검색 전)에선 히어로 검색창과 중복되니 숨김. 항상 둘 중 하나만 보임.
+  const showHeaderSearch = location.pathname !== "/" || search.results !== null;
 
   useEffect(() => {
     function onScroll() {
@@ -56,6 +64,7 @@ export default function App() {
             <span className="app-title">공공감사데이터 검색</span>
             <span className="app-tagline">감사 사례 유사사례 검색 서비스</span>
           </Link>
+          {showHeaderSearch && <HeaderSearch runSearch={search.runSearch} />}
           <div className="header-actions">
             <span className="beta-tag">BETA</span>
             <button
@@ -92,7 +101,7 @@ export default function App() {
 
       <main className="app-body">
         <Routes>
-          <Route path="/" element={<SearchPage />} />
+          <Route path="/" element={<SearchPage search={search} />} />
           <Route path="/documents/:id" element={<DetailPage />} />
         </Routes>
       </main>
