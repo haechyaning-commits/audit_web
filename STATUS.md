@@ -10,13 +10,17 @@
 
 ### ⏭️ 다음 세션은 여기부터
 `scripts/fix_text_corruption.py`에 4번째(`fix_duplicated_digits`)·5번째
-(`strip_table_placeholder`) 수정 로직까지 추가 완료(커밋 `2d49b1b`)했지만,
-**아직 실제 DB에는 반영 안 됨.** 순서:
-1. 위 스크립트를 DB 접속 가능한 환경에서 실행 → `documents.raw_text`/`chunks.text`에
-   2차 수정 적용 (몇 건이나 바뀌는지 먼저 확인)
-2. `chunks`가 바뀌었으면(십중팔구 바뀜) → 바뀐 chunk만 Colab(GPU)에서 BGE-m3
-   재임베딩 → `chunks.embedding` UPDATE (1차 때와 동일 절차, `reembed_input_2.jsonl`
-   이름으로 구분)
+(`strip_table_placeholder`) 수정 로직까지 추가 완료(커밋 `2d49b1b`)했고,
+그 출력(`reembed_input_2.jsonl`)을 받아 재임베딩+DB 반영까지 하는
+`scripts/reembed_changed_chunks.py`도 작성 완료(커밋 `5df6f67`)했지만,
+**둘 다 아직 실제로 실행은 안 됨(코드만 준비된 상태).** 순서:
+1. `scripts/fix_text_corruption.py`를 DB 접속 가능한 환경(Colab)에서 실행 →
+   `documents.raw_text`/`chunks.text`에 2차 수정 적용 (콘솔에 찍히는 "N건 중
+   M건 수정 대상" 로그로 몇 건이나 바뀌는지 먼저 확인) → `reembed_input_2.jsonl` 생성
+2. `chunks`가 바뀌었으면(십중팔구 바뀜) → 위에서 나온 `reembed_input_2.jsonl`을
+   입력으로 `scripts/reembed_changed_chunks.py`를 Colab GPU 런타임에서 실행 →
+   BGE-m3 재임베딩 + `chunks.embedding` UPDATE까지 한 번에 처리 (1차 때와 동일
+   절차를 스크립트로 정리한 것, norm 안전장치 포함)
 3. 라이브 DB 재검증 + "폭력" 검색으로 `22002244년도`(인천교통공사 사례)가
    `2024년도`로, "표" placeholder 잡음이 사라졌는지 최종 확인
 4. 그 다음에야 진짜 완료 — 재추출 필요 1,765건 처리 방침은 여전히 미결정
@@ -76,8 +80,10 @@
       "민간위탁업무") 정상 출력 확인. 이 과정에서 잔여 이슈 2개(숫자 중복, 표
       placeholder 잡음) 추가 발견 → 위 "1차 반영 후 추가로 발견한 것" 참고
 - [x] 2차 수정 로직(`fix_duplicated_digits`, `strip_table_placeholder`) 작성 + 커밋(`2d49b1b`)
+- [x] 2차 수정으로 바뀐 chunk 재임베딩+반영 스크립트(`scripts/reembed_changed_chunks.py`)
+      작성 + 커밋(`5df6f67`) — 아직 실행은 안 함, 코드만 준비
 - [ ] **2차 수정 DB 반영** (다음 세션 시작 지점, 맨 위 "다음 세션은 여기부터" 참고)
-- [ ] 2차 수정으로 바뀐 chunk 재임베딩 (있다면)
+- [ ] 2차 수정으로 바뀐 chunk 재임베딩 실행 (있다면)
 - [ ] "폭력" 검색으로 2차 수정까지 최종 확인
 - [ ] 재추출 필요 1,765건 처리 방침 결정 (재추출 vs 제외 표시)
 - 참고: 반영 전 `documents_backup_20260807`, `chunks_backup_20260807` 테이블로 백업해둠
