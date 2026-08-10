@@ -15,9 +15,11 @@ from typing import Any
 
 import asyncpg
 
-# RRF(§3.1) + document 단위 dedup(§3.2) — 후보 단계에서 top 20을 뽑던 원래 설계는
-# 리랭커 입력용이었음. 리랭커가 스트레치로 빠져있어 바로 top 10을 반환하도록 LIMIT을
-# 줄임 (나중에 리랭커 붙일 때 LIMIT 20으로 되돌리고 rerank()에서 10건으로 압축하면 됨).
+# RRF(§3.1) + document 단위 dedup(§3.2) — 원래는 리랭커 입력용으로 top 20을 뽑아서
+# top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있어 지금은 top 20을 그대로
+# 최종 결과로 반환함(main.py의 search_candidates(..., limit=20) 호출과 짝을 맞춤,
+# 프론트 2열×10줄 그리드 표시). 나중에 리랭커 붙이면 LIMIT을 더 키우고 rerank()에서
+# 20건으로 압축하는 구조로 바꾸면 됨.
 _SEARCH_SQL = """
 WITH vector_search AS (
     SELECT id AS chunk_id, document_id,
@@ -87,7 +89,8 @@ def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Re
 
 _GET_DOCUMENT_SQL = """
 SELECT id, institution, year, raw_text, parsing_quality,
-       summary_point, summary_cause, summary_action, summary_result, summary_failed
+       summary_point, summary_cause, summary_action, summary_result, summary_failed,
+       summary_freeform, summary_freeform_failed
 FROM documents
 WHERE id = $1;
 """
@@ -127,3 +130,23 @@ async def save_summary(
     result = summary.get("result") if summary else None
     async with pool.acquire() as conn:
         await conn.execute(_SAVE_SUMMARY_SQL, document_id, point, cause, action, result, failed)
+
+
+_SAVE_FREEFORM_SUMMARY_SQL = """
+UPDATE documents
+SET summary_freeform = $2,
+    summary_freeform_failed = $3
+WHERE id = $1;
+"""
+
+
+async def save_freeform_summary(
+    pool: asyncpg.Pool,
+    document_id: str,
+    freeform_text: str | None,
+    failed: bool,
+) -> None:
+    """구조화 요약(save_summary)과 별도 컬럼에 캐싱 — 프롬프트/생성 시점이 다르므로 독립적으로
+    저장. 실패 캐싱 이유는 save_summary와 동일(§4.6)."""
+    async with pool.acquire() as conn:
+        await conn.execute(_SAVE_FREEFORM_SUMMARY_SQL, document_id, freeform_text, failed)

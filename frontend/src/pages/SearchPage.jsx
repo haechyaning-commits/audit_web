@@ -1,0 +1,197 @@
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import ResultCard from "../components/ResultCard.jsx";
+
+// 2026-08-10 데이터 품질 정리(재추출 불가 문서 삭제)로 72,913 -> 67,751건으로 조정됨
+// (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
+const TOTAL_CASES = "67,751";
+const EXAMPLE_QUERIES = ["수의계약 특혜", "보조금 부정수급", "초과근무수당 부당지급"];
+const PAGE_SIZE = 10; // 2열 x 5줄
+
+/**
+ * search prop: App.jsx의 useSearchState()가 만든 공유 상태 { results, searchedQuery,
+ * loading, error, recentSearches, runSearch }. 헤더 검색창과 여기 히어로 검색창이
+ * 이 상태를 같이 씀 — 어느 쪽에서 검색해도 같은 results가 반영됨.
+ */
+export default function SearchPage({ search }) {
+  const { results, searchedQuery, loading, error, recentSearches, runSearch } = search;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") || "";
+
+  const [query, setQuery] = useState(urlQuery);
+  const inputRef = useRef(null);
+
+  // 페이지네이션 — URL의 page 파라미터가 진실의 원천 (새로고침해도 보던 페이지 유지,
+  // 새 검색(q 변경) 시엔 setSearchParams({q})가 page를 같이 지워버려서 자동으로 1페이지로 리셋됨)
+  const pageParam = parseInt(searchParams.get("page"), 10);
+  const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
+  const totalPages = results ? Math.max(1, Math.ceil(results.length / PAGE_SIZE)) : 1;
+  const pagedResults = results ? results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : [];
+
+  function goToPage(p) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("page", String(p));
+      return next;
+    });
+    document.querySelector(".app-main")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // URL의 ?q=가 아직 검색 안 된(또는 다른) 값이면 자동 실행 — 공유된 링크로 들어온 경우,
+  // 새로고침, 뒤로/앞으로가기 등. loading 중엔 건너뜀(헤더 검색창이 이미 트리거한 검색과
+  // 중복 실행되는 것 방지 — 헤더는 navigate 직후 곧바로 runSearch도 직접 호출하므로,
+  // 이 이펙트가 뒤따라와도 loading=true인 걸 보고 조용히 넘어감).
+  useEffect(() => {
+    if (urlQuery && urlQuery !== searchedQuery && !loading) {
+      runSearch(urlQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlQuery]);
+
+  // 히어로가 보이는(아직 검색 전) 상태에서만 "/" 단축키로 히어로 검색창 포커스 —
+  // 검색 후엔 히어로가 사라지고 헤더 검색창(HeaderSearch)이 단축키를 대신 담당함
+  useEffect(() => {
+    if (results !== null) return;
+    function onKeyDown(e) {
+      if (e.key !== "/") return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [results]);
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setSearchParams({ q: trimmed });
+    runSearch(trimmed);
+  }
+
+  function handleChipClick(text) {
+    setQuery(text);
+    setSearchParams({ q: text });
+    runSearch(text);
+  }
+
+  const chipSource = recentSearches.length > 0 ? recentSearches : EXAMPLE_QUERIES;
+  const chipLabel = recentSearches.length > 0 ? "최근 검색" : "예시";
+
+  return (
+    <>
+      {/* 검색 전(랜딩)에만 히어로+검색창 표시 — 검색 후엔 결과만 보여주고, 재검색은
+          헤더 상시 검색창(HeaderSearch)으로 함 */}
+      {results === null && (
+        <section className="hero">
+          <div className="hero-inner">
+            <h1>궁금한 사안을 검색해보세요</h1>
+            <p>문장으로 입력하면 AI가 유사한 공공감사 사례를 찾아드립니다.</p>
+
+            <form className="search-form" onSubmit={handleSubmit}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="예: 출장비 부당 집행 (검색창 포커스는 / 키)"
+                aria-label="검색어"
+              />
+              <button type="submit" disabled={loading || !query.trim()}>
+                {loading ? "검색 중…" : "검색"}
+              </button>
+            </form>
+
+            <div className="example-chips">
+              <span className="example-chips-label">{chipLabel}</span>
+              {chipSource.map((text) => (
+                <button key={text} type="button" className="chip" onClick={() => handleChipClick(text)}>
+                  {text}
+                </button>
+              ))}
+            </div>
+
+            <p className="stat-strip">
+              <b>{TOTAL_CASES}건</b>의 공공감사 사례를 학습한 검색입니다
+            </p>
+          </div>
+        </section>
+      )}
+
+      <div className="app-main">
+        {error && <p className="error-message">{error}</p>}
+
+        {loading && (
+          <>
+            <p className="section-label">검색 중…</p>
+            <div className="skeleton-list">
+              {[0, 1, 2, 3].map((i) => (
+                <div className="skeleton-card" key={i}>
+                  <div className="skel-line skel-title" />
+                  <div className="skel-line skel-text" />
+                  <div className="skel-line skel-text short" />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {!loading && !error && results !== null && results.length === 0 && (
+          <div className="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M4 4l16 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <h3>일치하는 사례를 찾지 못했습니다</h3>
+            <p>다른 문장으로 다시 시도하거나 아래 예시를 눌러보세요.</p>
+            <div className="example-chips">
+              {EXAMPLE_QUERIES.map((text) => (
+                <button key={text} type="button" className="chip" onClick={() => handleChipClick(text)}>
+                  {text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && results !== null && results.length > 0 && (
+          <>
+            <p className="section-label">
+              검색 결과 <span className="count">{results.length}건</span>
+            </p>
+            <ul className="result-list">
+              {pagedResults.map((result, i) => (
+                <li key={result.document_id}>
+                  <ResultCard result={result} rank={(page - 1) * PAGE_SIZE + i + 1} query={searchedQuery} />
+                </li>
+              ))}
+            </ul>
+
+            {totalPages > 1 && (
+              <nav className="pagination" aria-label="검색 결과 페이지">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`page-btn ${p === page ? "active" : ""}`}
+                    onClick={() => goToPage(p)}
+                    aria-current={p === page ? "page" : undefined}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </nav>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}

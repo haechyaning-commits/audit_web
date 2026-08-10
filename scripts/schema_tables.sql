@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS documents (
                                                       -- TRUE면 상세 API가 재생성 시도 없이 바로
                                                       -- 원문만 반환 — 실패를 캐싱해서 매번 재시도하며
                                                       -- API 비용 나가는 것 방지
+    summary_freeform        TEXT,             -- 자유형 4줄 요약(지적/원인/조치/결과 틀 없이,
+                                               -- 줄바꿈으로 구분된 4줄) — 구조화 요약과 별도 프롬프트로 생성
+    summary_freeform_failed BOOLEAN NOT NULL DEFAULT FALSE,  -- summary_failed와 동일한 이유로
+                                                              -- 자유형 요약에도 별도로 실패 캐싱
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 

@@ -36,8 +36,9 @@ DB는 로컬에 설치하는 게 아니라 `.env`의 `DATABASE_URL`을 통해 **
 ## 엔드포인트
 
 - `GET /health` — 서버 상태 확인
-- `GET /search?q=검색어` — 자연어 검색 → 유사 사례 top 10 카드
-- `GET /documents/{id}` — 상세 (원문 + 4줄 요약, 요약은 최초 조회 시 생성 후 캐싱)
+- `GET /search?q=검색어` — 자연어 검색 → 유사 사례 top 20 카드
+- `GET /documents/{id}` — 상세 (원문 + 이미 캐싱된 요약이 있으면 같이 반환, 없으면 null — 자동 생성 안 함)
+- `POST /documents/{id}/summary` — 4줄 요약 온디맨드 생성(프론트 "요약보기" 버튼용), 최초 호출 시 생성 후 캐싱
 
 ## 코드 구조 (파일별 설명)
 
@@ -122,9 +123,11 @@ main.py  ← 요청을 받아서 어디로 보낼지 결정 (라우팅, "지휘�
 - **`/search`**: `q` 검사 → `embedding.encode_query` → `repository.search_candidates` →
   `repository.rerank`(현재 no-op) → 카드 목록으로 포장해서 반환. 계산은 직접 안 하고 다른
   파일들을 순서대로 불러 조합만 함
-- **`/documents/{id}`**: 문서 조회 → **`summary_point is None and not summary_failed`**일
-  때만 온디맨드로 요약 생성 + 저장 → 이미 있으면(두 번째 조회부터) 이 블록을 건너뛰고 DB 값을
-  바로 반환 (캐싱이 일어나는 지점)
+- **`/documents/{id}`** (GET): 문서 조회만 하고 바로 반환 — 요약 생성은 안 함(원문을 지연 없이
+  보여주기 위함)
+- **`/documents/{id}/summary`** (POST): 프론트 "요약보기" 버튼 클릭 시에만 호출됨.
+  **`summary_point is None and not summary_failed`**일 때만 온디맨드로 요약 생성 + 저장 →
+  이미 있으면(두 번째 호출부터) 이 블록을 건너뛰고 DB 값을 바로 반환 (캐싱이 일어나는 지점)
 
 ## 아직 안 한 것 (스트레치 목표, architecture.md 참고)
 
