@@ -2,36 +2,44 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## 🔧 데이터 품질 사고 대응 (2026-08-07, 2주차 이후) — 진행 중, 2차 수정 DB 반영 실행 중
+## 🔧 데이터 품질 사고 대응 (2026-08-07, 2주차 이후) — 진행 중, DB 반영은 끝남·마무리 조사 남음
 
 **검색 결과 미리보기에서 텍스트 오염 발견 → 원인 진단 → 수정 → 라이브 DB 반영 → 실제
-검색 결과로 재확인 → 잔여 이슈 2개 추가 발견 → 2차 수정 코드까지 작성 완료 → 재추출
-불가 1,765건 처리 방침도 확정(재추출 안 함, DB에서 제외) → 2차 수정 DB 반영 스크립트
-Colab에서 실행 중(오래 걸림, 완료까지 다음 세션으로 이어질 수 있음).**
+검색 결과로 재확인 → 잔여 이슈 2개 추가 발견 → 2차 수정 코드 작성 → 2차 수정 DB 반영
++ 재임베딩 + HNSW 인덱스 재생성까지 전부 완료(2026-08-10, 중간에 디스크 부족 2번 겪었지만
+해결). 남은 건 재추출 불가 문서 건수 급증(1,765 예상 vs 5,162 실제) 원인 조사와 라이브
+검색 최종 확인.**
 
 ### ⏭️ 다음 세션은 여기부터
-`scripts/fix_text_corruption.py`에 4번째(`fix_duplicated_digits`)·5번째
-(`strip_table_placeholder`) 수정 로직까지 추가 완료(커밋 `2d49b1b`)했고,
-그 출력(`reembed_input_2.jsonl`)을 받아 재임베딩+DB 반영까지 하는
-`scripts/reembed_changed_chunks.py`(커밋 `5df6f67`), 재추출 불가 1,765건을
-찾아서 제외(삭제)하는 `scripts/remove_unrecoverable_docs.py`도 작성 완료. **`fix_text_corruption.py` 2차 실행이 Colab에서 진행 중** —
-완료 여부부터 확인. 이어서 할 순서:
-1. `scripts/fix_text_corruption.py` 2차 실행이 끝났으면 콘솔에 찍힌 "N건 중
-   M건 수정 대상" 로그 확인 (이미 실행 중이었다면 여기부터 이어서 확인) →
-   `reembed_input_2.jsonl` 생성 확인
-2. `scripts/remove_unrecoverable_docs.py`의 `find_unrecoverable()`부터 실행
-   (읽기 전용이라 1번과 동시에 돌려도 안전) → `removed_unrecoverable_docs.jsonl`
-   건수가 기대치(~1,765건)와 맞는지 확인한 뒤에만 `delete_unrecoverable()` 주석
-   해제하고 실행 — **이 삭제는 반드시 1번(2차 fix)의 DB 반영이 끝난 뒤에** 할 것
-   (같은 테이블 동시 쓰기 충돌 방지). 삭제 후 총 문서 수가 72,913 →
-   약 71,148건으로 줄어듦 — README.md/docs의 건수 표기 갱신 필요
-3. `chunks`가 바뀌었으면(십중팔구 바뀜) → `reembed_input_2.jsonl`을 입력으로
-   `scripts/reembed_changed_chunks.py`를 Colab GPU 런타임에서 실행 → BGE-m3
-   재임베딩 + `chunks.embedding` UPDATE (2번에서 이미 삭제된 chunk_id가 섞여
-   있어도 UPDATE가 0건 영향으로 조용히 넘어가서 무해함 — 순서 걱정 안 해도 됨)
-4. 라이브 DB 재검증 + "폭력" 검색으로 `22002244년도`(인천교통공사 사례)가
-   `2024년도`로, "표" placeholder 잡음이 사라졌는지 최종 확인
+1. **`scripts/investigate_table_placeholder_spike.py`를 마저 돌릴 것** — `DOCUMENTS_FINAL_PATH`
+   경로가 실제 Google Drive 구조와 달라 `FileNotFoundError` 발생, 아직 결과 못 봄.
+   `!find /content/drive/MyDrive -iname "documents_final.jsonl"`로 실제 경로 찾아서
+   스크립트 상단 경로 수정 후 재실행 → "원본은 300자 이상이었는데 지금은 미만으로
+   떨어진 문서" 수가 급증분(약 3,372건)과 비슷한지 확인
+2. 위 조사로 가설(2차 수정의 글자/숫자 중복 collapse가 부풀려져 있던 분량을 걷어내면서
+   문서가 새로 "재추출 불가" 판정을 받음)이 맞다고 확인되면 **5,162건을 최종 삭제 대상으로
+   확정** — `scripts/remove_unrecoverable_docs.py`의 `delete_unrecoverable()` 실행
+   (이미 `find_unrecoverable()`로 만든 `removed_unrecoverable_docs.jsonl` 재사용).
+   가설이 안 맞으면 원인 다시 찾을 것 — 3배 차이를 확인 없이 밀어붙이지 말 것
+3. 삭제 실행 후 총 문서 수 표기(README.md 등, 현재 72,913건으로 적혀있음) 갱신 — 삭제
+   건수에 따라 최종 수치가 달라짐(1,765건 기준이면 약 71,148건, 5,162건 기준이면 약 67,751건)
+4. 라이브 DB 재검증 + "폭력" 검색으로 `22002244년도`(인천교통공사 사례)가 `2024년도`로,
+   "표" placeholder 잡음이 사라졌는지 최종 확인 — Railway 서비스가 비용 관리로 삭제되어
+   있는 상태라 재배포할지 로컬에서 확인할지 아직 미정, 정해야 함
 5. 그 다음에야 진짜 완료
+
+### DB 반영 중 겪은 사고 2건 (해결됨, 다음에 또 나올 수 있으니 기록)
+- **디스크 부족(`DiskFull: could not extend file`)** — 2차 수정 반영 + 재임베딩 UPDATE를
+  거듭하면서 dead tuple이 쌓여 Railway 볼륨이 꽉 참. `chunks.embedding`에 걸린 HNSW
+  인덱스가 UPDATE마다 그래프를 다시 써야 해서 특히 크게 기여한 것으로 추정(실제로 인덱스를
+  `DROP INDEX`하니 바로 이어서 진행됨). 조치: ①`chunks_embedding_hnsw_idx` 임시 삭제
+  ②`documents_backup_20260807`/`chunks_backup_20260807` 백업 테이블 삭제(1차 수정이 이미
+  검증됐다고 판단해서 지금 지움 — **더 이상 롤백 불가**) ③`VACUUM` ④UPDATE 이어서 진행
+  ⑤끝나고 HNSW 인덱스 재생성. `schema.sql` 원래 주석에도 있던 "인덱스 걸어두고 대량
+  쓰기하면 디스크 문제" 교훈이 INSERT뿐 아니라 UPDATE에도 그대로 적용된 사례.
+- **공유메모리 부족(`could not resize shared memory segment`)** — 인덱스 재생성 시
+  16차 때와 동일한 문제 재발(병렬 빌드가 컨테이너의 작은 `/dev/shm` 한도를 넘음). 조치:
+  `SET max_parallel_maintenance_workers = 0` 후 재시도 → 해결(직렬이라 더 오래 걸림).
 
 ### 발견 경위
 검색 API가 실데이터로 잘 동작하는 걸 확인한 뒤(2주차), 실제 검색 결과 미리보기를 보다가
@@ -89,20 +97,29 @@ Colab에서 실행 중(오래 걸림, 완료까지 다음 세션으로 이어질
       placeholder 잡음) 추가 발견 → 위 "1차 반영 후 추가로 발견한 것" 참고
 - [x] 2차 수정 로직(`fix_duplicated_digits`, `strip_table_placeholder`) 작성 + 커밋(`2d49b1b`)
 - [x] 2차 수정으로 바뀐 chunk 재임베딩+반영 스크립트(`scripts/reembed_changed_chunks.py`)
-      작성 + 커밋(`5df6f67`) — 아직 실행은 안 함, 코드만 준비
-- [x] **재추출 필요 1,765건 처리 방침 결정 (2026-08-10)** — 재추출 안 하고 DB에서
-      아예 제외(삭제)하기로 확정. 이유: 재추출은 원본 재파싱까지 필요해 비용이 크고,
-      전체의 2.4% 수준이라 검색 커버리지에 미치는 영향이 작다고 판단. 삭제 대상 판정
+      작성 + 커밋(`5df6f67`)
+- [x] **재추출 필요 문서 처리 방침 결정 (2026-08-10)** — 재추출 안 하고 DB에서 아예
+      제외(삭제)하기로 확정. 이유: 재추출은 원본 재파싱까지 필요해 비용이 크고, 애초
+      예상 규모(2.4%)라면 검색 커버리지에 미치는 영향이 작다고 판단. 삭제 대상 판정
       기준(3가지)과 실행 스크립트: `scripts/remove_unrecoverable_docs.py` — 안전을
       위해 조회(`find_unrecoverable`, 삭제 없음)와 삭제(`delete_unrecoverable`)를
       분리, manifest 파일로 건수 확인 후에만 삭제하도록 만듦
-- [ ] **2차 수정 DB 반영** (지금 Colab에서 실행 중 — 다음 세션 시작 지점, 맨 위
-      "다음 세션은 여기부터" 참고)
-- [ ] 재추출 불가 1,765건 삭제 실행 (`find_unrecoverable` → 건수 확인 → `delete_unrecoverable`,
-      2차 수정 DB 반영이 끝난 뒤에 실행할 것)
-- [ ] 2차 수정으로 바뀐 chunk 재임베딩 실행 (있다면)
+- [x] **2차 수정 DB 반영 완료** (documents/chunks 텍스트 업데이트, 디스크 부족 2번
+      겪었지만 해결 — 아래 "DB 반영 중 겪은 사고 2건" 참고)
+- [x] 2차 수정으로 바뀐 chunk 16,855건 재임베딩(Colab GPU) 후 `chunks.embedding`
+      UPDATE 완료
+- [x] `chunks_embedding_hnsw_idx` 재생성 완료 (반영 과정에서 임시로 삭제했었음)
+- [ ] **재추출 불가 문서 건수 급증 원인 조사 마무리** — `find_unrecoverable()` 실행
+      결과 예상(1,765건)의 3배인 5,162건이 나옴, 특히 `table_placeholder_only`가
+      1,674→5,046건. `documents_backup_20260807`를 이미 지워버려서 원래 계획했던
+      백업 비교 대신 `documents_final.jsonl`(DB 적재 전 원본)과 비교하는 걸로
+      전환했으나 아직 결과 못 봄(Drive 마운트 문제로 막힘). 다음 세션은 여기부터
+      참고해서 마무리할 것
+- [ ] 조사 결과에 따라 재추출 불가 문서 최종 삭제 실행 (`delete_unrecoverable()`)
 - [ ] "폭력" 검색으로 2차 수정까지 최종 확인
 - [ ] 삭제 실행 후 총 문서 수 표기(README.md 등, 현재 72,913건으로 적혀있음) 갱신
+- [x] ~~참고: 반영 전 `documents_backup_20260807`, `chunks_backup_20260807` 테이블로
+      백업해둠~~ → 2026-08-10 디스크 부족 해결 과정에서 삭제함, 더 이상 존재하지 않음
 - 참고: 반영 전 `documents_backup_20260807`, `chunks_backup_20260807` 테이블로 백업해둠
   (안전 확인되면 삭제 예정 — 아직 지우지 말 것)
 
