@@ -28,12 +28,26 @@
 #      없어서 전체 문서의 공백/줄바꿈을 몽땅 눌러버리는 사고가 있었음 —
 #      DB 반영 전 로컬 검증에서 잡아냄, verify_and_apply()의 존재 이유).
 #
-# 이 두 버그로 못 고치는 별개 문제(재추출 필요, 이 스크립트 범위 밖):
+# 3) 숫자 중복(bold_dup의 숫자 버전) — 1)과 같은 원인인데, 한글만 collapse
+#    대상이었어서 "22002244" 같은 연도 숫자 중복은 처음엔 일부러 안 고쳤음
+#    (숫자를 넣으면 "0000년", "000000" 같은 생년월일/주민번호 익명화
+#    마스킹까지 다 지워버리는 오탐이 있었기 때문 — 처음 시도 때 발견).
+#    구분법: 마스킹은 항상 "같은 숫자 하나"만 반복(0000, 000000)되는 반면,
+#    진짜 버그는 "서로 다른 숫자가 섞여서" 반복됨(2,2,0,0,2,2,4,4).
+#    -> 매칭된 구간 안에 서로 다른 숫자가 2개 이상 있을 때만 collapse.
+#
+# 4) 표 placeholder 잡음 제거 — 표가 있던 자리에 "표"라는 단어 한 줄만
+#    남는 경우(27,128건, §"별도 문제" 참고), 검색 화면에서 표를 이미지로
+#    보여줄 방법이 없으니 이 한 단어는 정보 없는 잡음일 뿐. 줄 전체가
+#    "표" 하나뿐인 라인만 제거 (문장 중간의 "[표 14]" 같은 정상적인
+#    "표" 언급은 안 건드림).
+#
+# 이 네 가지로도 못 고치는 별개 문제(재추출 필요, 이 스크립트 범위 밖):
 #   - raw_text가 50자 미만인데 parsing_quality가 fallback이 아닌 문서
 #   - 인코딩이 깨져 치환문자(U+FFFD)가 섞인 문서
-#   - 표가 있던 자리에 실제 표 내용 대신 "표"라는 placeholder 한 단어만
-#     남고, 그걸 빼면 전체 300자도 안 되는 문서 (표 파싱 실패의 세 번째
-#     변종 — 이건 XML도 라벨도 안 남고 아예 내용이 없어짐)
+#   - 표 placeholder를 빼면 전체 300자도 안 되는 문서 (표 파싱 실패로
+#     내용 자체가 없어진 경우 — 4)번은 잡음만 치울 뿐 내용을 만들어내진
+#     못하므로 이 문서들은 여전히 내용이 빈 채로 남음)
 #   -> 총 1,765건 (2026-08-07 기준), 별도 재추출 워크스트림으로 분리.
 #      텍스트 치환으로 복구 불가능하므로 이 스크립트로는 처리 안 함.
 #
@@ -54,6 +68,7 @@ import re
 import psycopg2
 
 CHAIN_RE = re.compile(r"(?:([가-힣])\1{1,3} ?){2,}")
+DIGIT_CHAIN_RE = re.compile(r"(?:(\d)\1{1,3} ?){2,}")
 TAG_ATTR_RE = re.compile(r'\b[\w:]+="[^"]*"')
 TAG_NAME_RE = re.compile(r"/?\bhp:[A-Za-z]+\b")
 HWP_LEAK_MARKER = re.compile(r"hp:run|hp:lineseg|hp:sz|hp:pos")
@@ -76,6 +91,42 @@ def fix_duplicated_chars(text: str, max_passes: int = 5) -> str:
     return text
 
 
+def _collapse_digit_pass(text: str) -> str:
+    def collapse(m: re.Match) -> str:
+        span = m.group(0)
+        # 익명화 마스킹("0000년", "000000")은 같은 숫자 하나만 반복되므로
+        # 구분해서 보호 — 서로 다른 숫자가 2개 이상 섞여 있을 때만 진짜
+        # 중복 버그로 판단 (예: "22002244" -> 2,0,4 세 종류 -> collapse)
+        if len(set(c for c in span if c.isdigit())) < 2:
+            return span
+        return re.sub(r"(\d)\1+", r"\1", span)
+    return DIGIT_CHAIN_RE.sub(collapse, text)
+
+
+def fix_duplicated_digits(text: str, max_passes: int = 5) -> str:
+    """숫자 중복(bold_dup의 숫자 버전, 예: 연도 "22002244" -> "2024") 수정.
+    생년월일/주민번호 익명화 마스킹("0000년", "000000")은 안 건드림."""
+    for _ in range(max_passes):
+        new_text = _collapse_digit_pass(text)
+        if new_text == text:
+            break
+        text = new_text
+    return text
+
+
+def strip_table_placeholder(text: str) -> str:
+    """표(테이블) 내용이 통째로 사라지고 "표"라는 단어 한 줄만 남은 경우
+    제거. 검색 화면에서 표를 이미지로 보여줄 방법이 없으니 정보 없는
+    잡음일 뿐 — 줄 전체가 정확히 "표"뿐인 라인만 제거하고, 문장 중간의
+    "[표 14] 휴가 중..." 같은 정상적인 언급은 안 건드림.
+    주의: 표 안의 실제 내용까지 복원해주진 못함 — 그 내용이 통째로 사라진
+    문서(전체 300자 미만)는 여전히 재추출 대상으로 남음."""
+    lines = [line for line in text.split("\n") if line.strip() != "표"]
+    result = "\n".join(lines)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result.strip()
+
+
 def strip_hwpml_leak(text: str) -> str:
     """HWP XML 누출(hwp_leak) 수정. hp: 태그가 아예 없는 문서는 그대로
     반환 — 관련 없는 문서까지 공백/줄바꿈을 건드리는 사고 방지용 가드."""
@@ -91,8 +142,13 @@ def strip_hwpml_leak(text: str) -> str:
 
 
 def full_fix(text: str) -> str:
-    """hwp_leak을 먼저 벗겨서 구조를 정리한 다음, bold_dup을 collapse."""
-    return fix_duplicated_chars(strip_hwpml_leak(text))
+    """hwp_leak을 먼저 벗겨서 구조를 정리 -> 글자/숫자 중복 collapse ->
+    표 placeholder 잡음 제거, 순서로 적용."""
+    text = strip_hwpml_leak(text)
+    text = fix_duplicated_chars(text)
+    text = fix_duplicated_digits(text)
+    text = strip_table_placeholder(text)
+    return text
 
 
 def _update_changed_rows(cur, conn, table: str, col: str, rows: list, batch_size: int = 500) -> int:
