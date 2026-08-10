@@ -4,7 +4,9 @@ import { searchCases } from "../api.js";
 import ResultCard from "../components/ResultCard.jsx";
 import { addRecentSearch, getRecentSearches } from "../recentSearches.js";
 
-const TOTAL_CASES = "72,913";
+// 2026-08-10 데이터 품질 정리(재추출 불가 문서 삭제)로 72,913 -> 67,751건으로 조정됨
+// (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
+const TOTAL_CASES = "67,751";
 const EXAMPLE_QUERIES = ["수의계약 특혜", "보조금 부정수급", "초과근무수당 부당지급"];
 
 export default function SearchPage() {
