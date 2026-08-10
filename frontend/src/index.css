@@ -1,0 +1,284 @@
+:root {
+  --text: #3f3d45;
+  --text-h: #08060d;
+  --text-muted: #7a7783;
+  --bg: #fff;
+  --bg-subtle: #f7f6f9;
+  --border: #e5e4e7;
+  --accent: #7a3bff;
+  --accent-contrast: #fff;
+  --badge-high-bg: #e6f6ec;
+  --badge-high-text: #1c7c40;
+  --badge-partial-bg: #fdf1e0;
+  --badge-partial-text: #a15c07;
+  --danger-bg: #fdeaea;
+  --danger-text: #b3261e;
+
+  font: 16px/1.6 system-ui, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #d4d2d9;
+    --text-h: #f3f2f6;
+    --text-muted: #9b98a5;
+    --bg: #15141a;
+    --bg-subtle: #1d1c24;
+    --border: #2e2c37;
+    --accent: #a682ff;
+    --accent-contrast: #15141a;
+    --badge-high-bg: #113822;
+    --badge-high-text: #6fd493;
+    --badge-partial-bg: #3a2a0d;
+    --badge-partial-text: #e3a94a;
+    --danger-bg: #3a1a1a;
+    --danger-text: #f19a94;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  min-height: 100svh;
+  padding: 0 20px 64px;
+}
+
+.app-header {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+/* 검색 페이지 */
+
+.search-lead {
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.search-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.search-form input {
+  flex: 1;
+  padding: 12px 14px;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.search-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.search-form button {
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.search-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.result-card {
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.result-card:hover {
+  border-color: var(--accent);
+}
+
+.result-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.result-card-institution {
+  font-weight: 600;
+  color: var(--text-h);
+  font-size: 14px;
+}
+
+.result-card-preview {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 배지 */
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-high {
+  background: var(--badge-high-bg);
+  color: var(--badge-high-text);
+}
+
+.badge-partial {
+  background: var(--badge-partial-bg);
+  color: var(--badge-partial-text);
+}
+
+/* 상세 페이지 */
+
+.back-link {
+  display: inline-block;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.back-link:hover {
+  color: var(--accent);
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.detail-institution {
+  font-weight: 600;
+  color: var(--text-h);
+  font-size: 15px;
+}
+
+.summary-list {
+  margin: 0 0 28px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summary-item dt {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.summary-item dd {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.summary-failed-notice {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--badge-partial-bg);
+  color: var(--badge-partial-text);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+.raw-text-toggle {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.raw-text {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+/* 상태 메시지 */
+
+.loading-message,
+.empty-message {
+  color: var(--text-muted);
+}
+
+.error-message {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 14px;
+}

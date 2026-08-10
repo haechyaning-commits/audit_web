@@ -7,6 +7,7 @@ await로 바로 처리하고, CPU 연산인 임베딩 인코딩만 asyncio.to_th
 비동기를 지원 안 해서 동기 함수로 남겨둠).
 """
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import db, embedding, repository, summary
 from .schemas import DocumentDetail, SearchResponse, SearchResultCard
@@ -43,6 +45,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="공공감사데이터 검색 API", lifespan=lifespan)
+
+# 프론트엔드(별도 origin에서 fetch로 호출)가 브라우저에서 API를 부를 수 있게 CORS 허용.
+# 로컬 개발(Vite 기본 포트)은 기본값으로 항상 열어두고, 배포된 프론트(Vercel) origin은
+# FRONTEND_ORIGIN 환경변수로 추가 — 와일드카드(*)를 쓰면 자격증명 포함 요청이 막히므로
+# 명시적 origin 목록을 씀
+_default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_extra_origin = os.environ.get("FRONTEND_ORIGIN", "").strip()
+allowed_origins = _default_origins + ([_extra_origin] if _extra_origin else [])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
