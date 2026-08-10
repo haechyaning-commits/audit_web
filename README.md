@@ -7,7 +7,8 @@
 
 감사실 실무자가 궁금한 사안을 자연어로 입력하면, RAG(검색+생성)로 유사한 공공감사 사례를 자동 추천하고 4줄 요약까지 보여주는 검색 서비스입니다.
 
-[ ] 배포 링크: (배포 완료 후 채우기)
+- 백엔드 API: https://auditweb-production-22b3.up.railway.app (`/health`, `/search?q=`, `/documents/{id}`)
+- [ ] 프론트엔드: (Vercel 배포 예정, 아직 미배포 — 배포 완료 후 채우기)
 
 ---
 
@@ -99,6 +100,6 @@
 
 ## 로컬에서 실행하기
 
-[ ] 백엔드 실행 방법
-[ ] 프론트엔드 실행 방법
-[ ] 환경변수 예시 (`.env.example`)
+- 백엔드: [`backend/README.md`](backend/README.md) 참고 (가상환경 설정, `.env` 구성, `uvicorn` 실행)
+- 프론트엔드: [`frontend/README.md`](frontend/README.md) 참고 (`npm install`, `.env` 구성, `npm run dev`)
+- 로컬에서 둘 다 띄우면 프론트(`:5173`)가 백엔드(`:8000`)를 자동으로 호출하도록 CORS가 기본 설정되어 있음

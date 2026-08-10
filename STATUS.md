@@ -2,6 +2,43 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🚀 Railway 재배포 + 실데이터 재검증 + PR #5(프론트엔드) main 병합 (2026-08-10, 코드 샌드박스 세션)
+
+**이 세션은 Railway/DB 자격증명이 없는 코드 샌드박스라 재배포 자체는 사용자가 직접 진행**,
+이 세션은 절차 안내 + 재배포 후 실데이터 검증 + PR 병합만 수행.
+
+### 완료
+- Railway 재배포 절차 안내(Root Directory=`backend`, `DATABASE_URL`/`OPENAI_API_KEY`/`PORT=8080`
+  환경변수, 도메인 타겟 포트 등 과거 트러블슈팅 내용 포함) → 사용자가 직접 재배포 진행
+- **실데이터 재검증 완료**: `https://auditweb-production-22b3.up.railway.app`
+  - `GET /health` → `{"status":"ok"}`
+  - `GET /search?q=출장비` (키워드 검색), `GET /search?q=상사가 부하직원 괴롭힘` (의미기반 검색 →
+    "직장 내 괴롭힘" 관련 실제 사례들과 정확히 매칭) 둘 다 실제 라이브 DB 기준 정상 응답 확인
+  - (참고: 이 세션의 headless 브라우저는 아웃바운드 프록시 특성상 외부 사이트 TLS 접속이
+    `ERR_CONNECTION_RESET`으로 막혀서 실제 화면을 직접 스크린샷하지는 못함 — `curl`로 받은 실제
+    JSON 응답을 별도로 렌더링해서 시각 확인용 이미지로 대체함. 다음에 또 이 문제 마주치면
+    "브라우저 트래픽만 프록시에서 리셋되고 curl/node http는 정상" 패턴으로 인지하고 바로 우회할 것)
+- **PR #5(`claude/frontend-work-7qu7t9`, 3주차 프론트엔드 구현) → `main` 병합 완료**
+  (충돌 없음, 병합 커밋 `79e17e4`). 병합 직후 Railway가 `main` 추적 중이라 자동 재배포 트리거됨 →
+  잠깐 전체 엔드포인트 502(`Application failed to respond`) 떴다가 재기동 후 정상 복구 확인
+  (재배포 중 일시적 502는 정상 — 당황하지 말 것)
+- 브랜치 정리 상태 확인: `claude/violence-document-search-08aegl`, `claude/frontend-work-7qu7t9`
+  둘 다 이제 `main`의 조상 커밋(고유 커밋 0개) — 원격에서 삭제해도 안전. 단, 이 세션은 git-level
+  push 권한이 막혀있어(`git push --delete` 403) 실제 삭제는 아직 못함 — 다음에 대시보드에서
+  수동 삭제하거나 push 권한 있는 세션에서 처리
+- README.md 갱신: 백엔드 API 배포 링크 채움(`/health` 등), "로컬에서 실행하기" 섹션을
+  `backend/README.md`/`frontend/README.md` 링크로 대체(이미 각 폴더에 상세 실행법이 있어서 중복 작성 안 함)
+
+### 다음
+- [ ] 프론트엔드 Vercel 배포 (Root Directory=`frontend`, `VITE_API_BASE_URL` 환경변수, 배포 후
+      Railway `FRONTEND_ORIGIN`에 Vercel 도메인 추가) — 사용자가 내일 진행 예정
+- [ ] Vercel 배포 URL 나오면 실제 화면으로 재검증(이번엔 진짜 스크린샷 가능한지 다시 시도)
+- [ ] README.md 프론트엔드 배포 링크 채우기
+- [ ] `claude/violence-document-search-08aegl`, `claude/frontend-work-7qu7t9` 원격 브랜치 삭제
+- [ ] README.md 남은 `[ ]` 항목(왜 만들었나/스크린샷/검색 품질 검증/한계와 다음 계획/비용)은
+      사용자의 개인 경험·실측치가 필요해서 이 세션이 임의로 채우지 않음 — 직접 채우거나 내용
+      불러주면 정리해서 반영 가능
+
 ## 🎨 검색/상세페이지 UI 대규모 개선 (2026-08-10, 실제 백엔드 연동 후 이어서)
 
 **Railway 백엔드(CORS 수정 후)와 연결해서 프론트엔드 실데이터 검증 완료 → 이어서 사용자
