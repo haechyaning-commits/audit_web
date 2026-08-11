@@ -421,6 +421,67 @@ body {
   color: var(--text-muted);
 }
 
+/* 연도별 막대그래프 (YearChart.jsx) — 미리보기에서 고른 A안(세로 막대). 데이터 없으면
+   컴포넌트 자체가 null 반환이라 이 CSS는 데이터 채워진 뒤에만 적용됨 */
+.year-chart {
+  margin-top: 20px;
+  padding: 18px 20px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: left;
+}
+.year-chart-title {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.year-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  height: 110px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+.year-chart-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+.year-chart-val {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.year-chart-bar {
+  width: 100%;
+  max-width: 30px;
+  border-radius: 4px 4px 0 0;
+  background: var(--primary-10);
+}
+.year-chart-bar.is-latest {
+  background: var(--primary);
+}
+.year-chart-labels {
+  display: flex;
+  gap: 14px;
+  padding: 6px 4px 0;
+}
+.year-chart-labels span {
+  flex: 1;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  max-width: 30px;
+  margin: 0 auto;
+}
+
 /* 본문 */
 .app-body {
   flex: 1;

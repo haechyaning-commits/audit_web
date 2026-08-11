@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import ResultCard from "../components/ResultCard.jsx";
+import YearChart from "../components/YearChart.jsx";
 
 // 2026-08-10 데이터 품질 정리(재추출 불가 문서 삭제)로 72,913 -> 67,751건으로 조정됨
 // (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
 const TOTAL_CASES = "67,751";
+
+// 연도별 문서 수 — DB 재적재/정리(2026-08-11 DB 복구) 끝나면 아래 쿼리 결과로 채울 것:
+//   SELECT year, count(*) FROM documents GROUP BY year ORDER BY year;
+// 비어있는 동안은 YearChart가 아무것도 렌더링 안 함(가짜 숫자 노출 방지).
+const YEAR_COUNTS = [];
 // 키워드형/문장형을 섞어서 어느 쪽으로 검색해도 되는 걸 예시로 같이 보여줌
 const EXAMPLE_QUERIES = [
   "수의계약 특혜",
@@ -155,6 +161,8 @@ export default function SearchPage({ search }) {
                 <span className="stat-card-label">사례 클릭 시 온디맨드 생성</span>
               </div>
             </div>
+
+            <YearChart data={YEAR_COUNTS} />
           </div>
         </section>
       )}
