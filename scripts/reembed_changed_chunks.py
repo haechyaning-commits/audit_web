@@ -1,15 +1,22 @@
 # ------------------------------------------------------------------
-# 변경된 chunk 재임베딩 + DB 반영 스크립트 (2026-08-07 데이터 품질 사고 2차 수정용)
+# 변경된 chunk 재임베딩 + DB 반영 스크립트
 # ------------------------------------------------------------------
-# fix_text_corruption.py 실행 후 같은 디렉터리에 생긴 reembed_input_2.jsonl
+# fix_text_corruption.py 실행 후 같은 디렉터리에 생긴 reembed_input.jsonl
 # (바뀐 chunk의 chunk_id + 수정된 text)을 입력으로 받아:
 #   1) BGE-m3(GPU)로 재임베딩
 #   2) chunks.embedding UPDATE
 # 텍스트만 고치고 벡터를 그대로 두면 검색은 여전히 옛날(오염된) 텍스트 기준
 # 벡터로 동작하므로 반드시 필요한 단계 (1차 때와 동일한 이유).
 #
-# Colab에서 GPU 런타임으로 실행 (런타임 -> 런타임 유형 변경 -> T4 GPU).
-# 노트북 셀에 이 파일 내용을 그대로 붙여넣어 실행하면 됨.
+# **중요: 반드시 Colab 노트북 셀에 이 파일 내용을 그대로 붙여넣어서 실행할 것.**
+# `!python scripts/reembed_changed_chunks.py`처럼 서브프로세스로 돌리면 안 됨 —
+# google.colab.userdata가 Colab 프론트엔드(커널)와 통신해야 하는데 서브프로세스에서는
+# 그 연결이 없어서 실패하고, 그 시점까지 계산한 임베딩(수십 분 분량의 GPU 연산)이
+# 서브프로세스 메모리와 함께 통째로 날아감(2026-08-11 데이터 복구 중 실제로 겪음).
+#
+# Colab에서 GPU 런타임으로 실행 (런타임 -> 런타임 유형 변경 -> T4 GPU) — 중간에
+# 런타임이 바뀌면(재시작되면) 이 파일이 만든 로컬 임시 파일도 같이 날아가니, 반드시
+# 맨 처음부터 GPU 런타임으로 시작할 것.
 #
 # 대상 건수가 embed_chunks.py의 12만 건 배치와는 규모가 다르게 적을 것으로
 # 예상되어(수백~수천 건 수준) 체크포인트/재개 인프라는 일부러 생략함 —
@@ -19,14 +26,14 @@
 # !pip install -q FlagEmbedding psycopg2-binary pgvector
 
 import json
+import os
 
 import numpy as np
 import psycopg2
 from FlagEmbedding import BGEM3FlagModel
-from google.colab import userdata
 from pgvector.psycopg2 import register_vector
 
-INPUT_PATH = "reembed_input_2.jsonl"  # fix_text_corruption.py가 저장한 위치와 동일 디렉터리 기준
+INPUT_PATH = "reembed_input.jsonl"  # fix_text_corruption.py의 export_reembed_input() 기본 저장 위치와 일치시킴
 BATCH_SIZE = 64
 MAX_LENGTH = 1024  # 청킹 시 max_length와 반드시 일치해야 함 (embed_chunks.py와 동일 값)
 
@@ -81,7 +88,15 @@ if abs(norms.mean() - 1.0) > 0.01:
 # ------------------------------------------------------------------
 # 3) chunks.embedding UPDATE
 # ------------------------------------------------------------------
-DATABASE_URL = userdata.get("DATABASE_URL")
+# os.environ에 이미 값이 있으면 그걸 우선 씀(예: 노트북 앞부분에서
+# os.environ["DATABASE_URL"] = userdata.get("DATABASE_URL")로 미리 세팅해둔 경우) —
+# userdata.get()을 여기서 또 부르면 커널 연결이 끊긴 상태일 때 실패할 수 있어서(위 경고 참고),
+# 가능하면 os.environ 값을 재사용해 그 위험을 줄임.
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    from google.colab import userdata
+
+    DATABASE_URL = userdata.get("DATABASE_URL")
 conn = psycopg2.connect(DATABASE_URL)
 register_vector(conn)  # numpy 배열을 pgvector 타입으로 직접 바인딩 가능하게 함
 
