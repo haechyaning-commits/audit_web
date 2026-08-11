@@ -2,6 +2,67 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🎉 4주차 배포 완료 — 프론트엔드 Vercel 배포 + 실서비스 최종 확인 (2026-08-11)
+
+**development-plan.md 4주차 목표(배포) 완료.** 사용자가 Vercel 대시보드를 직접 조작하고, 이
+세션은 절차 안내 + `vercel.json` 준비(코드) + curl로 실데이터 검증을 담당하는 방식으로 진행.
+
+### 겪은 문제 + 해결 (전부 이번 세션에 처리됨)
+- **GitHub 계정 꼬임** — 레포 소유 계정(`haechyaning-commits`)과 평소 쓰던 Vercel 로그인
+  계정(GitHub `eemiso` 연결)이 서로 달라서 Import 화면에 `audit_web`이 안 보였음. 해결: Vercel
+  드롭다운의 **"Switch Git Provider"**로 연결된 Git 계정을 `haechyaning-commits`로 전환 →
+  바로 해결됨 (`+Add GitHub Account`로 두 번째 계정을 추가하는 방식은 이 Vercel 계정 구조상
+  안 먹혔음 — 개인 Vercel 계정은 Git 연결이 1개로 고정되는 듯)
+- **상세페이지 새로고침 404** — `react-router-dom` 클라이언트 라우트(`/documents/:id`)용
+  `vercel.json` rewrite 설정이 없어서 발생. `frontend/vercel.json` 신규 추가
+  (`{"rewrites": [{"source": "/(.*)", "destination": "/index.html"}]}`), 처음엔 작업 브랜치에만
+  커밋했다가 Vercel이 `main` 기준으로 배포한다는 걸 뒤늦게 확인 → **`main`에 직접 push**
+  (커밋 `74b5192`, 사용자 명시적 승인 받고 진행)
+- **Railway 백엔드가 완전히 죽어있었음** — 지난 세션 종료 후 방치된 상태였는지 `/health`가
+  Railway 엣지 레벨 404(`Application not found`, `x-railway-fallback: true`)를 반환.
+  재배포 진행하며 연쇄적으로 문제 3개 발견/해결:
+  1. `DATABASE_URL`에 진짜 값 대신 `호스트:포트` 같은 **한글 플레이스홀더 텍스트가 그대로
+     들어있었음** (`ValueError: invalid literal for int(): '포트'`) → Colab 시크릿에 저장된
+     검증된 값으로 교체
+  2. 그다음엔 `DATABASE_URL` 자체가 비어있는 상태로 배포됨 → 다시 채워 넣음
+  3. 그래도 `unknown type: public.vector` 재발 → Colab에서 직접 그 값으로 연결해서
+     `pg_extension`에 `vector` 있는지, `documents` 카운트가 67,751건 맞는지 실측 검증(정상
+     확인) → 그런데도 Railway에서 계속 같은 에러 → 결국 도메인 라우팅 문제였음이 다음
+     항목에서 드러남
+  4. 앱 자체는 정상 기동(`Uvicorn running on 0.0.0.0:8080`)됐는데도 도메인이 계속
+     `Application not found` → 예전에도 겪었던 "도메인이 서비스에 아직 안 붙음" 문제로 판단,
+     **도메인 삭제 후 재생성**으로 해결 → 새 도메인
+     `auditweb-production-0dab.up.railway.app` 발급됨 (기존 `...22b3...`는 이제 죽은 URL)
+- **도메인이 바뀌어서 Vercel `VITE_API_BASE_URL` 재설정 필요** — 새 Railway 도메인으로
+  업데이트 후 Vercel 재배포(환경변수는 빌드 타임에 박히는 값이라 저장만으론 반영 안 됨,
+  redeploy 필수)
+
+### 최종 검증 (curl로 직접 확인, 전부 통과)
+- `GET /health` → `{"status":"ok"}`
+- `GET /search?q=출장비` → 실제 사례(전남대학교병원 "출장비 중복 수급" 등) 정상 반환
+- CORS: `Origin: https://audit-web-phi.vercel.app` 헤더로 요청 시
+  `access-control-allow-origin` 정상 응답
+- Vercel 빌드 산출물(JS 번들)에 새 Railway 도메인이 정확히 박혀있는지 직접 grep으로 확인
+- SPA 라우팅: `/documents/123` 새로고침 시 200 (더 이상 404 아님)
+
+### 배포 URL (최신)
+- 프론트엔드: https://audit-web-phi.vercel.app
+- 백엔드: https://auditweb-production-0dab.up.railway.app (도메인 바뀐 것 주의 — 옛날
+  `...22b3...` URL은 더 이상 안 씀)
+
+### README.md 갱신
+- 프론트엔드/백엔드 배포 링크를 위 최신 URL로 갱신 완료
+
+### 다음
+- [ ] README.md 남은 `[ ]` 항목(왜 만들었나 / 스크린샷 / 검색 품질 검증 / 한계와 다음 계획 /
+      비용) — 사용자의 개인 경험·실측치 필요, 여전히 미착수
+- [ ] `claude/violence-document-search-08aegl`, `claude/frontend-work-7qu7t9` 원격 브랜치 정리
+      (main에 이미 흡수됐지만 아직 안 지워짐)
+- [ ] Railway 도메인이 이번처럼 또 죽을 수 있으니, 다음에 이 문제 마주치면 "앱 로그부터
+      확인(정상 기동됐는지) → 정상인데도 404면 바로 도메인 재생성"으로 시간 절약할 것
+
+---
+
 ## 🚀 Railway 재배포 + 실데이터 재검증 + PR #5(프론트엔드) main 병합 (2026-08-10, 코드 샌드박스 세션)
 
 **이 세션은 Railway/DB 자격증명이 없는 코드 샌드박스라 재배포 자체는 사용자가 직접 진행**,

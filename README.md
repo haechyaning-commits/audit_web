@@ -7,8 +7,8 @@
 
 감사실 실무자가 궁금한 사안을 자연어로 입력하면, RAG(검색+생성)로 유사한 공공감사 사례를 자동 추천하고 4줄 요약까지 보여주는 검색 서비스입니다.
 
-- 백엔드 API: https://auditweb-production-22b3.up.railway.app (`/health`, `/search?q=`, `/documents/{id}`)
-- [ ] 프론트엔드: (Vercel 배포 예정, 아직 미배포 — 배포 완료 후 채우기)
+- 프론트엔드(검색 화면): https://audit-web-phi.vercel.app
+- 백엔드 API: https://auditweb-production-0dab.up.railway.app (`/health`, `/search?q=`, `/documents/{id}`)
 
 ---
 
