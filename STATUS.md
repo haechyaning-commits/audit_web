@@ -2,6 +2,103 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🚨 Railway DB 실수로 삭제 → 전체 복구 진행 중 + UI 대량 손질 (2026-08-11, 배포 완료 이어서)
+
+### ⏭️ 다음 세션은 여기부터 (진행 중 상태로 끊길 경우)
+- **재임베딩(6단계)이 Colab에서 진행 중**이었음 — 완료 여부부터 확인
+- 완료됐으면 → **7단계(재추출 불가 문서 제거)**부터 이어서: `find_unrecoverable()` 결과가
+  5,162건 근처면 정상(재검토 불필요, 이미 결론 남), `delete_unrecoverable()` 실행
+- → **8단계(인덱스 생성)**: Railway Query 탭에 `schema_indexes.sql` 실행 (공유메모리 에러
+  뜨면 `SET max_parallel_maintenance_workers = 0;` 먼저)
+- → **9단계(최종 확인)**: documents 67,751건 근처, chunks 카운트 확인
+- → **백엔드(FastAPI) 재배포 필요** — 새 DB(`DATABASE_URL`이 이번에 또 바뀌었을 수 있음),
+  `OPENAI_API_KEY`/`FRONTEND_ORIGIN`도 다시 설정 필요. Vercel `VITE_API_BASE_URL`도 새 백엔드
+  도메인으로 갱신 + 재배포
+- → 다 되면 **연도별 문서 수 쿼리** 돌려서 `SELECT year, count(*) FROM documents GROUP BY year
+  ORDER BY year;` 결과를 `frontend/src/pages/SearchPage.jsx`의 `YEAR_COUNTS` 배열에 채우기
+  (지금은 빈 배열이라 `YearChart` 컴포넌트가 화면에 안 뜨는 상태 — 채우면 바로 나타남)
+- → **6번 이슈(4줄 요약 안 됨) 재확인** — DB가 완전히 새로 적재된 거라 `summary_failed` 캐싱
+  문제는 자동으로 해결된 상태. `OPENAI_API_KEY`만 맞으면 정상 작동할 것
+
+### 사고 경위
+Railway 백엔드 서비스를 "비용 관리 목적으로 지워도 되냐"는 질문에 세션이 "예전에 하시던
+패턴(백엔드 서비스만 삭제, Postgres는 유지)이면 괜찮다"고 답했는데, **실제로는 Postgres DB
+자체를 지우고 다시 "Add"로 새로 만드신 상태**였음 — 확인 없이 답한 세션 쪽 실수. 그 결과
+67,751건 문서 + 96,355건 청크(벡터 포함) 데이터가 전부 날아감.
+
+### 복구 경로 확인
+- 로컬 CSV 백업(전에 진단용으로 만들었던 것) 있는지 Drive 전체 검색해봤으나 **없음** —
+  다른 프로젝트(`dacon_medical`) 파일만 발견됨
+- 원본 소스 파일(`documents_final.jsonl`, `chunks_final.jsonl`, 임베딩)은 Google Drive에
+  그대로 남아있어 **전체 파이프라인 재실행으로 복구 가능**하다고 판단, 처음부터 재실행 시작
+
+### 복구 파이프라인 (오늘 실행한 순서, 다음에 또 필요하면 참고)
+0. Colab GPU 런타임으로 먼저 시작 (중간 재시작 방지 — 안 그러면 로컬 임시파일 날아감,
+   실제로 한 번 이렇게 날려서 재임베딩을 처음부터 다시 함)
+1. Drive 마운트 + 레포 클론 + `DATABASE_URL`을 Colab 시크릿에서 로드
+2. Railway Query 탭에 `schema_tables.sql` 실행 (테이블만, 인덱스는 맨 마지막)
+3. `python scripts/load_to_postgres.py` — 원본 72,913건/96,355건 그대로 적재
+4. `python scripts/fix_text_corruption.py` — 1차+2차 텍스트 오염 수정 통합 적용
+   (이번엔 documents 28,027건 / chunks 34,727건 수정 대상 — 예전 개별 라운드 합계랑
+   정확히 똑같진 않은데, 로직이 통합돼서 그런 거라 정상 범위로 판단)
+5. 재임베딩(`reembed_changed_chunks.py` 내용을 **노트북 셀에 직접 붙여넣어** 실행) — 이거
+   34,727건, 배치당 약 6.5~7초라 총 60~70분 정도 소요
+
+### 이 과정에서 겪은 사고들 (전부 해결, 다음에 또 겪으면 바로 인지할 것)
+- **Public Networking 꺼짐** — 새로 만든 Postgres는 기본적으로 외부 접속(Colab 등)이 막혀있음.
+  Railway Postgres 서비스 → Settings → Networking → **"Add Public Access"** 눌러야
+  `DATABASE_PUBLIC_URL`이 생기고 외부 연결 가능해짐
+- **`vector type not found`** — `CREATE EXTENSION IF NOT EXISTS vector;`를 안 돌린 상태에서
+  적재 스크립트를 돌려서 발생. `schema_tables.sql`을 먼저 전체 실행해야 함
+- **`relation "documents" does not exist`** — 확장만 만들고 테이블(`CREATE TABLE`)은 아직 실행
+  안 한 상태였음. `schema_tables.sql` 전체를 다 돌려야 함
+- **`AttributeError: 'NoneType' object has no attribute 'kernel'`** (재임베딩 1차 시도) —
+  `reembed_changed_chunks.py`를 `!python scripts/...py`로 서브프로세스 실행해서, 그 안에서
+  부르는 `google.colab.userdata.get()`이 Colab 프론트엔드(커널)에 접근을 못 해 실패함. 이
+  스크립트는 원래 주석에도 "노트북 셀에 파일 내용 그대로 붙여넣어 실행"이라고 적혀 있었는데
+  세션이 `!python`으로 잘못 안내함 → **34,727건 임베딩(약 60분 분량)이 서브프로세스 메모리와
+  함께 통째로 날아가서 처음부터 재실행**해야 했음. 교훈: 이 스크립트류는 반드시 셀에 직접
+  붙여넣어서 실행할 것, `!python`으로 돌리지 말 것
+- **`reembed_input_2.jsonl` FileNotFoundError** — `fix_text_corruption.py`가 기본값으로
+  `reembed_input.jsonl`(2 없음)에 저장하는데, `reembed_changed_chunks.py`는
+  `reembed_input_2.jsonl`을 찾음. 파일명이 안 맞아서 `!cp reembed_input.jsonl
+  reembed_input_2.jsonl`로 이름 맞춰줘야 함 (스크립트 두 개 사이 네이밍 불일치, 코드 수정은
+  안 하고 우회만 함 — 나중에 여유 있으면 스크립트 쪽 정리해도 됨)
+
+### 같은 시간에 진행한 프론트엔드 UI 개선 (DB 복구랑 별개로, 코드 작업이라 기다리는 동안 병행)
+사용자 피드백 기반으로 여러 라운드 진행, 전부 커밋+push 완료(`main` 반영도 끝):
+1. **검색 결과 카드 정리** — 신뢰도 배지를 목록에서 제거(상세페이지엔 유지, TOP 순위랑
+   같이 있으면 혼란 줬음), 기관명/연도 분리 표시(긴 기관명이 연도까지 잘라먹던 문제 해결),
+   미리보기 6줄→4줄
+2. **백엔드 미리보기 텍스트 소스 변경** — `raw_text` 맨 앞 150자(정형화된 서류 양식 헤더라
+   검색어와 무관한 내용만 보였음) 대신 **실제 매치된 청크(`chunks.text`)** 사용하도록
+   `repository.py` SQL 수정. DB 복구 끝나고 재배포하면 적용됨
+3. **히어로 영역 "전체화면일 때 너무 비어보임" 개선** — 배경 장식(블롭 등) 대신 콘텐츠
+   자체를 키우는 방향으로 결정:
+   - `.hero-inner` 720px → 880px, 제목/부제 폰트를 `clamp()`로 화면 폭에 비례해서 확대
+   - 스탯카드 3개 추가(67,751건 데이터 / 벡터+키워드 검색 결합 / AI 4줄 요약 자동생성) —
+     패딩/아이콘도 넓은 화면에서 소폭 확대
+   - **연도별 막대그래프 컴포넌트(`YearChart.jsx`) 준비** — 미리보기에서 4가지 스타일(세로
+     막대/가로 막대 리스트/영역그래프/스파크라인) 보여주고 세로 막대(A안)로 확정. 데이터
+     없으면 null 반환해서 화면에 안 뜨는 안전장치 넣어둠 — DB 복구 끝나면 연도별 카운트
+     쿼리 결과를 `SearchPage.jsx`의 `YEAR_COUNTS`에 채우기만 하면 바로 나타남
+4. **검색창 placeholder 문장형으로 변경** ("예: 출장비 부당 집행 (검색창 포커스는 / 키)"
+   → "예: 직장 상사가 부하 직원을 지속적으로 괴롭혀서 신고하고 싶어요", 단축키 안내는
+   placeholder에서 제거)
+5. **예시 칩 키워드+문장형 혼합**으로 변경 (전부 키워드였던 것에서)
+6. **로고/타이틀 클릭 시 진짜 랜딩화면으로 초기화** (`useSearchState.resetSearch` 추가 —
+   예전엔 URL만 "/"로 바뀌고 검색 결과 상태가 안 지워져서 그대로 남아있었음)
+7. **헤더 좌우로 확장** (860px → 1400px, 전체화면일 때 로고/타이틀(좌)·BETA+다크모드(우)가
+   자연스럽게 벌어지게)
+8. **상세페이지**: 검색 컨텍스트 안내("'검색어'와 유사해서 노출된 사례") + 원문 하이라이트
+   추가, 원문(raw_text) 가독성 개선(이중스크롤 제거, 폰트/줄간격 확대)
+9. **원본 파일(HWP) 링크 연결은 보류** — DB에 원본 URL/파일 참조 필드 자체가 없어서 지금
+   데이터로는 불가능, 하려면 별도로 원본 소스에 사례별 URL이 있는지부터 확인 필요
+
+### 확인/완료된 것
+- `claude/violence-document-search-08aegl`, `claude/frontend-work-7qu7t9` 원격 브랜치 —
+  이미 삭제되어 있음 확인 (별도 조치 불필요)
+
 ## 🎉 4주차 배포 완료 — 프론트엔드 Vercel 배포 + 실서비스 최종 확인 (2026-08-11)
 
 **development-plan.md 4주차 목표(배포) 완료.** 사용자가 Vercel 대시보드를 직접 조작하고, 이
