@@ -60,9 +60,14 @@ SELECT
     doc.institution,
     doc.year,
     doc.parsing_quality,
-    left(doc.raw_text, 150) AS preview_text
+    -- 미리보기는 문서 맨 앞부분(raw_text)이 아니라 실제로 매치된 청크(c.text)에서 뽑음.
+    -- raw_text 맨 앞은 "제 목 : ... 징 계 종 류 : ..." 같은 정형화된 서류 양식 헤더라
+    -- 검색어랑 무관한 내용만 보여주는 문제가 있었음 — 매치된 청크를 쓰면 실제로
+    -- 검색어와 관련된 본문이 보일 확률이 훨씬 높아짐.
+    left(c.text, 200) AS preview_text
 FROM doc_deduped dd
 JOIN documents doc ON doc.id = dd.document_id
+JOIN chunks c ON c.id = dd.chunk_id
 ORDER BY dd.score DESC
 LIMIT $3;
 """
