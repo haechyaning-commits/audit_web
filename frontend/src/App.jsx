@@ -45,7 +45,7 @@ export default function App() {
 
       <header className={`app-header ${isScrolled ? "is-scrolled" : ""}`}>
         <div className="app-header-inner">
-          <Link to="/" className="app-logo-badge">
+          <Link to="/" className="app-logo-badge" onClick={search.resetSearch}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M12 2L4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z"
@@ -60,7 +60,7 @@ export default function App() {
               />
             </svg>
           </Link>
-          <Link to="/" className="app-title-group">
+          <Link to="/" className="app-title-group" onClick={search.resetSearch}>
             <span className="app-title">공공감사데이터 검색</span>
             <span className="app-tagline">감사 사례 유사사례 검색 서비스</span>
           </Link>

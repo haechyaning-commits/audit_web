@@ -20,6 +20,15 @@ export default function useSearchState() {
   const [error, setError] = useState(null);
   const [recentSearches, setRecentSearches] = useState(getRecentSearches);
 
+  // 헤더 로고/타이틀 클릭 시 진짜 첫 화면(히어로)으로 되돌아가기 위한 초기화.
+  // Link to="/"만으로는 URL만 바뀌고 이 훅의 results가 안 지워져서, 검색 결과 화면이
+  // "/"에서도 그대로 남아있는 문제가 있었음.
+  const resetSearch = useCallback(() => {
+    setResults(null);
+    setSearchedQuery("");
+    setError(null);
+  }, []);
+
   const runSearch = useCallback(async (q) => {
     const trimmed = q.trim();
     if (!trimmed) return;
@@ -39,5 +48,5 @@ export default function useSearchState() {
     }
   }, []);
 
-  return { results, searchedQuery, loading, error, recentSearches, runSearch };
+  return { results, searchedQuery, loading, error, recentSearches, runSearch, resetSearch };
 }

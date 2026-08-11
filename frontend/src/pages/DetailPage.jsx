@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getCaseDetail, getCaseSummary } from "../api.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
+import highlightMatches from "../highlight.jsx";
 
 const SUMMARY_FIELDS = [
   { key: "summary_point", label: "지적사항" },
@@ -142,8 +143,21 @@ export default function DetailPage() {
           <ConfidenceBadge label={doc.confidence} />
         </div>
 
+        {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
+            알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}
+        {query && (
+          <p className="search-context-note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            '<strong>{query}</strong>' 검색 결과와 유사해서 노출된 사례입니다 — 아래 원문에서
+            일치하는 부분을 표시했습니다
+          </p>
+        )}
+
         {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리) */}
-        <pre className="raw-text">{doc.raw_text}</pre>
+        <pre className="raw-text">{query ? highlightMatches(doc.raw_text, query) : doc.raw_text}</pre>
       </div>
 
       <div className="summary-card">

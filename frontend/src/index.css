@@ -111,7 +111,7 @@ body {
   letter-spacing: 0.1px;
 }
 .util-bar-inner {
-  max-width: 860px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
@@ -149,7 +149,10 @@ body {
   box-shadow: 0 2px 10px rgba(16, 24, 40, 0.08);
 }
 .app-header-inner {
-  max-width: 860px;
+  /* 좁은 화면 기준(860px)보다 넓게 잡아서, 전체화면일 때 로고/타이틀은 왼쪽, BETA+다크모드
+     버튼은 오른쪽으로 자연스럽게 벌어지도록 함 (header-actions가 margin-left:auto라
+     컨테이너를 넓히면 자동으로 우측 끝에 붙음) */
+  max-width: 1400px;
   margin: 0 auto;
   padding: 14px 24px;
   display: flex;
@@ -386,7 +389,7 @@ body {
 }
 
 .app-main {
-  max-width: 1120px;
+  max-width: 1000px;
   margin: 0 auto;
   width: 100%;
   padding: 32px 24px 0;
@@ -693,6 +696,28 @@ body {
   font-size: 16px;
 }
 
+/* 검색 결과에서 이어져 들어왔을 때(?q= 있음), 왜 이 사례가 나왔는지 알려주는 안내 —
+   원문 안 하이라이트(.raw-text mark)와 짝을 이룸 */
+.search-context-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--gray-5);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.search-context-note svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.search-context-note strong {
+  color: var(--text-heading);
+}
+
 .ai-notice {
   display: flex;
   align-items: center;
@@ -807,17 +832,25 @@ body {
 
 .raw-text {
   margin: 0;
-  padding: 16px;
+  padding: 22px 24px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--gray-5);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.6;
-  max-height: 480px;
-  overflow-y: auto;
+  /* 예전엔 max-height 480px로 가둬서 페이지 스크롤 안에 또 스크롤이 생기는 이중스크롤
+     구조였음 — 제거하고 페이지 흐름을 따라가도록 함. 폰트/줄간격도 키워서 읽기 편하게 */
+  font-size: 15.5px;
+  line-height: 1.9;
+  letter-spacing: -0.1px;
+}
+.raw-text mark {
+  background: var(--primary-5);
+  color: var(--primary-dark);
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 2px;
 }
 
 /* 4줄 요약 카드 — 원문(detail-card)과 분리, "요약보기" 눌러야 채워짐 (§4.5 온디맨드) */
