@@ -4,21 +4,53 @@
 
 ## 🚨 Railway DB 실수로 삭제 → 전체 복구 진행 중 + UI 대량 손질 (2026-08-11, 배포 완료 이어서)
 
-### ⏭️ 다음 세션은 여기부터 (진행 중 상태로 끊길 경우)
-- **재임베딩(6단계)이 Colab에서 진행 중**이었음 — 완료 여부부터 확인
-- 완료됐으면 → **7단계(재추출 불가 문서 제거)**부터 이어서: `find_unrecoverable()` 결과가
-  5,162건 근처면 정상(재검토 불필요, 이미 결론 남), `delete_unrecoverable()` 실행
-- → **8단계(인덱스 생성)**: Railway Query 탭에 `schema_indexes.sql` 실행 (공유메모리 에러
-  뜨면 `SET max_parallel_maintenance_workers = 0;` 먼저)
-- → **9단계(최종 확인)**: documents 67,751건 근처, chunks 카운트 확인
-- → **백엔드(FastAPI) 재배포 필요** — 새 DB(`DATABASE_URL`이 이번에 또 바뀌었을 수 있음),
-  `OPENAI_API_KEY`/`FRONTEND_ORIGIN`도 다시 설정 필요. Vercel `VITE_API_BASE_URL`도 새 백엔드
-  도메인으로 갱신 + 재배포
-- → 다 되면 **연도별 문서 수 쿼리** 돌려서 `SELECT year, count(*) FROM documents GROUP BY year
-  ORDER BY year;` 결과를 `frontend/src/pages/SearchPage.jsx`의 `YEAR_COUNTS` 배열에 채우기
-  (지금은 빈 배열이라 `YearChart` 컴포넌트가 화면에 안 뜨는 상태 — 채우면 바로 나타남)
+### ⏭️ 다음 세션(내일)은 여기부터
+**진행 순서(1~5까지는 이미 완료, 6번 재임베딩만 진행 중 상태로 오늘 끊김):**
+1. ~~스키마 생성~~ ✅
+2. ~~원본 데이터 적재(72,913건/96,355건)~~ ✅
+3. ~~텍스트 오염 수정(documents 28,027건/chunks 34,727건)~~ ✅ — DB 반영까지 완료, 안전함
+4. ~~재추출 불가 문서 제거(75건 — 이번엔 5,162건이 아니라 75건만 나왔는데, 이유는 아래
+   "문서 개수 관련 참고" 항목 참고, 버그 아님)~~ ✅ — documents 67,751건, chunks 89,301건으로
+   확정됨(예전 정상 상태와 정확히 일치)
+5. ~~인덱스는 아직 X (아래 8번에서 진행)~~
+6. **재임베딩 — 오늘 세 번째 시도 중 끊김.** 체크포인트 기능을 추가해뒀으니(아래 "재임베딩
+   반복 크래시" 참고) 내일은 **`scripts/reembed_changed_chunks.py` 최신 버전**(체크포인트
+   지원) 그대로 셀에 붙여넣어 실행 — 중간까지 됐던 건 자동으로 건너뛰고 이어서 함.
+   입력 파일(`reembed_input.jsonl`)과 체크포인트(`reembed_checkpoint.jsonl`)는 Google
+   Drive(`MyDrive/audit_project/`)에 있음 — `INPUT_PATH`를 이 Drive 경로로 직접 지정해서
+   실행할 것 (로컬 `/content` 복사 불필요)
+7. → 재임베딩 끝나면 **인덱스 생성**: Railway Query 탭에 `scripts/schema_indexes.sql` 실행
+   (공유메모리 에러 뜨면 `SET max_parallel_maintenance_workers = 0;` 먼저 실행)
+8. → **최종 확인**: documents 67,751건, chunks 89,301건 카운트 재확인
+9. → **백엔드(FastAPI) 재배포 필요** — 새 DB(`DATABASE_URL`)로 연결, `OPENAI_API_KEY`/
+   `FRONTEND_ORIGIN` 환경변수도 다시 설정. Railway 도메인이 또 바뀔 수 있음(이번 사고 전에도
+   한 번 바뀐 적 있었음)
+10. → Vercel `VITE_API_BASE_URL`을 새 백엔드 도메인으로 갱신 + 재배포
+11. → **연도별 문서 수 쿼리** 돌려서 `SELECT year, count(*) FROM documents GROUP BY year
+    ORDER BY year;` 결과를 `frontend/src/pages/SearchPage.jsx`의 `YEAR_COUNTS` 배열에 채우기
+    (지금은 빈 배열이라 `YearChart` 컴포넌트가 화면에 안 뜨는 상태 — 채우면 바로 나타남)
 - → **6번 이슈(4줄 요약 안 됨) 재확인** — DB가 완전히 새로 적재된 거라 `summary_failed` 캐싱
   문제는 자동으로 해결된 상태. `OPENAI_API_KEY`만 맞으면 정상 작동할 것
+
+### 재임베딩 반복 크래시 (오늘 세 번 걸림, 다음엔 체크포인트로 방지됨)
+- 1차: `!python scripts/reembed_changed_chunks.py`로 서브프로세스 실행 → `google.colab.userdata`가
+  Colab 커널과 통신 못 해서 DB 반영 직전에 크래시 → 34,727건 임베딩(약 1시간) 통째로 날아감
+- 2차: 같은 실수(`!python`)로 또 크래시, 또 날아감
+- 3차(오늘 마지막 시도): 셀에 직접 붙여넣어서 정상 진행 중이었으나, 사용자가 시간 제약으로
+  컴퓨터를 꺼야 해서 중간에 끊긴 상태로 오늘 세션 종료
+- **대응**: `scripts/reembed_changed_chunks.py`에 체크포인트 저장/재개 기능 추가(커밋
+  `63f306b`) — 배치마다 계산된 벡터를 Drive에 즉시 append 저장, 재실행 시 이미 된 것은
+  자동 스킵. 앞으로 이 문제로 시간 날릴 일 없음
+- **교훈**: 이런 장시간 GPU 스크립트는 반드시 ①노트북 셀에 직접 붙여넣기(`!python` 금지)
+  ②체크포인트를 Drive(로컬 `/content` 아님)에 저장, 이 두 가지를 기본값으로 할 것
+
+### 문서 개수 관련 참고 (헷갈렸던 부분, 결론은 문제없음)
+텍스트 수정 단계(`fix_text_corruption.py`)를 돌렸을 때 "documents 전체 67,826건 중..."으로
+찍혀서, 분명 72,913건을 적재했는데 왜 67,826건인지 세션이 완전히 해명은 못 했음. 재추출
+불가 문서 제거 단계에서 마저 75건이 추가로 빠지면서 최종 67,751건으로 맞아떨어졌는데, 이는
+예전(사고 전) 최종 확정치와 정확히 일치함. classify() 로직이 텍스트 내용 기준 결정론적이라
+그렇게 수렴한 것으로 추정 — 몇 건이 정확히 어느 시점에 빠졌는지 로그로 재구성은 안 했지만,
+최종 숫자가 목표치와 정확히 일치하므로 실질적 문제는 없다고 판단하고 넘어감.
 
 ### 사고 경위
 Railway 백엔드 서비스를 "비용 관리 목적으로 지워도 되냐"는 질문에 세션이 "예전에 하시던
