@@ -5,7 +5,13 @@ import ResultCard from "../components/ResultCard.jsx";
 // 2026-08-10 데이터 품질 정리(재추출 불가 문서 삭제)로 72,913 -> 67,751건으로 조정됨
 // (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
 const TOTAL_CASES = "67,751";
-const EXAMPLE_QUERIES = ["수의계약 특혜", "보조금 부정수급", "초과근무수당 부당지급"];
+// 키워드형/문장형을 섞어서 어느 쪽으로 검색해도 되는 걸 예시로 같이 보여줌
+const EXAMPLE_QUERIES = [
+  "수의계약 특혜",
+  "출장비를 부풀려 청구한 사례",
+  "보조금 부정수급",
+  "직장 상사가 부하직원을 괴롭힌 사례",
+];
 const PAGE_SIZE = 10; // 2열 x 5줄
 
 /**
@@ -100,7 +106,7 @@ export default function SearchPage({ search }) {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="예: 출장비 부당 집행 (검색창 포커스는 / 키)"
+                placeholder="예: 직장 상사가 부하 직원을 지속적으로 괴롭혀서 신고하고 싶어요"
                 aria-label="검색어"
               />
               <button type="submit" disabled={loading || !query.trim()}>
@@ -117,9 +123,38 @@ export default function SearchPage({ search }) {
               ))}
             </div>
 
-            <p className="stat-strip">
-              <b>{TOTAL_CASES}건</b>의 공공감사 사례를 학습한 검색입니다
-            </p>
+            <div className="stat-cards">
+              <div className="stat-card">
+                <span className="stat-card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.6" />
+                  </svg>
+                </span>
+                <span className="stat-card-num">{TOTAL_CASES}건</span>
+                <span className="stat-card-label">공공감사 사례 데이터</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <span className="stat-card-num">벡터 검색 + 키워드 검색 결합</span>
+                <span className="stat-card-label">RRF로 두 결과를 합쳐 랭킹</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
+                  </svg>
+                </span>
+                <span className="stat-card-num">AI 4줄 요약 자동 생성</span>
+                <span className="stat-card-label">사례 클릭 시 온디맨드 생성</span>
+              </div>
+            </div>
           </div>
         </section>
       )}
