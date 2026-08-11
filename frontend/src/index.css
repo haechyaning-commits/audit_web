@@ -287,18 +287,21 @@ body {
   justify-content: center;
 }
 .hero-inner {
-  max-width: 720px;
+  /* 720px -> 880px: 넓은 화면에서 히어로 콘텐츠 블록 자체가 너무 작게 떠 보이던
+     문제 완화 (배경 장식 없이 콘텐츠 크기로 빈 느낌을 줄이는 방향) */
+  max-width: 880px;
   margin: 0 auto;
 }
 .hero h1 {
-  font-size: 27px;
+  /* 화면 크기에 비례해서 커지도록 — 좁은 화면(27px)~넓은 화면(34px) 사이 */
+  font-size: clamp(27px, 2vw + 20px, 34px);
   font-weight: 800;
   color: var(--text-heading);
   letter-spacing: -0.5px;
   margin: 0 0 10px;
 }
 .hero p {
-  font-size: 14.5px;
+  font-size: clamp(14.5px, 0.6vw + 12.5px, 16.5px);
   color: var(--text-muted);
   margin: 0 0 26px;
 }
@@ -391,14 +394,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px;
+  padding: clamp(14px, 1vw + 10px, 20px) clamp(16px, 1vw + 12px, 22px);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
 }
 .stat-card-icon {
-  width: 30px;
-  height: 30px;
+  width: clamp(30px, 1.5vw + 24px, 38px);
+  height: clamp(30px, 1.5vw + 24px, 38px);
   border-radius: 8px;
   background: var(--primary-5);
   color: var(--primary-dark);
@@ -407,7 +410,7 @@ body {
   justify-content: center;
 }
 .stat-card-num {
-  font-size: 13.5px;
+  font-size: clamp(13.5px, 0.4vw + 12.5px, 15.5px);
   font-weight: 800;
   color: var(--text-heading);
   font-variant-numeric: tabular-nums;
