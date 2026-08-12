@@ -42,8 +42,18 @@ const HEADING_LABEL_PATTERNS = [
   /^[(（][^()（）]{1,20}[)）]$/, // (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우
 ];
 
-// 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고)
-const BULLET_RE = /^[-–—□○◦▪‣·]\s*\S/;
+// 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
+// "❍"(U+274D)도 실제 문서에서 "○"와 같은 용도로 쓰이는 걸 확인해서 추가함(4차, 아래 참고).
+const BULLET_RE = /^[-–—□○◦▪‣·❍]\s*\S/;
+
+// 2026-08-12 4차: 전처리 단계에서 표/그림 이미지 자체는 지웠지만, 표 안 내용이 셀 구분
+// 없이 텍스트로만 남아있는 경우가 있음(예: "근무일자 근태구분 직번 질병명 ~201905
+// 질병휴직 [부서] ..."). 이걸 일반 문단처럼 공백으로 이어붙이면 뜻 없는 단어 나열이라
+// 오히려 더 안 읽힘 — "【표 N】"/"[표 N]"/"【그림 N】"/"[그림 N]" 캡션 직후에 이어지는
+// 문단은 "표/그림에서 남은 조각"으로 보고 접어서(기본 숨김) 따로 표시함.
+// 실제 문서로 확인해보니 표 데이터 바로 뒤에 빈 줄 없이 "❍ ..." 같은 실제 문장이 곧바로
+// 이어지는 경우가 있어서, 그 경계를 잡으려면 BULLET_RE에 "❍"가 포함돼 있어야 함(위에서 추가).
+const TABLE_CAPTION_RE = /^[【[]\s*(표|그림)\s*\d*\s*[】\]]/;
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "body"(이어지는 일반 줄) / "blank"(빈 줄, 문단 구분)로 분류. */
@@ -72,6 +82,7 @@ function renderRawText(text, query) {
   const blocks = [];
   let para = [];
   let paraType = "body";
+  let nextIsTable = false; // 표/그림 캡션 바로 다음 문단인지
 
   function flushPara() {
     if (para.length === 0) return;
@@ -91,23 +102,36 @@ function renderRawText(text, query) {
     if (kind === "heading") {
       flushPara();
       blocks.push({ type: "heading", text: trimmed });
+      nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
     }
     if (kind === "bullet") {
-      flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리
+      flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리(표 캡션 뒤라도 여기서 끊음)
       paraType = "bullet";
+      nextIsTable = false;
       para.push(trimmed);
       continue;
+    }
+    if (para.length === 0 && nextIsTable) {
+      paraType = "table";
+      nextIsTable = false;
     }
     para.push(trimmed);
   }
   flushPara();
 
-  return blocks.map((b, i) => (
-    <div key={i} className={`raw-line raw-line-${b.type}`}>
-      {query ? highlightMatches(b.text, query) : b.text}
-    </div>
-  ));
+  return blocks.map((b, i) =>
+    b.type === "table" ? (
+      <details key={i} className="raw-line-table">
+        <summary>표/그림 데이터 (펼쳐보기)</summary>
+        <div>{query ? highlightMatches(b.text, query) : b.text}</div>
+      </details>
+    ) : (
+      <div key={i} className={`raw-line raw-line-${b.type}`}>
+        {query ? highlightMatches(b.text, query) : b.text}
+      </div>
+    ),
+  );
 }
 
 export default function DetailPage() {

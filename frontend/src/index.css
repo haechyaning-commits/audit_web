@@ -986,6 +986,34 @@ body {
 .raw-line-bullet {
   margin-top: 10px;
 }
+/* 표/그림 캡션 뒤에 셀 구분 없이 남은 텍스트 조각 — 문단처럼 흘려 읽으면 뜻 없는 단어
+   나열이라 오히려 방해돼서, 기본 접힌 <details>로 감싸 필요할 때만 펼쳐보게 함
+   (2026-08-12 4차 — 실제 문서에서 확인) */
+.raw-line-table {
+  margin: 6px 0 14px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--gray-5);
+}
+.raw-line-table summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+  user-select: none;
+}
+.raw-line-table summary:hover {
+  color: var(--text);
+}
+.raw-line-table > div {
+  padding: 0 12px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
 .raw-text mark {
   background: var(--primary-5);
   color: var(--primary-dark);
