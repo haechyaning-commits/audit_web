@@ -7,10 +7,22 @@ import YearChart from "../components/YearChart.jsx";
 // (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
 const TOTAL_CASES = "67,751";
 
-// 연도별 문서 수 — DB 재적재/정리(2026-08-11 DB 복구) 끝나면 아래 쿼리 결과로 채울 것:
+// 연도별 문서 수 (2026-08-12, DB 복구 후 재조회) — Railway Query 탭에서 실행:
 //   SELECT year, count(*) FROM documents GROUP BY year ORDER BY year;
-// 비어있는 동안은 YearChart가 아무것도 렌더링 안 함(가짜 숫자 노출 방지).
-const YEAR_COUNTS = [];
+// year가 NULL인 2건은 차트에 표시할 수 없어 제외(총합 67,751건 중 67,749건만 반영).
+const YEAR_COUNTS = [
+  { year: 2016, count: 4457 },
+  { year: 2017, count: 4552 },
+  { year: 2018, count: 4665 },
+  { year: 2019, count: 4927 },
+  { year: 2020, count: 4838 },
+  { year: 2021, count: 5113 },
+  { year: 2022, count: 5905 },
+  { year: 2023, count: 6014 },
+  { year: 2024, count: 12000 },
+  { year: 2025, count: 11762 },
+  { year: 2026, count: 3516 },
+];
 // 키워드형/문장형을 섞어서 어느 쪽으로 검색해도 되는 걸 예시로 같이 보여줌
 const EXAMPLE_QUERIES = [
   "수의계약 특혜",
