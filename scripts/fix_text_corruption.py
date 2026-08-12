@@ -73,6 +73,12 @@ TAG_ATTR_RE = re.compile(r'\b[\w:]+="[^"]*"')
 TAG_NAME_RE = re.compile(r"/?\bhp:[A-Za-z]+\b")
 HWP_LEAK_MARKER = re.compile(r"hp:run|hp:lineseg|hp:sz|hp:pos")
 
+# 2026-08-12 추가: 같은 bold_dup 렌더링 버그가 괄호/인용부호에도 나타남
+# ("｢｢업무용 차량...｣｣"처럼 여는/닫는 괄호가 겹쳐 나옴). 한글 글자 중복(CHAIN_RE)과
+# 달리 괄호는 "각각/종종" 같은 정상적으로 반복되는 단어가 있을 수 없어서, 단독으로
+# 나와도(연속 2회 이상 조건 없이) 항상 안전하게 1개로 줄여도 됨.
+BRACKET_DUP_RE = re.compile(r"([「」『』｢｣【】〔〕])\1+")
+
 
 def _collapse_pass(text: str) -> str:
     def collapse(m: re.Match) -> str:
@@ -114,6 +120,13 @@ def fix_duplicated_digits(text: str, max_passes: int = 5) -> str:
     return text
 
 
+def fix_duplicated_brackets(text: str) -> str:
+    """괄호/인용부호 중복(bold_dup의 괄호 버전) 수정 — "｢｢...｣｣"처럼 여는/닫는 괄호가
+    겹쳐 나오는 경우. 괄호는 절대 의미상 반복될 일이 없어 한글 글자 중복(CHAIN_RE)과
+    달리 "연속 2회 이상" 같은 안전장치 없이도 항상 1개로 줄여도 안전함."""
+    return BRACKET_DUP_RE.sub(r"\1", text)
+
+
 def strip_table_placeholder(text: str) -> str:
     """표(테이블) 내용이 통째로 사라지고 "표"라는 단어 한 줄만 남은 경우
     제거. 검색 화면에서 표를 이미지로 보여줄 방법이 없으니 정보 없는
@@ -142,11 +155,12 @@ def strip_hwpml_leak(text: str) -> str:
 
 
 def full_fix(text: str) -> str:
-    """hwp_leak을 먼저 벗겨서 구조를 정리 -> 글자/숫자 중복 collapse ->
+    """hwp_leak을 먼저 벗겨서 구조를 정리 -> 글자/숫자/괄호 중복 collapse ->
     표 placeholder 잡음 제거, 순서로 적용."""
     text = strip_hwpml_leak(text)
     text = fix_duplicated_chars(text)
     text = fix_duplicated_digits(text)
+    text = fix_duplicated_brackets(text)
     text = strip_table_placeholder(text)
     return text
 
