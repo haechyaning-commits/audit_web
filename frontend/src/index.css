@@ -314,6 +314,13 @@ body {
   border-radius: 14px;
   padding: 8px 8px 8px 20px;
   box-shadow: var(--shadow-hero);
+  transition: border-color 0.15s ease;
+}
+/* input:focus의 outline:none만 있고 대체 표시가 없어서, 키보드로 이 검색창에 포커스가
+   가도 전혀 티가 안 나던 접근성 문제(2026-08-12 발견) — 헤더 보조 검색창(.header-search)
+   과 동일하게 :focus-within으로 테두리 강조를 줌 */
+.search-form:focus-within {
+  border-color: var(--primary);
 }
 .search-form svg {
   flex-shrink: 0;
