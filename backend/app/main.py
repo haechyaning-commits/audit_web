@@ -20,6 +20,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from . import db, embedding, repository, summary
 from .schemas import DocumentDetail, SearchResponse, SearchResultCard, SummaryResponse
@@ -61,6 +62,13 @@ app.add_middleware(
     allow_methods=["GET", "POST"],  # POST: /documents/{id}/summary ('요약보기' 버튼용)
     allow_headers=["*"],
 )
+
+# /documents/{id}가 raw_text 원문 전체(길게는 수십 KB)를 압축 없이 내려보내면 Railway
+# egress 비용($0.05/GB)이 그대로 커짐 — 한글 텍스트는 gzip으로 보통 60~80% 줄어드므로
+# 응답 압축만 켜도 egress 비용이 크게 줄어듦(2026-08-12, Railway 비용 실측 기준 대응).
+# minimum_size=1000: 검색 결과(짧은 preview_text)처럼 이미 작은 응답까지 압축 오버헤드를
+# 들일 필요는 없어서, 어느 정도 큰 응답(주로 상세페이지 원문)에만 적용되게 함.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/health")
