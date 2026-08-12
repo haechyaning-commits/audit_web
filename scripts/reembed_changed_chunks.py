@@ -32,7 +32,11 @@ import psycopg2
 from FlagEmbedding import BGEM3FlagModel
 from pgvector.psycopg2 import register_vector
 
-INPUT_PATH = "reembed_input.jsonl"  # fix_text_corruption.py의 export_reembed_input() 기본 저장 위치와 일치시킴
+# fix_text_corruption.py의 export_reembed_input() 기본 저장 위치와 일치시킴
+# (2026-08-12: 로컬 상대경로 대신 Drive 고정 경로로 변경 — 이유는 fix_text_corruption.py의
+# _default_reembed_input_path() 주석 참고. 예전 "reembed_input_2.jsonl 안 맞음" 같은
+# 스크립트 간 네이밍/경로 불일치 문제도 이걸로 같이 해소됨.)
+INPUT_PATH = "/content/drive/MyDrive/audit_project/reembed_input.jsonl"
 CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/reembed_checkpoint.jsonl"
 BATCH_SIZE = 64
 MAX_LENGTH = 1024  # 청킹 시 max_length와 반드시 일치해야 함 (embed_chunks.py와 동일 값)

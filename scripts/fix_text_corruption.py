@@ -184,15 +184,34 @@ def apply_fix(conn, table: str, col: str) -> list[str]:
     return [row_id for _, row_id in changed]
 
 
-def export_reembed_input(conn, chunk_ids: list[str], out_path: str = "reembed_input.jsonl") -> None:
+# Colab에서 Drive를 마운트했을 때의 고정 경로. load_to_postgres.py의 BASE,
+# reembed_changed_chunks.py의 CHECKPOINT_PATH와 동일한 디렉터리로 맞춤.
+_COLAB_DRIVE_DIR = "/content/drive/MyDrive/audit_project/"
+
+
+def _default_reembed_input_path() -> str:
+    """Drive가 마운트된 상태(Colab)면 Drive 경로를, 아니면 로컬 상대경로를 기본값으로 사용.
+    (2026-08-12: 예전엔 무조건 로컬 상대경로(현재 작업 디렉터리)였는데, 그 상태로 만든
+    reembed_input.jsonl이 Drive에 복사되기 전에 런타임이 재배정되면서 통째로 사라지는
+    사고가 실제로 발생함 — export 시점부터 영속적인 Drive에 저장되도록 기본값을 바꿈.)"""
+    if os.path.isdir(_COLAB_DRIVE_DIR):
+        return _COLAB_DRIVE_DIR + "reembed_input.jsonl"
+    return "reembed_input.jsonl"
+
+
+def export_reembed_input(conn, chunk_ids: list[str], out_path: str | None = None) -> None:
     """재임베딩이 필요한 chunk_id들의 (이미 수정된) 현재 text를 뽑아
-    Colab의 embed_chunks.py 계열 스크립트가 읽을 수 있는 jsonl로 저장."""
+    Colab의 embed_chunks.py 계열 스크립트가 읽을 수 있는 jsonl로 저장.
+    out_path를 안 주면 Drive가 마운트돼 있을 때 자동으로 Drive에 저장됨(_default_reembed_input_path)."""
+    if out_path is None:
+        out_path = _default_reembed_input_path()
     if not chunk_ids:
         print("재임베딩 대상 없음")
         return
     with conn.cursor() as cur:
         cur.execute("SELECT id, text FROM chunks WHERE id = ANY(%s)", (chunk_ids,))
         rows = cur.fetchall()
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         for chunk_id, text in rows:
             f.write(json.dumps({"chunk_id": chunk_id, "text": text}, ensure_ascii=False) + "\n")
