@@ -225,7 +225,7 @@ export default function DetailPage() {
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
               <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
-            '<strong>{query}</strong>' 검색 결과와 유사해서 노출된 사례입니다 — 아래 원문에서
+            '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래 원문에서
             일치하는 부분을 표시했습니다
           </p>
         )}
@@ -248,7 +248,7 @@ export default function DetailPage() {
               />
               <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
             </svg>
-            4줄 요약보기 (AI 생성, 몇 초 걸릴 수 있어요)
+            4줄 요약보기 (AI 생성, 몇 초 걸릴 수 있습니다.)
           </button>
         )}
 
