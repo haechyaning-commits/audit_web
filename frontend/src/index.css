@@ -1,8 +1,8 @@
 /*
  * 2026-08-12: law.go.kr(국가법령정보센터) 스타일 참고 요청 반영 — 색을 기존 KRDS
- * 밝은 블루(#256ef4)에서 좀 더 절제된 진남색(#1a4d8f)으로, 카드 그림자/둥근 모서리를
- * 줄이고 헤어라인 위주로 바꿔서 "관공서 문서" 톤에 가깝게 조정. 문서 제목에는 세리프
- * (--font-doc)를 별도로 둬서 공식 문서 느낌을 냄 — 본문은 계속 고딕(가독성).
+ * 밝은 블루(#256ef4)에서 좀 더 절제된 진남색(#1a4d8f)으로, 카드 그림자를 줄이고
+ * 헤어라인 위주로 바꿔서 "관공서 문서" 톤에 가깝게 조정. (세리프 제목은 시스템별로
+ * 이상하게 보인다는 피드백으로 시도했다가 제거함 — 본문/제목 모두 고딕 유지.)
  */
 :root {
   --primary: #1a4d8f;
@@ -44,7 +44,6 @@
     system-ui,
     "Malgun Gothic",
     sans-serif;
-  --font-doc: Batang, BatangChe, "Nanum Myeongjo", "Noto Serif KR", serif;
   color-scheme: light dark;
   color: var(--text);
   background: var(--bg);
@@ -311,10 +310,11 @@ body {
 .hero h1 {
   /* 화면 크기에 비례해서 커지도록 — 좁은 화면(27px)~넓은 화면(34px) 사이 */
   font-size: clamp(27px, 2vw + 20px, 34px);
-  font-weight: 700;
-  font-family: var(--font-doc); /* law.go.kr류 공식 문서 톤 — 세리프(2026-08-12) */
+  font-weight: 800;
+  /* 세리프(--font-doc) 적용했다가 "어색하다" 피드백으로 되돌림(2026-08-12) — 세리프는
+     상세페이지의 실제 문서 제목에만 쓰고, 검색창 위 안내 카피는 원래 고딕으로 유지 */
   color: var(--text-heading);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.5px;
   margin: 0 0 10px;
   text-wrap: balance;
 }
@@ -329,7 +329,8 @@ body {
   gap: 8px;
   background: var(--surface);
   border: 1.5px solid var(--primary-10);
-  border-radius: 6px; /* 14 -> 6: 둥근 모서리를 줄여 절제된 톤으로(2026-08-12) */
+  /* 14 -> 6으로 줄였다가 "너무 네모나다" 피드백으로 12로 완화(2026-08-12) */
+  border-radius: 12px;
   padding: 8px 8px 8px 20px;
   box-shadow: var(--shadow-hero);
   transition: border-color 0.15s ease;
@@ -568,12 +569,15 @@ body {
   color: #fff;
 }
 
+/* 2026-08-12 재조정: 목록형이 "글씨만 빽빽하다"는 피드백 — law.go.kr류 헤어라인
+   목록의 밀도는 유지하되, 카드가 주던 스캔 편의(색깔 태그, 여백, 번호 배지)를 다시
+   섞음. 완전한 카드도, 완전히 밋밋한 표도 아닌 절충. */
 .result-card {
   display: grid;
-  grid-template-columns: 36px 1fr auto;
+  grid-template-columns: 34px 1fr auto;
   gap: 16px;
   align-items: start;
-  padding: 15px 6px;
+  padding: 20px 10px;
   border-bottom: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
@@ -584,19 +588,27 @@ body {
 }
 @media (max-width: 640px) {
   .result-card {
-    grid-template-columns: 24px 1fr;
+    grid-template-columns: 30px 1fr;
   }
   .result-card-side {
     grid-column: 2;
     text-align: left;
-    margin-top: 4px;
+    margin-top: 6px;
   }
 }
 
+/* 번호를 흐린 텍스트가 아니라 색 있는 원형 배지로 — 목록에서 눈이 붙잡을 자리 하나 필요 */
 .result-card-rank {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding-top: 2px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-5);
+  border-radius: 50%;
 }
 
 .result-card-body {
@@ -606,17 +618,17 @@ body {
   display: block;
   font-weight: 700;
   color: var(--text-heading);
-  font-size: 15px;
-  line-height: 1.35;
-  margin-bottom: 5px;
+  font-size: 15.5px;
+  line-height: 1.4;
+  margin-bottom: 6px;
 }
 .result-card-preview {
   margin: 0;
   color: var(--text-muted);
   font-size: 13.5px;
-  line-height: 1.65;
+  line-height: 1.7;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -632,16 +644,17 @@ body {
   flex-shrink: 0;
   text-align: right;
 }
-/* 감사종류 태그 — 신뢰도 배지(.badge, success/warn 시맨틱 컬러)와 구분하기 위해
-   중립적인 헤어라인 태그로(2026-08-12, law.go.kr류 절제된 톤) */
+/* 감사종류 태그 — 헤어라인 아웃라인으로 뺐다가 너무 밋밋하다는 피드백으로 색 태그로
+   되돌림(신뢰도 배지 success/warn과는 구분되는 중립 브랜드색 틴트, 2026-08-12) */
 .result-card-audit-type {
-  display: inline-block;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-heading);
-  border: 1px solid var(--border);
-  padding: 2px 8px;
-  border-radius: 2px;
+  background: var(--primary-5);
+  color: var(--primary-dark);
   white-space: nowrap;
 }
 
@@ -775,16 +788,19 @@ body {
    그냥 1열처럼 동작함(law.go.kr류 조문 목차 요청, 2026-08-12) */
 .detail-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 200px 1fr;
   gap: 20px;
   align-items: start;
 }
-@media (max-width: 760px) {
+/* 760px에서 끊었더니, 그 위(800~1000px대) 창 폭에서 본문이 사이드바한테 자리를 뺏겨
+   너무 좁아지는 문제가 있었음("박스가 너무 작다" 피드백, 2026-08-12) — 사이드바가
+   본문을 방해하지 않을 만큼 여유 있는 폭(1040px)에서만 보이게 기준을 올림 */
+@media (max-width: 1040px) {
   .detail-layout {
     grid-template-columns: 1fr;
   }
   .toc-sidebar {
-    display: none; /* 좁은 화면에서는 목차 대신 스크롤로 — 사이드바가 본문 폭을 너무 뺏음 */
+    display: none;
   }
 }
 .toc-sidebar {
@@ -1049,10 +1065,11 @@ body {
 /* 문서 제목 줄 — 다른 헤딩(가/나/다, 1/2/3 등)보다 한 단계 위 크기 + 세리프로,
    공식 문서 표지 느낌을 냄(law.go.kr류 요청, 2026-08-12) */
 .raw-line-title {
-  font-family: var(--font-doc);
-  font-weight: 700;
-  font-size: 19px;
-  letter-spacing: -0.2px;
+  /* 세리프(--font-doc)가 시스템에 따라 이상하게 보인다는 피드백으로 제거 — 크기/굵기만
+     으로 다른 헤딩과 구분(2026-08-12) */
+  font-weight: 800;
+  font-size: 18.5px;
+  letter-spacing: -0.3px;
   color: var(--text-heading);
   margin: 0 0 16px;
   padding-bottom: 14px;
