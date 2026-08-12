@@ -79,6 +79,13 @@ HWP_LEAK_MARKER = re.compile(r"hp:run|hp:lineseg|hp:sz|hp:pos")
 # 나와도(연속 2회 이상 조건 없이) 항상 안전하게 1개로 줄여도 됨.
 BRACKET_DUP_RE = re.compile(r"([「」『』｢｣【】〔〕])\1+")
 
+# 2026-08-12 추가: "제목"/"제 목" 라벨 뒤에 콜론 없이 바로 내용이 이어지는 문서가
+# 있음(예: "제목 장애인 전용 주차구획 표기 부적정", "제 목 장애인화장실..."). 다른
+# 문서 대부분은 "제 목 : ..."처럼 콜론이 붙어있어서 일관성이 없음 — 문서 맨 앞의
+# "제목"/"제 목" 라벨(본문 중간에 우연히 나오는 "제목"은 안 건드림, ^ 앵커로 문서
+# 시작 위치에서만 매칭)에 콜론이 없으면 추가.
+TITLE_LABEL_RE = re.compile(r"^(제\s*목)\s+(?![:：])")
+
 
 def _collapse_pass(text: str) -> str:
     def collapse(m: re.Match) -> str:
@@ -127,6 +134,15 @@ def fix_duplicated_brackets(text: str) -> str:
     return BRACKET_DUP_RE.sub(r"\1", text)
 
 
+def normalize_title_colon(text: str) -> str:
+    """문서 맨 앞 '제목'/'제 목' 라벨 뒤에 콜론이 없으면 추가해서 표기를 통일함.
+    예: '제목 장애인 전용...' -> '제목 : 장애인 전용...'
+        '제 목 장애인화장실...' -> '제 목 : 장애인화장실...'
+    이미 콜론이 있으면 그대로 둠(count=1이라 문서당 한 번만, 맨 앞에서만 매칭되므로
+    본문 중간의 '제목' 언급은 애초에 안 건드림)."""
+    return TITLE_LABEL_RE.sub(r"\1 : ", text, count=1)
+
+
 def strip_table_placeholder(text: str) -> str:
     """표(테이블) 내용이 통째로 사라지고 "표"라는 단어 한 줄만 남은 경우
     제거. 검색 화면에서 표를 이미지로 보여줄 방법이 없으니 정보 없는
@@ -156,12 +172,13 @@ def strip_hwpml_leak(text: str) -> str:
 
 def full_fix(text: str) -> str:
     """hwp_leak을 먼저 벗겨서 구조를 정리 -> 글자/숫자/괄호 중복 collapse ->
-    표 placeholder 잡음 제거, 순서로 적용."""
+    표 placeholder 잡음 제거 -> 제목 라벨 콜론 통일, 순서로 적용."""
     text = strip_hwpml_leak(text)
     text = fix_duplicated_chars(text)
     text = fix_duplicated_digits(text)
     text = fix_duplicated_brackets(text)
     text = strip_table_placeholder(text)
+    text = normalize_title_colon(text)
     return text
 
 
