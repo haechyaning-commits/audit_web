@@ -68,13 +68,18 @@ async def health() -> dict:
 
 
 @app.get("/search", response_model=SearchResponse)
-async def search(q: str) -> SearchResponse:
+async def search(q: str, debug_score: bool = False) -> SearchResponse:
+    """debug_score=1: 고정 개수 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
+    실측하려고 임시로 추가한 파라미터. 기본값 False면 기존 응답과 완전히 동일함
+    (score 필드가 항상 None) — 컷오프 비율 정하고 나면 이 파라미터+로직 정리 예정."""
     if not q.strip():
         raise HTTPException(status_code=400, detail="검색어를 입력해주세요")
 
     pool = db.get_pool()
     query_vector = await asyncio.to_thread(embedding.encode_query, q)
-    candidates = await repository.search_candidates(pool, query_vector, q, limit=40)
+    # debug_score일 땐 컷오프 지점을 보려고 후보 풀 끝(100건)까지 넉넉히 봄
+    search_limit = 100 if debug_score else 40
+    candidates = await repository.search_candidates(pool, query_vector, q, limit=search_limit)
     candidates = repository.rerank(candidates, q)  # 지금은 no-op, 스트레치 목표(§3.4) 자리
 
     results = [
@@ -84,6 +89,7 @@ async def search(q: str) -> SearchResponse:
             year=r["year"],
             confidence=_confidence_label(r["parsing_quality"]),
             preview_text=r["preview_text"],
+            score=float(r["score"]) if debug_score else None,
         )
         for r in candidates
     ]

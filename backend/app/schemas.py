@@ -9,6 +9,10 @@ class SearchResultCard(BaseModel):
     year: int | None
     confidence: str  # "신뢰도 높음" | "일부 참고" (parsing_quality를 사람이 읽을 말로 변환)
     preview_text: str  # raw_text 발췌 (§8.3 v12: AI 요약 아님, 검색 1회당 LLM 호출 방지)
+    # 2026-08-12 임시: 동적 결과 개수(점수 컷오프) 캘리브레이션용으로만 잠깐 노출.
+    # ?debug_score=1 없으면 항상 None이라 기존 프론트/응답 크기엔 영향 없음.
+    # 컷오프 비율 정하고 나면 이 필드+쿼리파라미터 정리 예정.
+    score: float | None = None
 
 
 class SearchResponse(BaseModel):
