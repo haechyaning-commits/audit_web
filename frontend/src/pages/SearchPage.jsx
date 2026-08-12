@@ -127,7 +127,7 @@ export default function SearchPage({ search }) {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="예: 직장 상사가 부하 직원을 지속적으로 괴롭혀서 신고하고 싶어요"
+                placeholder="예: 직장 상사가 지속적으로 괴롭혀서 신고하고 싶어요"
                 aria-label="검색어"
               />
               <button type="submit" disabled={loading || !query.trim()}>
@@ -172,7 +172,7 @@ export default function SearchPage({ search }) {
                     <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
                   </svg>
                 </span>
-                <span className="stat-card-num">AI 4줄 요약 자동 생성</span>
+                <span className="stat-card-num">AI 전체 요약 자동 생성</span>
                 <span className="stat-card-label">사례 클릭 시 온디맨드 생성</span>
               </div>
             </div>
