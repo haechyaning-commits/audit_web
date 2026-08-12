@@ -28,7 +28,9 @@ const LABEL_PATTERNS = [
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
   /^관\s*계\s*기\s*관\s*[:：]?/, // 관계기관
   /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
-  /^\d+[.)]\s*\S/, // 1. 2. 3. 구두점 있는 번호 항목(구두점 없는 숫자는 오탐 위험 커서 제외)
+  // 1. 2. 3. 번호 항목 — 마침표 뒤에 공백이 반드시 있어야 함("20.02.21" 같은 날짜는
+  // 공백 없이 붙어있어서 이걸로 구분됨, 실제 오탐 발견돼서 \s*를 \s+로 강화함)
+  /^\d{1,2}[.)]\s+\S/,
   /^\[.{1,12}\]/, // [표 1] 같은 대괄호 캡션
   /^【.+】/, // 【 구간표시 】
   /^[□○◦▪‣·]\s*\S/, // □ ○ 불릿
@@ -46,12 +48,41 @@ function isHeadingLine(line) {
   return LABEL_PATTERNS.some((re) => re.test(trimmed));
 }
 
-/** 원문을 줄 단위로 나눠서 구조 패턴에 맞는 줄만 강조 클래스를 붙여 렌더링.
- * query가 있으면 줄마다 검색어 하이라이트도 같이 적용. */
+/** 원문을 문단 단위로 묶어서 렌더링.
+ *
+ * 원문의 줄바꿈(\n)은 대부분 PDF가 페이지 폭에 맞춰 끊은 자리라 실제 문장/문단 구분과
+ * 다름(심하면 "근무하" / "고 있는" 처럼 단어 중간에서도 끊김) — 그 줄을 그대로 각자 블록
+ * 으로 렌더링하면 원래 한 문장이 짧은 조각으로 뚝뚝 끊겨 보임(2026-08-12 피드백).
+ * 그래서 헤더 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은 공백으로
+ * 합쳐서 하나의 문단으로 흘러가게 함. */
 function renderRawText(text, query) {
-  return text.split("\n").map((line, i) => (
-    <div key={i} className={`raw-line ${isHeadingLine(line) ? "raw-line-heading" : ""}`}>
-      {query ? highlightMatches(line, query) : line || " "}
+  const blocks = [];
+  let para = [];
+
+  function flushPara() {
+    if (para.length === 0) return;
+    blocks.push({ heading: false, text: para.join(" ") });
+    para = [];
+  }
+
+  for (const rawLine of text.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      flushPara();
+      continue;
+    }
+    if (isHeadingLine(rawLine)) {
+      flushPara();
+      blocks.push({ heading: true, text: trimmed });
+      continue;
+    }
+    para.push(trimmed);
+  }
+  flushPara();
+
+  return blocks.map((b, i) => (
+    <div key={i} className={`raw-line ${b.heading ? "raw-line-heading" : ""}`}>
+      {query ? highlightMatches(b.text, query) : b.text}
     </div>
   ));
 }

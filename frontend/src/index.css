@@ -945,17 +945,23 @@ body {
   letter-spacing: -0.1px;
 }
 /* 2026-08-12: <pre> 한 덩어리 대신 줄(.raw-line) 단위 <div>로 렌더링 — 제목/번호항목
-   같은 구조 패턴만 골라서 강조하기 위함(DetailPage.jsx의 renderRawText 참고). white-space는
-   <pre>가 하던 걸 각 줄에서 이어받음. */
+   같은 구조 패턴만 골라서 강조하기 위함(DetailPage.jsx의 renderRawText 참고).
+   2026-08-12: 줄(\n) 단위가 아니라 문단 단위로 묶어서 렌더링하도록 바뀜 — PDF가 페이지
+   폭에서 끊은 자리를 그대로 블록마다 렌더링하면 한 문장이 짧은 조각으로 끊겨 보이던
+   문제 때문(renderRawText 주석 참고). 그래서 white-space는 이제 일반 문단처럼 normal. */
 .raw-line {
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
-  min-height: 1em; /* 빈 줄(문단 구분)도 원문 그대로 여백으로 보이게 */
+  margin: 0 0 14px;
+}
+.raw-line:last-child {
+  margin-bottom: 0;
 }
 .raw-line-heading {
   font-weight: 700;
   color: var(--text-heading);
-  margin-top: 14px;
+  margin-top: 18px;
+  margin-bottom: 6px;
 }
 .raw-line-heading:first-child {
   margin-top: 0;
