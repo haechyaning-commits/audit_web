@@ -14,16 +14,22 @@ const SUMMARY_FIELDS = [
 const SCROLL_TOP_THRESHOLD = 480;
 
 // 원문이 그냥 통짜 텍스트로 나열돼서 보기 힘들다는 피드백(2026-08-12) 대응 — 감사보고서
-// 원문에 자주 나오는 구조 패턴(제목, 번호/가나다 항목, 로마숫자 장 구분, 불릿)만 정규식으로
-// 감지해서 굵게+여백을 주고, 나머지 본문은 그대로 둠. 공사마다 양식이 달라 완벽한 파싱은
-// 안 되지만, 눈에 띄는 패턴만 강조해도 완전히 평평한 텍스트보다는 훨씬 스캔하기 쉬워짐.
+// 원문에 자주 나오는 구조 패턴(제목, 번호/가나다 항목, 로마숫자 장 구분, 괄호라벨)만
+// 정규식으로 감지해서 굵게+여백을 주고, 나머지 본문은 그대로 둠. 공사마다 양식이 달라
+// 완벽한 파싱은 안 되지만, 눈에 띄는 패턴만 강조해도 완전히 평평한 텍스트보다는 훨씬
+// 스캔하기 쉬워짐.
 //
-// 2026-08-12 2차 수정: 실제 문서로 확인해보니 "가." "1." 처럼 구두점이 붙는 경우보다
-// "가 업무개요"처럼 구두점 없이 그냥 띄어쓰기만 있는 경우가 더 흔했음(원문 자체에서
-// 마침표/숫자가 많이 빠져있는 문서가 꽤 있음). 구두점을 필수로 요구하면 이런 문서에서
-// 헤더를 하나도 못 잡아서, 구두점은 선택(optional)으로 완화함. 라벨(제목/징계대상자 등)은
-// "제 목"처럼 글자 사이가 띄어써진 경우도 있어 \s*로 허용.
-const LABEL_PATTERNS = [
+// 2026-08-12 2차: "가." "1."처럼 구두점 있는 경우보다 "가 업무개요"처럼 구두점 없이
+// 띄어쓰기만 있는 경우가 더 흔했음 — 구두점을 선택(optional)으로 완화.
+//
+// 2026-08-12 3차: 실제 문서로 두 가지 더 발견—
+//   1) "(현황)" "(위법부당내용)" 처럼 그 줄 전체가 괄호 라벨 하나뿐인 경우가 있는데
+//      아무 패턴에도 안 걸려서 문단에 그냥 흡수돼 이상하게 붙어 보였음 -> 패턴 추가.
+//   2) "○ ..." 불릿은 원래 짧은 소제목이 아니라 그 자체로 긴 문단(사실상 목록 항목)을
+//      이끄는 경우가 많았음. 이걸 헤더 취급해서 굵게 만들면, 같은 문장이 "첫 줄만 굵고
+//      나머지는 안 굵은" 상태로 쪼개져 보여서 오히려 더 이상해 보였음 — 그래서 불릿은
+//      "새 문단 시작" 신호로만 쓰고(굵게 안 함, 문단 간 여백만 살짝 줌) 구분함.
+const HEADING_LABEL_PATTERNS = [
   /^제\s*목\s*[:：]?\s/, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
   /^관\s*계\s*기\s*관\s*[:：]?/, // 관계기관
@@ -33,19 +39,26 @@ const LABEL_PATTERNS = [
   /^\d{1,2}[.)]\s+\S/,
   /^\[.{1,12}\]/, // [표 1] 같은 대괄호 캡션
   /^【.+】/, // 【 구간표시 】
-  /^[□○◦▪‣·]\s*\S/, // □ ○ 불릿
+  /^[(（][^()（）]{1,20}[)）]$/, // (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우
 ];
 
-function isHeadingLine(line) {
+// 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고)
+const BULLET_RE = /^[-–—□○◦▪‣·]\s*\S/;
+
+/** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
+ * "body"(이어지는 일반 줄) / "blank"(빈 줄, 문단 구분)로 분류. */
+function classifyLine(line) {
   const trimmed = line.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return "blank";
 
   // 가/나/다 단독 소제목은 원문에서 보통 그 줄 전체가 짧은 편(예: "가 업무개요") —
   // 본문 문장이 우연히 "나"로 시작하는 경우까지 오탐하지 않게 길이 상한을 둠
   if (/^[가나다라마바사아자차카타파하][.)]?\s+\S/.test(trimmed) && trimmed.length <= 24) {
-    return true;
+    return "heading";
   }
-  return LABEL_PATTERNS.some((re) => re.test(trimmed));
+  if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
+  if (BULLET_RE.test(trimmed)) return "bullet";
+  return "body";
 }
 
 /** 원문을 문단 단위로 묶어서 렌더링.
@@ -53,27 +66,37 @@ function isHeadingLine(line) {
  * 원문의 줄바꿈(\n)은 대부분 PDF가 페이지 폭에 맞춰 끊은 자리라 실제 문장/문단 구분과
  * 다름(심하면 "근무하" / "고 있는" 처럼 단어 중간에서도 끊김) — 그 줄을 그대로 각자 블록
  * 으로 렌더링하면 원래 한 문장이 짧은 조각으로 뚝뚝 끊겨 보임(2026-08-12 피드백).
- * 그래서 헤더 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은 공백으로
- * 합쳐서 하나의 문단으로 흘러가게 함. */
+ * 그래서 헤딩/불릿 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은
+ * 공백으로 합쳐서 하나의 문단으로 흘러가게 함. */
 function renderRawText(text, query) {
   const blocks = [];
   let para = [];
+  let paraType = "body";
 
   function flushPara() {
     if (para.length === 0) return;
-    blocks.push({ heading: false, text: para.join(" ") });
+    blocks.push({ type: paraType, text: para.join(" ") });
     para = [];
+    paraType = "body";
   }
 
   for (const rawLine of text.split("\n")) {
+    const kind = classifyLine(rawLine);
     const trimmed = rawLine.trim();
-    if (!trimmed) {
+
+    if (kind === "blank") {
       flushPara();
       continue;
     }
-    if (isHeadingLine(rawLine)) {
+    if (kind === "heading") {
       flushPara();
-      blocks.push({ heading: true, text: trimmed });
+      blocks.push({ type: "heading", text: trimmed });
+      continue;
+    }
+    if (kind === "bullet") {
+      flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리
+      paraType = "bullet";
+      para.push(trimmed);
       continue;
     }
     para.push(trimmed);
@@ -81,7 +104,7 @@ function renderRawText(text, query) {
   flushPara();
 
   return blocks.map((b, i) => (
-    <div key={i} className={`raw-line ${b.heading ? "raw-line-heading" : ""}`}>
+    <div key={i} className={`raw-line raw-line-${b.type}`}>
       {query ? highlightMatches(b.text, query) : b.text}
     </div>
   ));

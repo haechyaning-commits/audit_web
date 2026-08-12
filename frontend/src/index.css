@@ -966,6 +966,12 @@ body {
 .raw-line-heading:first-child {
   margin-top: 0;
 }
+/* 불릿("○ ")로 시작하는 문단 — 새 항목이라는 건 보여주되(위 여백), 굵게는 안 함
+   (예전엔 헤더 취급해서 굵게 만들었더니 한 문장이 "굵은 첫 줄 + 안 굵은 나머지"로
+   쪼개져 보이는 게 더 이상했음, 2026-08-12) */
+.raw-line-bullet {
+  margin-top: 10px;
+}
 .raw-text mark {
   background: var(--primary-5);
   color: var(--primary-dark);
