@@ -986,6 +986,14 @@ body {
 .raw-line-bullet {
   margin-top: 10px;
 }
+/* "자료: ○○ 제출자료 재구성" 같은 출처 표기 — 본문보다 작고 흐리게(각주 느낌),
+   표 블록 경계로도 쓰임(2026-08-12 6차) */
+.raw-line-caption {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 2px;
+}
 /* 표/그림 캡션 뒤에 셀 구분 없이 남은 텍스트 조각 — 문단처럼 흘려 읽으면 뜻 없는 단어
    나열이라 오히려 방해돼서, 기본 접힌 <details>로 감싸 필요할 때만 펼쳐보게 함
    (2026-08-12 4차 — 실제 문서에서 확인) */

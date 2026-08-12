@@ -37,7 +37,10 @@ const HEADING_LABEL_PATTERNS = [
   // 1. 2. 3. 번호 항목 — 마침표 뒤에 공백이 반드시 있어야 함("20.02.21" 같은 날짜는
   // 공백 없이 붙어있어서 이걸로 구분됨, 실제 오탐 발견돼서 \s*를 \s+로 강화함)
   /^\d{1,2}[.)]\s+\S/,
-  /^\[.{1,12}\]/, // [표 1] 같은 대괄호 캡션
+  // [표 1] [별표 1] [붙임] [참고] 같은 대괄호 캡션만 — "[부서]"(익명화 placeholder,
+  // 문장 맨 앞에 수도 없이 나옴)까지 통째로 걸려서 문장을 헤딩 취급하던 심각한 오탐을
+  // 6차 수정에서 발견(실제 문서로 확인) — 캡션 키워드로 한정해서 좁힘
+  /^\[(표|그림|별표|붙임|참고|서식|양식)\s*\d*\]/,
   /^【.+】/, // 【 구간표시 】
   /^[(（][^()（）]{1,20}[)）]$/, // (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우
 ];
@@ -55,10 +58,19 @@ const BULLET_RE = /^[-–—□○◦▪‣·❍※*]\s*\S/;
 // 문단은 "표/그림에서 남은 조각"으로 보고 접어서(기본 숨김) 따로 표시함.
 // 실제 문서로 확인해보니 표 데이터 바로 뒤에 빈 줄 없이 "❍ ..." 같은 실제 문장이 곧바로
 // 이어지는 경우가 있어서, 그 경계를 잡으려면 BULLET_RE에 "❍"가 포함돼 있어야 함(위에서 추가).
-const TABLE_CAPTION_RE = /^[【[]\s*(표|그림)\s*\d*\s*[】\]]/;
+const TABLE_CAPTION_RE = /^[【[]\s*(표|그림|별표)\s*\d*\s*[】\]]/;
+
+// 2026-08-12 6차: 표 데이터 뒤에는 보통 "자료: ○○ 제출자료 재구성" 같은 출처 표기가
+// 붙는데, 그 바로 뒤에 헤딩/불릿 없이 실제 문장이 곧장 이어지는 경우가 있었음(실제 문서로
+// 확인 — "자료: 지사 제출자료 및 현지 확인 결과 재구성" 다음 줄에 "♠♡지사에서는 ①
+// 차량번호..."라는 진짜 감사 내용이 헤딩/불릿 없이 바로 나옴). 이걸 못 끊으면 표 블록이
+// 실제 내용까지 통째로 삼켜서 접힌 박스 안에 숨겨버리는 심각한 문제가 생김 — "자료:"/
+// "출처:" 줄을 표 블록을 반드시 끝내는 경계로 인식시킴.
+const SOURCE_NOTE_RE = /^(자료|출처)\s*[:：]/;
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
- * "body"(이어지는 일반 줄) / "blank"(빈 줄, 문단 구분)로 분류. */
+ * "caption"(작고 흐린 출처 표기, 독립 블록) / "body"(이어지는 일반 줄) /
+ * "blank"(빈 줄, 문단 구분)로 분류. */
 function classifyLine(line) {
   const trimmed = line.trim();
   if (!trimmed) return "blank";
@@ -69,6 +81,7 @@ function classifyLine(line) {
     return "heading";
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
+  if (SOURCE_NOTE_RE.test(trimmed)) return "caption";
   if (BULLET_RE.test(trimmed)) return "bullet";
   return "body";
 }
@@ -105,6 +118,12 @@ function renderRawText(text, query) {
       flushPara();
       blocks.push({ type: "heading", text: trimmed });
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
+      continue;
+    }
+    if (kind === "caption") {
+      flushPara(); // 표 블록이 진행 중이었으면 여기서 확실히 끝냄(6차 수정 이유 참고)
+      blocks.push({ type: "caption", text: trimmed });
+      nextIsTable = false;
       continue;
     }
     if (kind === "bullet") {
