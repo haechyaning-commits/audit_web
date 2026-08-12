@@ -45,7 +45,7 @@ export default function HeaderSearch({ runSearch }) {
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="다시검색하기"
+        placeholder="다시 검색하기"
         aria-label="검색어"
       />
     </form>
