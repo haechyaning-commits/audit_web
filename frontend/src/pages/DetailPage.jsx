@@ -236,6 +236,7 @@ export default function DetailPage() {
           <span className="detail-institution">
             {doc.institution || "기관명 미상"}
             {doc.year ? ` · ${doc.year}년` : ""}
+            {doc.audit_type ? ` · ${doc.audit_type}` : ""}
           </span>
           <ConfidenceBadge label={doc.confidence} />
         </div>

@@ -7,6 +7,7 @@ class SearchResultCard(BaseModel):
     document_id: str
     institution: str | None
     year: int | None
+    audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12
     confidence: str  # "신뢰도 높음" | "일부 참고" (parsing_quality를 사람이 읽을 말로 변환)
     preview_text: str  # raw_text 발췌 (§8.3 v12: AI 요약 아님, 검색 1회당 LLM 호출 방지)
     # 2026-08-12 임시: 동적 결과 개수(점수 컷오프) 캘리브레이션용으로만 잠깐 노출.
@@ -26,6 +27,7 @@ class DocumentDetail(BaseModel):
     id: str
     institution: str | None
     year: int | None
+    audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12
     confidence: str
     raw_text: str
     summary_point: str | None

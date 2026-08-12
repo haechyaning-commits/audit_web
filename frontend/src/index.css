@@ -614,6 +614,20 @@ body {
   color: var(--text-muted);
   flex-shrink: 0;
 }
+/* 감사종류 태그 — 신뢰도 배지(.badge, success/warn 시맨틱 컬러)와 구분하기 위해
+   중립적인 브랜드색 틴트로 별도 스타일(2026-08-12) */
+.result-card-audit-type {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--primary-5);
+  color: var(--primary-dark);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .result-card-preview {
   margin: 0;
   color: var(--text-muted);

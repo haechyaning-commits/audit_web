@@ -62,6 +62,7 @@ SELECT
     dd.score,
     doc.institution,
     doc.year,
+    doc.audit_type,
     doc.parsing_quality,
     -- 미리보기는 문서 맨 앞부분(raw_text)이 아니라 실제로 매치된 청크(c.text)에서 뽑음.
     -- raw_text 맨 앞은 "제 목 : ... 징 계 종 류 : ..." 같은 정형화된 서류 양식 헤더라
@@ -99,7 +100,7 @@ def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Re
 
 
 _GET_DOCUMENT_SQL = """
-SELECT id, institution, year, raw_text, parsing_quality,
+SELECT id, institution, year, audit_type, raw_text, parsing_quality,
        summary_point, summary_cause, summary_action, summary_result, summary_failed,
        summary_freeform, summary_freeform_failed
 FROM documents

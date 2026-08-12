@@ -8,7 +8,7 @@ import highlightMatches from "../highlight.jsx";
  * @param {string} [className]
  */
 export default function ResultCard({ result, rank, query, className = "" }) {
-  const { document_id, institution, year, preview_text } = result;
+  const { document_id, institution, year, audit_type, preview_text } = result;
   const to = query
     ? `/documents/${document_id}?q=${encodeURIComponent(query)}`
     : `/documents/${document_id}`;
@@ -22,6 +22,9 @@ export default function ResultCard({ result, rank, query, className = "" }) {
             검색 관련도(TOP N)와 무관한 데이터 품질 정보라 목록에서 오해를 줄 수 있었음 */}
         <span className="result-card-institution">{institution || "기관명 미상"}</span>
         {year && <span className="result-card-year">{year}년</span>}
+        {/* audit_type은 source_file명 파싱으로 채워짐(백필 전 문서는 아직 null일 수 있음,
+            2026-08-12) — 없으면 조용히 생략 */}
+        {audit_type && <span className="result-card-audit-type">{audit_type}</span>}
       </div>
       <p className="result-card-preview">
         {query ? highlightMatches(preview_text, query) : preview_text}
