@@ -82,7 +82,10 @@ function classifyLine(line) {
 
   // 가/나/다 단독 소제목은 원문에서 보통 그 줄 전체가 짧은 편(예: "가 업무개요") —
   // 본문 문장이 우연히 "나"로 시작하는 경우까지 오탐하지 않게 길이 상한을 둠
-  if (/^[가나다라마바사아자차카타파하][.)]?\s+\S/.test(trimmed) && trimmed.length <= 24) {
+  if (
+    /^[가나다라마바사아자차카타파하][.)]?\s+\S/.test(trimmed) &&
+    trimmed.length <= 24
+  ) {
     return "heading";
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
@@ -174,7 +177,11 @@ function renderRawText(blocks, query) {
     const isTitle = TITLE_RE.test(b.text);
     const id = `heading-${headingIdx++}`;
     return (
-      <div key={i} id={id} className={`raw-line ${isTitle ? "raw-line-title" : "raw-line-heading"}`}>
+      <div
+        key={i}
+        id={id}
+        className={`raw-line ${isTitle ? "raw-line-title" : "raw-line-heading"}`}
+      >
         {query ? highlightMatches(b.text, query) : b.text}
       </div>
     );
@@ -201,7 +208,9 @@ function TocSidebar({ items }) {
 
   function handleClick(e, id) {
     e.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
@@ -241,7 +250,10 @@ export default function DetailPage() {
 
   // raw_text -> 블록 목록은 doc이 바뀔 때만 다시 계산(문서 하나가 꽤 길어서 매 렌더마다
   // 다시 파싱하면 낭비) — renderRawText(본문)와 buildToc(목차)가 같은 블록 목록을 공유
-  const blocks = useMemo(() => (doc ? splitIntoBlocks(doc.raw_text) : []), [doc]);
+  const blocks = useMemo(
+    () => (doc ? splitIntoBlocks(doc.raw_text) : []),
+    [doc],
+  );
   const tocItems = useMemo(() => buildToc(blocks), [blocks]);
 
   useEffect(() => {
@@ -259,7 +271,8 @@ export default function DetailPage() {
         if (!cancelled) setDoc(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || "상세 정보를 불러오지 못했습니다.");
+        if (!cancelled)
+          setError(err.message || "상세 정보를 불러오지 못했습니다.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -302,13 +315,17 @@ export default function DetailPage() {
     setSummaryError(null);
     getCaseSummary(id)
       .then((data) => setSummary(data))
-      .catch((err) => setSummaryError(err.message || "요약을 가져오지 못했습니다."))
+      .catch((err) =>
+        setSummaryError(err.message || "요약을 가져오지 못했습니다."),
+      )
       .finally(() => setSummaryLoading(false));
   }
 
   function handleCopy() {
     if (!summary) return;
-    const text = SUMMARY_FIELDS.map(({ label, key }) => `${label}: ${summary[key] || "미기재"}`).join("\n");
+    const text = SUMMARY_FIELDS.map(
+      ({ label, key }) => `${label}: ${summary[key] || "미기재"}`,
+    ).join("\n");
     navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -346,129 +363,203 @@ export default function DetailPage() {
     <div className="app-main detail-page">
       <BackLink to={backLink} />
 
-      {/* 목차(TocSidebar)가 있는 문서(헤딩 3개 이상)는 좌-사이드바/우-본문 2단 레이아웃,
-          없으면 detail-layout이 그냥 detail-card 하나만 감싸서 기존과 동일하게 보임
-          (law.go.kr류 조문 목차 요청, 2026-08-12) */}
+      {/* 목차(TocSidebar)가 있는 문서(헤딩 3개 이상)는 좌-사이드바/우-본문 2단 레이아웃.
+          detail-card와 summary-card를 detail-content로 같이 묶어서 오른쪽 열에 둠 —
+          예전엔 summary-card가 detail-layout 밖에 있어서 목차 왼쪽 끝부터 전체폭으로
+          걸쳐 보이고, 원문 박스랑 왼쪽 줄이 안 맞았음("상자 위치" 피드백, 2026-08-12) */}
       <div className="detail-layout">
         <TocSidebar items={tocItems} />
-        <div className="detail-card">
-          <p className="detail-breadcrumb">
-            <b>{doc.institution || "기관명 미상"}</b>
-            {doc.year ? <span className="sep">›</span> : null}
-            {doc.year ? `${doc.year}년` : ""}
-            {doc.audit_type ? <span className="sep">›</span> : null}
-            {doc.audit_type || ""}
-          </p>
-          <div className="detail-header">
-            <ConfidenceBadge label={doc.confidence} />
-          </div>
-
-          {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
-              알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}
-          {query && (
-            <p className="search-context-note">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
-                <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-              '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래 원문에서
-              일치하는 부분을 표시했습니다
+        <div className="detail-content">
+          <div className="detail-card">
+            <p className="detail-breadcrumb">
+              <b>{doc.institution || "기관명 미상"}</b>
+              {doc.year ? <span className="sep">›</span> : null}
+              {doc.year ? `${doc.year}년` : ""}
+              {doc.audit_type ? <span className="sep">›</span> : null}
+              {doc.audit_type || ""}
             </p>
-          )}
-
-          {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리).
-              문단 단위로 나눠서 렌더링 — 제목/번호항목 같은 구조는 강조하고(renderRawText),
-              나머지는 그대로 흘러가는 본문으로 둠. blocks는 useMemo로 doc이 바뀔 때만 재계산. */}
-          <div className="raw-text">{renderRawText(blocks, query)}</div>
-        </div>
-      </div>
-
-      <div className="summary-card">
-        {!summary && !summaryLoading && (
-          <button type="button" className="summary-reveal-btn" onClick={handleShowSummary}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
-            </svg>
-            4줄 요약보기 (AI 생성, 몇 초 걸릴 수 있습니다.)
-          </button>
-        )}
-
-        {summaryLoading && <p className="loading-message">요약 생성 중…</p>}
-
-        {summaryError && <p className="error-message">{summaryError}</p>}
-
-        {summary && summary.summary_failed && (
-          <p className="summary-failed-notice">요약 어려움 — 원문 참고 필요</p>
-        )}
-
-        {summary && !summary.summary_failed && (
-          <>
-            <div className="ai-notice">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-                <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
-              </svg>
-              AI가 원문을 분석해 자동 생성한 요약입니다. 정확한 내용은 원문을 확인하세요.
+            <div className="detail-header">
+              <ConfidenceBadge label={doc.confidence} />
             </div>
 
-            <div className="summary-toolbar">
-              <span className="summary-toolbar-label">4줄 요약</span>
+            {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
+                알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}
+            {query && (
+              <p className="search-context-note">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  />
+                  <path
+                    d="M21 21l-4.3-4.3"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래
+                원문에서 일치하는 부분을 표시했습니다
+              </p>
+            )}
+
+            {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리).
+                문단 단위로 나눠서 렌더링 — 제목/번호항목 같은 구조는 강조하고(renderRawText),
+                나머지는 그대로 흘러가는 본문으로 둠. blocks는 useMemo로 doc이 바뀔 때만 재계산. */}
+            <div className="raw-text">{renderRawText(blocks, query)}</div>
+          </div>
+
+          <div className="summary-card">
+            {!summary && !summaryLoading && (
               <button
                 type="button"
-                className={`copy-btn ${copied ? "copied" : ""}`}
-                onClick={handleCopy}
+                className="summary-reveal-btn"
+                onClick={handleShowSummary}
               >
-                {copied ? (
-                  "복사됨"
-                ) : (
-                  <>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                      <path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" strokeWidth="1.6" />
-                    </svg>
-                    요약 복사
-                  </>
-                )}
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="4"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  />
+                </svg>
+                4줄 요약보기 (AI 생성, 몇 초 걸릴 수 있습니다.)
               </button>
-            </div>
-
-            <dl className="summary-list">
-              {SUMMARY_FIELDS.map(({ key, label }, i) => (
-                <div key={key} className="summary-item">
-                  <dt>
-                    <span className="num">{i + 1}</span>
-                    {label}
-                  </dt>
-                  <dd>{summary[key] || "미기재"}</dd>
-                </div>
-              ))}
-            </dl>
-          </>
-        )}
-
-        {/* 문장형 요약 — 지적/원인/조치/결과 틀 없이 자유롭게 뽑은 버전. 위 박스 요약의
-            성공/실패와는 별개 결과라 독립적으로 표시함 */}
-        {summary && (summary.summary_freeform || summary.summary_freeform_failed) && (
-          <div className="summary-freeform-block">
-            <p className="summary-toolbar-label">문장으로 보기</p>
-            {summary.summary_freeform_failed ? (
-              <p className="summary-failed-notice">문장형 요약 어려움 — 원문 참고 필요</p>
-            ) : (
-              <p className="summary-freeform-text">{summary.summary_freeform.split("\n").join(" ")}</p>
             )}
+
+            {summaryLoading && <p className="loading-message">요약 생성 중…</p>}
+
+            {summaryError && <p className="error-message">{summaryError}</p>}
+
+            {summary && summary.summary_failed && (
+              <p className="summary-failed-notice">
+                요약 어려움 — 원문 참고 필요
+              </p>
+            )}
+
+            {summary && !summary.summary_failed && (
+              <>
+                <div className="ai-notice">
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="4"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                    />
+                  </svg>
+                  AI가 원문을 분석해 자동 생성한 요약입니다. 정확한 내용은
+                  원문을 확인하세요.
+                </div>
+
+                <div className="summary-toolbar">
+                  <span className="summary-toolbar-label">4줄 요약</span>
+                  <button
+                    type="button"
+                    className={`copy-btn ${copied ? "copied" : ""}`}
+                    onClick={handleCopy}
+                  >
+                    {copied ? (
+                      "복사됨"
+                    ) : (
+                      <>
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <rect
+                            x="9"
+                            y="9"
+                            width="12"
+                            height="12"
+                            rx="2"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                          <path
+                            d="M5 15V5a2 2 0 0 1 2-2h10"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                        </svg>
+                        요약 복사
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <dl className="summary-list">
+                  {SUMMARY_FIELDS.map(({ key, label }, i) => (
+                    <div key={key} className="summary-item">
+                      <dt>
+                        <span className="num">{i + 1}</span>
+                        {label}
+                      </dt>
+                      <dd>{summary[key] || "미기재"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
+
+            {/* 문장형 요약 — 지적/원인/조치/결과 틀 없이 자유롭게 뽑은 버전. 위 박스 요약의
+            성공/실패와는 별개 결과라 독립적으로 표시함 */}
+            {summary &&
+              (summary.summary_freeform || summary.summary_freeform_failed) && (
+                <div className="summary-freeform-block">
+                  <p className="summary-toolbar-label">문장으로 보기</p>
+                  {summary.summary_freeform_failed ? (
+                    <p className="summary-failed-notice">
+                      문장형 요약 어려움 — 원문 참고 필요
+                    </p>
+                  ) : (
+                    <p className="summary-freeform-text">
+                      {summary.summary_freeform.split("\n").join(" ")}
+                    </p>
+                  )}
+                </div>
+              )}
           </div>
-        )}
+        </div>
       </div>
 
       <Link to={backLink} className="back-link bottom-back-link">
@@ -482,8 +573,20 @@ export default function DetailPage() {
         aria-label="맨 위로"
         title="맨 위로"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 19V5M5 12l7-7 7 7"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
     </div>
