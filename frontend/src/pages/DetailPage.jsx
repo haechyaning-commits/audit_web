@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getCaseDetail, getCaseSummary } from "../api.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
@@ -29,8 +29,13 @@ const SCROLL_TOP_THRESHOLD = 480;
 //      이끄는 경우가 많았음. 이걸 헤더 취급해서 굵게 만들면, 같은 문장이 "첫 줄만 굵고
 //      나머지는 안 굵은" 상태로 쪼개져 보여서 오히려 더 이상해 보였음 — 그래서 불릿은
 //      "새 문단 시작" 신호로만 쓰고(굵게 안 함, 문단 간 여백만 살짝 줌) 구분함.
+// 문서 제목 줄 — HEADING_LABEL_PATTERNS에도 포함되지만(굵게 처리 대상), 목차/타이포에서
+// "제목"은 다른 헤딩과 구분해서 더 크게 세리프로 보여주고 목차 항목에서는 제외하려고
+// 별도 상수로 뺌(law.go.kr류 공식 문서 타이포 요청, 2026-08-12)
+const TITLE_RE = /^제\s*목\s*[:：]?\s/;
+
 const HEADING_LABEL_PATTERNS = [
-  /^제\s*목\s*[:：]?\s/, // 제목 / 제 목
+  TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
   /^관\s*계\s*기\s*관\s*[:：]?/, // 관계기관
   /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
@@ -86,14 +91,16 @@ function classifyLine(line) {
   return "body";
 }
 
-/** 원문을 문단 단위로 묶어서 렌더링.
+/** 원문을 문단 단위 블록으로 나눔(렌더링 전 순수 데이터 단계) — renderRawText와
+ * buildToc가 같은 블록 목록을 같이 써서 목차 항목과 실제 앵커가 항상 일치하게 함
+ * (law.go.kr류 조문 목차 참고 요청, 2026-08-12).
  *
  * 원문의 줄바꿈(\n)은 대부분 PDF가 페이지 폭에 맞춰 끊은 자리라 실제 문장/문단 구분과
  * 다름(심하면 "근무하" / "고 있는" 처럼 단어 중간에서도 끊김) — 그 줄을 그대로 각자 블록
  * 으로 렌더링하면 원래 한 문장이 짧은 조각으로 뚝뚝 끊겨 보임(2026-08-12 피드백).
  * 그래서 헤딩/불릿 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은
  * 공백으로 합쳐서 하나의 문단으로 흘러가게 함. */
-function renderRawText(text, query) {
+function splitIntoBlocks(text) {
   const blocks = [];
   let para = [];
   let paraType = "body";
@@ -140,18 +147,76 @@ function renderRawText(text, query) {
     para.push(trimmed);
   }
   flushPara();
+  return blocks;
+}
 
-  return blocks.map((b, i) =>
-    b.type === "table" ? (
-      <details key={i} className="raw-line-table">
-        <summary>표/그림 데이터 (펼쳐보기)</summary>
-        <div>{query ? highlightMatches(b.text, query) : b.text}</div>
-      </details>
-    ) : (
-      <div key={i} className={`raw-line raw-line-${b.type}`}>
+/** 헤딩 블록에만 앵커 id를 붙여서 렌더링 — 목차(TocSidebar)가 이 id로 점프함.
+ * id는 등장 순서 기반("heading-3")으로만 부여, buildToc와 항상 같은 순서/조건이어야 함.
+ * 제목 줄(TITLE_RE)은 별도 "title" 타입으로 렌더링 — 다른 헤딩보다 크게, 세리프로. */
+function renderRawText(blocks, query) {
+  let headingIdx = 0;
+  return blocks.map((b, i) => {
+    if (b.type === "table") {
+      return (
+        <details key={i} className="raw-line-table">
+          <summary>표/그림 데이터 (펼쳐보기)</summary>
+          <div>{query ? highlightMatches(b.text, query) : b.text}</div>
+        </details>
+      );
+    }
+    if (b.type !== "heading") {
+      return (
+        <div key={i} className={`raw-line raw-line-${b.type}`}>
+          {query ? highlightMatches(b.text, query) : b.text}
+        </div>
+      );
+    }
+    const isTitle = TITLE_RE.test(b.text);
+    const id = `heading-${headingIdx++}`;
+    return (
+      <div key={i} id={id} className={`raw-line ${isTitle ? "raw-line-title" : "raw-line-heading"}`}>
         {query ? highlightMatches(b.text, query) : b.text}
       </div>
-    ),
+    );
+  });
+}
+
+/** 목차 항목만 뽑음 — renderRawText의 id 채번 방식과 반드시 같은 순서/조건("heading"
+ * 블록만, 등장 순서대로 — 제목도 포함해서 카운트)이어야 앵커가 안 어긋남. 다만 목차
+ * 화면에는 제목 자체는 안 보여줌(페이지에 이미 큼직하게 있어서 중복). */
+function buildToc(blocks) {
+  let headingIdx = 0;
+  const items = [];
+  for (const b of blocks) {
+    if (b.type !== "heading") continue;
+    const id = `heading-${headingIdx++}`;
+    if (TITLE_RE.test(b.text)) continue;
+    items.push({ id, text: b.text });
+  }
+  return items;
+}
+
+function TocSidebar({ items }) {
+  if (items.length < 3) return null; // 항목 적으면 스크롤 한 번이면 끝 — 목차가 노이즈만 됨
+
+  function handleClick(e, id) {
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <nav className="toc-sidebar" aria-label="원문 목차">
+      <p className="toc-label">목차</p>
+      <ol>
+        {items.map((item) => (
+          <li key={item.id}>
+            <a href={`#${item.id}`} onClick={(e) => handleClick(e, item.id)}>
+              {item.text}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 
@@ -173,6 +238,11 @@ export default function DetailPage() {
   const [summaryError, setSummaryError] = useState(null);
 
   const backLink = query ? `/?q=${encodeURIComponent(query)}` : "/";
+
+  // raw_text -> 블록 목록은 doc이 바뀔 때만 다시 계산(문서 하나가 꽤 길어서 매 렌더마다
+  // 다시 파싱하면 낭비) — renderRawText(본문)와 buildToc(목차)가 같은 블록 목록을 공유
+  const blocks = useMemo(() => (doc ? splitIntoBlocks(doc.raw_text) : []), [doc]);
+  const tocItems = useMemo(() => buildToc(blocks), [blocks]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,33 +346,41 @@ export default function DetailPage() {
     <div className="app-main detail-page">
       <BackLink to={backLink} />
 
-      <div className="detail-card">
-        <div className="detail-header">
-          <span className="detail-institution">
-            {doc.institution || "기관명 미상"}
-            {doc.year ? ` · ${doc.year}년` : ""}
-            {doc.audit_type ? ` · ${doc.audit_type}` : ""}
-          </span>
-          <ConfidenceBadge label={doc.confidence} />
-        </div>
-
-        {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
-            알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}
-        {query && (
-          <p className="search-context-note">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
-              <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-            '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래 원문에서
-            일치하는 부분을 표시했습니다
+      {/* 목차(TocSidebar)가 있는 문서(헤딩 3개 이상)는 좌-사이드바/우-본문 2단 레이아웃,
+          없으면 detail-layout이 그냥 detail-card 하나만 감싸서 기존과 동일하게 보임
+          (law.go.kr류 조문 목차 요청, 2026-08-12) */}
+      <div className="detail-layout">
+        <TocSidebar items={tocItems} />
+        <div className="detail-card">
+          <p className="detail-breadcrumb">
+            <b>{doc.institution || "기관명 미상"}</b>
+            {doc.year ? <span className="sep">›</span> : null}
+            {doc.year ? `${doc.year}년` : ""}
+            {doc.audit_type ? <span className="sep">›</span> : null}
+            {doc.audit_type || ""}
           </p>
-        )}
+          <div className="detail-header">
+            <ConfidenceBadge label={doc.confidence} />
+          </div>
 
-        {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리).
-            줄 단위로 나눠서 렌더링 — 제목/번호항목 같은 구조는 강조하고(renderRawText),
-            나머지는 그대로 흘러가는 본문으로 둠. */}
-        <div className="raw-text">{renderRawText(doc.raw_text, query)}</div>
+          {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
+              알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}
+          {query && (
+            <p className="search-context-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+              '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래 원문에서
+              일치하는 부분을 표시했습니다
+            </p>
+          )}
+
+          {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리).
+              문단 단위로 나눠서 렌더링 — 제목/번호항목 같은 구조는 강조하고(renderRawText),
+              나머지는 그대로 흘러가는 본문으로 둠. blocks는 useMemo로 doc이 바뀔 때만 재계산. */}
+          <div className="raw-text">{renderRawText(blocks, query)}</div>
+        </div>
       </div>
 
       <div className="summary-card">
