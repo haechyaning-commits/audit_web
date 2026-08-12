@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import db, embedding, repository, summary
 from .schemas import DocumentDetail, SearchResponse, SearchResultCard, SummaryResponse
+from .textutils import build_preview
 
 CONFIDENCE_LABELS = {
     "standard": "신뢰도 높음",
@@ -88,7 +89,7 @@ async def search(q: str, debug_score: bool = False) -> SearchResponse:
             institution=r["institution"],
             year=r["year"],
             confidence=_confidence_label(r["parsing_quality"]),
-            preview_text=r["preview_text"],
+            preview_text=build_preview(r["preview_buffer"]),
             score=float(r["score"]) if debug_score else None,
         )
         for r in candidates

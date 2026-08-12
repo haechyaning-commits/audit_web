@@ -67,7 +67,10 @@ SELECT
     -- raw_text 맨 앞은 "제 목 : ... 징 계 종 류 : ..." 같은 정형화된 서류 양식 헤더라
     -- 검색어랑 무관한 내용만 보여주는 문제가 있었음 — 매치된 청크를 쓰면 실제로
     -- 검색어와 관련된 본문이 보일 확률이 훨씬 높아짐.
-    left(c.text, 200) AS preview_text
+    -- 320자로 넉넉히 가져오는 이유: 실제 자를 지점(문장/어절 경계)은 textutils.build_preview가
+    -- Python에서 정함(2026-08-12) — 200자에서 그냥 뚝 자르면 문장 중간에서 끊기는 문제가
+    -- 있었음. SQL은 여유분 있는 buffer만 넘겨줌.
+    left(c.text, 320) AS preview_buffer
 FROM doc_deduped dd
 JOIN documents doc ON doc.id = dd.document_id
 JOIN chunks c ON c.id = dd.chunk_id

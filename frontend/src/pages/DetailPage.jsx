@@ -13,6 +13,35 @@ const SUMMARY_FIELDS = [
 
 const SCROLL_TOP_THRESHOLD = 480;
 
+// 원문이 그냥 통짜 텍스트로 나열돼서 보기 힘들다는 피드백(2026-08-12) 대응 — 감사보고서
+// 원문에 자주 나오는 구조 패턴(제목, 번호/가나다 항목, 로마숫자 장 구분, 불릿)만 정규식으로
+// 감지해서 굵게+여백을 주고, 나머지 본문은 그대로 둠. 공사마다 양식이 달라 완벽한 파싱은
+// 안 되지만, 눈에 띄는 패턴만 강조해도 완전히 평평한 텍스트보다는 훨씬 스캔하기 쉬워짐.
+const HEADING_PATTERNS = [
+  /^제\s*목\s*[:：]/, // 제 목 : ...
+  /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+\s*[.)]/, // Ⅰ. Ⅱ. 로마숫자 장 구분
+  /^\d+\s*[.)]\s*\S/, // 1. 2. 3. 번호 항목
+  /^[가나다라마바사아자차카타파하]\s*[.)]/, // 가. 나. 다. 항목
+  /^[□○◦▪‣·]\s*\S/, // □ ○ 불릿
+  /^【.+】/, // 【 구간표시 】
+];
+
+function isHeadingLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  return HEADING_PATTERNS.some((re) => re.test(trimmed));
+}
+
+/** 원문을 줄 단위로 나눠서 구조 패턴에 맞는 줄만 강조 클래스를 붙여 렌더링.
+ * query가 있으면 줄마다 검색어 하이라이트도 같이 적용. */
+function renderRawText(text, query) {
+  return text.split("\n").map((line, i) => (
+    <div key={i} className={`raw-line ${isHeadingLine(line) ? "raw-line-heading" : ""}`}>
+      {query ? highlightMatches(line, query) : line || " "}
+    </div>
+  ));
+}
+
 export default function DetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -156,8 +185,10 @@ export default function DetailPage() {
           </p>
         )}
 
-        {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리) */}
-        <pre className="raw-text">{query ? highlightMatches(doc.raw_text, query) : doc.raw_text}</pre>
+        {/* 원문은 요약을 기다릴 필요 없이 바로 보여줌 (§4.5 — 조회와 요약 생성을 분리).
+            줄 단위로 나눠서 렌더링 — 제목/번호항목 같은 구조는 강조하고(renderRawText),
+            나머지는 그대로 흘러가는 본문으로 둠. */}
+        <div className="raw-text">{renderRawText(doc.raw_text, query)}</div>
       </div>
 
       <div className="summary-card">

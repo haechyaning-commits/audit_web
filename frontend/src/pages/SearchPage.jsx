@@ -107,8 +107,11 @@ export default function SearchPage({ search }) {
   return (
     <>
       {/* 검색 전(랜딩)에만 히어로+검색창 표시 — 검색 후엔 결과만 보여주고, 재검색은
-          헤더 상시 검색창(HeaderSearch)으로 함 */}
-      {results === null && (
+          헤더 상시 검색창(HeaderSearch)으로 함.
+          !loading도 같이 봐야 함(2026-08-12) — 검색 버튼을 누르면 loading이 먼저 true가
+          되고 results는 응답이 올 때까지 계속 null이라서, !loading이 없으면 히어로(통계
+          카드+그래프)가 아래 로딩 스켈레톤이랑 같이 떠서 겹쳐 보이는 문제가 있었음. */}
+      {results === null && !loading && (
         <section className="hero">
           <div className="hero-inner">
             <h1>궁금한 사안을 검색해보세요</h1>

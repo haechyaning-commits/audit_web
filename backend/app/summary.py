@@ -21,12 +21,16 @@ PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고 정확히 4줄로 요
 FALLBACK_PHRASES = ["지적사항 불분명", "원인 미기재", "조치사항 미기재", "처리결과 미기재"]
 
 # 자유형 요약(문장형) — 지적사항/원인/조치/결과 틀에 안 맞추고, 원문 전체에서 중요하다고
-# 판단되는 내용을 자유롭게 4줄로 뽑아냄. 프론트 상세페이지에 구조화된 박스 요약과
-# 나란히(그 아래에) 보여주기 위한 용도 — 완전히 별도의 프롬프트+API 호출.
-FREEFORM_PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고, 항목 구분 없이 가장 핵심적인 내용을
-정확히 4줄로 요약해라. 각 줄은 완결된 문장으로 쓰고, 지적사항/원인/조치/결과 같은 정해진
-틀에 얽매이지 말고 전체 맥락에서 중요하다고 판단되는 내용 순서대로 자연스럽게 이어지도록 써라.
-원문에 요약할 만한 내용이 전혀 없을 때만 "요약할 내용 없음"으로 표시해라.
+# 판단되는 내용을 자유롭게 뽑아냄. 프론트 상세페이지에 구조화된 박스 요약과 나란히(그
+# 아래에) 보여주기 위한 용도 — 완전히 별도의 프롬프트+API 호출.
+# 2026-08-12: "정확히 4줄"을 강제하지 않도록 완화 — 4줄 형식을 못 맞추면(모델이 3줄이나
+# 5줄, 또는 줄바꿈 없는 한 문단으로 답하는 경우가 꽤 있었음) 무조건 실패로 캐싱돼서
+# summary_freeform이 계속 안 보이는 문제가 있었음. 이제는 줄 수 상관없이 핵심만 짧게
+# 담으면 되고, 파싱도 "4줄인지"를 안 따짐(_call_once_freeform 참고).
+FREEFORM_PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고, 항목 구분 없이 가장 핵심적인 내용만
+간단히 요약해라. 정해진 줄 수는 없다 — 짧고 자연스러운 문장 2~4개 정도로, 지적사항/원인/조치/
+결과 같은 틀에 얽매이지 말고 전체 맥락에서 중요한 내용만 자연스럽게 이어지도록 써라.
+원문에 요약할 만한 내용이 전혀 없을 때만 "요약할 내용 없음"이라고만 답해라.
 원문:
 {raw_text}"""
 
@@ -83,8 +87,9 @@ async def generate_summary(raw_text: str) -> tuple[dict | None, bool]:
     return None, True
 
 
-async def _call_once_freeform(raw_text: str) -> list[str] | None:
-    """API 1회 호출 + 4줄 파싱(자유형). 형식이 깨지면(4줄 아님) None."""
+async def _call_once_freeform(raw_text: str) -> str | None:
+    """API 1회 호출(자유형). 줄 수는 안 따지고, 응답이 비어있지 않으면 그대로 받아들임
+    (2026-08-12 — 예전엔 "정확히 4줄"이 아니면 형식 깨짐으로 보고 버렸음)."""
     prompt = FREEFORM_PROMPT_TEMPLATE.format(raw_text=raw_text)
     try:
         resp = await _get_client().chat.completions.create(
@@ -95,26 +100,23 @@ async def _call_once_freeform(raw_text: str) -> list[str] | None:
     except (openai.APIStatusError, openai.APIConnectionError):
         return None
 
-    text = resp.choices[0].message.content or ""
-    lines = [l for l in text.strip().split("\n") if l.strip()]
-    if len(lines) != 4:
-        return None
-    return lines
+    text = (resp.choices[0].message.content or "").strip()
+    return text or None
 
 
-def _all_fallback_freeform(lines: list[str]) -> bool:
-    return all(FREEFORM_FALLBACK_PHRASE in line for line in lines)
+def _all_fallback_freeform(text: str) -> bool:
+    return FREEFORM_FALLBACK_PHRASE in text
 
 
 async def generate_freeform_summary(raw_text: str) -> tuple[str | None, bool]:
     """
-    구조화된 4줄(지적/원인/조치/결과)과 별개로, 항목 틀 없이 원문에서 중요한 내용 4줄을
-    자유형으로 뽑아냄. 반환: (4줄을 줄바꿈으로 이어붙인 문자열 또는 None, failed 여부).
-    재시도/실패 캐싱 정책은 generate_summary와 동일(§4.6) — 2회 다 실패하면 failed=True로
-    캐싱해서 재조회마다 API 낭비하는 것 방지.
+    구조화된 4줄(지적/원인/조치/결과)과 별개로, 항목 틀 없이 원문에서 핵심만 자유형으로
+    뽑아냄. 반환: (요약 문자열 또는 None, failed 여부). 재시도/실패 캐싱 정책은
+    generate_summary와 동일(§4.6) — 2회 다 실패하면 failed=True로 캐싱해서 재조회마다
+    API 낭비하는 것 방지.
     """
     for _ in range(2):
-        lines = await _call_once_freeform(raw_text)
-        if lines is not None and not _all_fallback_freeform(lines):
-            return "\n".join(lines), False
+        text = await _call_once_freeform(raw_text)
+        if text is not None and not _all_fallback_freeform(text):
+            return text, False
     return None, True
