@@ -62,7 +62,7 @@ export default function App() {
           </Link>
           <Link to="/" className="app-title-group" onClick={search.resetSearch}>
             <span className="app-title">공공감사데이터 검색</span>
-            <span className="app-tagline">감사 사례 유사사례 검색 서비스</span>
+            <span className="app-tagline">감사 유사사례 검색 서비스</span>
           </Link>
           {showHeaderSearch && <HeaderSearch runSearch={search.runSearch} />}
           <div className="header-actions">
