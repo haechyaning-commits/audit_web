@@ -16,17 +16,20 @@ from typing import Any
 import asyncpg
 
 # RRF(§3.1) + document 단위 dedup(§3.2) — 원래는 리랭커 입력용으로 top 20을 뽑아서
-# top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있어 지금은 top 20을 그대로
-# 최종 결과로 반환함(main.py의 search_candidates(..., limit=20) 호출과 짝을 맞춤,
-# 프론트 2열×10줄 그리드 표시). 나중에 리랭커 붙이면 LIMIT을 더 키우고 rerank()에서
-# 20건으로 압축하는 구조로 바꾸면 됨.
+# top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있어 지금은 top 40을 그대로
+# 최종 결과로 반환함(main.py의 search_candidates(..., limit=40) 호출과 짝을 맞춤,
+# 프론트 2열×N줄 그리드 표시 + 페이지네이션). 2026-08-12: 20건은 너무 적다는 피드백으로
+# 40건으로 늘림 — vector_search/text_search 후보 풀도 50→100으로 같이 늘려서, dedup 후에도
+# 40건을 채울 수 있을 만큼 후보가 남게 함(안 늘리면 소수 문서에 청크가 몰린 검색어에서
+# dedup 후 40건에 못 미칠 수 있음). 나중에 리랭커 붙이면 LIMIT을 더 키우고 rerank()에서
+# 압축하는 구조로 바꾸면 됨.
 _SEARCH_SQL = """
 WITH vector_search AS (
     SELECT id AS chunk_id, document_id,
            ROW_NUMBER() OVER (ORDER BY embedding <=> $1) AS rank
     FROM chunks
     ORDER BY embedding <=> $1
-    LIMIT 50
+    LIMIT 100
 ),
 text_search AS (
     SELECT id AS chunk_id, document_id,
@@ -35,7 +38,7 @@ text_search AS (
            ) AS rank
     FROM chunks
     WHERE tsv @@ plainto_tsquery('simple', $2)
-    LIMIT 50
+    LIMIT 100
 ),
 rrf_scored AS (
     SELECT
@@ -77,7 +80,7 @@ async def search_candidates(
     pool: asyncpg.Pool,
     query_vector: list[float],
     query_text: str,
-    limit: int = 10,
+    limit: int = 40,
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         return await conn.fetch(_SEARCH_SQL, query_vector, query_text, limit)

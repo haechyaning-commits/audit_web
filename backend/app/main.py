@@ -74,7 +74,7 @@ async def search(q: str) -> SearchResponse:
 
     pool = db.get_pool()
     query_vector = await asyncio.to_thread(embedding.encode_query, q)
-    candidates = await repository.search_candidates(pool, query_vector, q, limit=20)
+    candidates = await repository.search_candidates(pool, query_vector, q, limit=40)
     candidates = repository.rerank(candidates, q)  # 지금은 no-op, 스트레치 목표(§3.4) 자리
 
     results = [
