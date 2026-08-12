@@ -65,6 +65,7 @@ def load_documents(cur, conn, path: str, batch_size: int = 5000) -> int:
                 d["id"],
                 _clean_text(d.get("institution")),
                 _parse_year(d.get("year")),
+                _clean_text(d.get("audit_type")),  # 2026-08-12 추가 — 없는 구버전 jsonl이면 None
                 _clean_text(d.get("raw_text")),
                 _clean_text(d.get("parsing_quality")),
             ))
@@ -77,7 +78,7 @@ def load_documents(cur, conn, path: str, batch_size: int = 5000) -> int:
         batch = docs[i:i + batch_size]
         execute_values(
             cur,
-            "INSERT INTO documents (id, institution, year, raw_text, parsing_quality) "
+            "INSERT INTO documents (id, institution, year, audit_type, raw_text, parsing_quality) "
             "VALUES %s ON CONFLICT (id) DO NOTHING",
             batch,
         )

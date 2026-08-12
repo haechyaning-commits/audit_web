@@ -24,7 +24,9 @@
 #      documents_final.jsonl / chunks_final.jsonl 로 저장
 #
 # 출력:
-#   - documents_final.jsonl : {id, institution, year, raw_text, parsing_quality}
+#   - documents_final.jsonl : {id, institution, year, audit_type, raw_text, parsing_quality}
+#     (audit_type은 2026-08-12 추가 — source_file "기관이름_연도_감사종류" 패턴에서 파싱,
+#     textparse.parse_source_file 참고)
 #   - chunks_final.jsonl    : {id, document_id, text}
 #     (embedding 벡터는 여기 안 붙임 — load_to_postgres.py에서
 #      embeddings.npy/chunk_ids.jsonl과 조인해서 DB에 넣음)
@@ -33,6 +35,8 @@
 import json
 import re
 from collections import defaultdict
+
+from textparse import parse_source_file  # 2026-08-12: source_file에서 감사종류 파싱
 
 BASE = "/content/drive/MyDrive/audit_project/"
 AUDIT_CASES_PATH = BASE + "audit_cases_final_v2.jsonl"
@@ -140,10 +144,14 @@ def match_with_chunks(clean_docs: dict, embed_ready_path: str):
         rec = lookup.get(key)
         if rec is None:
             continue
+        # source_file "기관이름_연도_감사종류" 패턴에서 감사종류만 뽑아씀(institution/year는
+        # 기존처럼 rec/sample의 정제된 값을 그대로 신뢰 — source_file 파싱값으로 덮어쓰지 않음)
+        _, _, audit_type = parse_source_file(sample.get("source_file") or rec.get("source_file"))
         final_documents[doc_id] = {
             "id": doc_id,
             "institution": rec.get("institution"),
             "year": rec.get("audit_year"),
+            "audit_type": audit_type,
             "raw_text": rec.get("raw_text"),
             "parsing_quality": rec.get("parse_tier"),
         }
