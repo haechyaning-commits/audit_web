@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { buildCasePath } from "../caseUrl.js";
 import { getCaseDetail, getCaseSummary } from "../api.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
 import highlightMatches from "../highlight.jsx";
@@ -252,6 +253,8 @@ export default function DetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -301,6 +304,18 @@ export default function DetailPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // 예전 링크(/documents/:id)나 title 파싱이 안 됐던 시점에 만들어진 URL로 들어온
+  // 경우, 문서 로드가 끝나 title/institution/year를 알게 되면 새 URL(/cases/:id/:slug)로
+  // 조용히 교체함(replace라 히스토리에 새 엔트리 안 남고, 뒤로가기는 여전히 검색 결과로 감).
+  // 이미 최신 slug와 일치하면(캐노니컬 링크로 바로 들어온 경우) 아무것도 안 함.
+  useEffect(() => {
+    if (!doc) return;
+    const canonicalPath = buildCasePath(doc.id, doc);
+    if (location.pathname !== canonicalPath) {
+      navigate(`${canonicalPath}${location.search}`, { replace: true });
+    }
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps -- location/navigate는 매 렌더 안정적이지 않아 제외, doc만 트리거로 충분
 
   useEffect(() => {
     function onScroll() {

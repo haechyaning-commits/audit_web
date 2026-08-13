@@ -103,6 +103,11 @@ export default function App() {
       <main className="app-body">
         <Routes>
           <Route path="/" element={<SearchPage search={search} />} />
+          {/* /cases/:id/:slug가 새 URL 구조(law.go.kr류) — :slug는 표시용이라 안 읽음.
+              /documents/:id는 예전 링크/북마크가 안 깨지게 그대로 유지 (DetailPage가
+              로드 후 새 URL로 자동 교체함, caseUrl.js 참고). 두 라우트 다 파라미터
+              이름을 "id"로 맞춰서 DetailPage가 어느 쪽으로 들어왔는지 분기 안 해도 됨. */}
+          <Route path="/cases/:id/:slug" element={<DetailPage />} />
           <Route path="/documents/:id" element={<DetailPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

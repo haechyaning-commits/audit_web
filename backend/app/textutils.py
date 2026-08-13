@@ -11,6 +11,27 @@ repository.py가 넉넉히(320자) 가져온 buffer를 받아서:
 """
 import re
 
+# 문서 맨 앞 "제목"/"제 목" 라벨 줄에서 실제 제목만 뽑음(URL 슬러그/카드 표시용).
+# scripts/fix_text_corruption.py의 normalize_title_colon()이 이미 이 라벨 뒤에 콜론을
+# 통일해뒀지만(2026-08-12 재임베딩분), 콜론이 없는 옛 표기("제목 XXX")도 그대로 매칭되게
+# 콜론은 optional로 둠 — 재임베딩 전 문서와도 호환.
+_TITLE_LINE_RE = re.compile(r"^\s*제\s*목\s*[:：]?\s*(.+?)\s*$")
+
+
+def extract_title(raw_text: str | None) -> str | None:
+    """raw_text 첫 줄에서 문서 제목을 뽑음. 라벨이 없거나(포맷이 다른 소수 문서) 라벨
+    뒤에 내용이 없으면 None — 호출부(프론트 URL 슬러그, 카드 표시)가 document_id 등으로
+    폴백하면 됨."""
+    if not raw_text:
+        return None
+    first_line = raw_text.split("\n", 1)[0]
+    m = _TITLE_LINE_RE.match(first_line)
+    if not m:
+        return None
+    title = m.group(1).strip()
+    return title or None
+
+
 # 숫자 바로 뒤의 마침표는 제외 — "2024.", "제148조.", "1." 같은 날짜/조항/목차 번호가
 # 실측(2026-08-12)에서 진짜 문장 끝으로 오인되는 경우가 많았음(목차·법조문 인용이 잦은
 # 감사보고서 특성상). 한국어 문장은 보통 한글 뒤에 마침표가 오므로 이 조건으로 대부분 걸러짐.

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { buildCaseUrl } from "../caseUrl.js";
 import highlightMatches from "../highlight.jsx";
 
 /**
@@ -11,10 +12,8 @@ import highlightMatches from "../highlight.jsx";
  * @param {string} [className]
  */
 export default function ResultCard({ result, rank, query, className = "" }) {
-  const { document_id, institution, year, audit_type, preview_text } = result;
-  const to = query
-    ? `/documents/${document_id}?q=${encodeURIComponent(query)}`
-    : `/documents/${document_id}`;
+  const { institution, year, audit_type, preview_text } = result;
+  const to = buildCaseUrl(result, query);
 
   return (
     <Link to={to} className={`result-card ${className}`}>
