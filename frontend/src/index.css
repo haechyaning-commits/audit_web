@@ -1079,6 +1079,11 @@ body {
   color: var(--text-heading);
   margin-top: 18px;
   margin-bottom: 6px;
+  /* 2026-08-13: 목차(TocSidebar) 클릭 시 scrollIntoView가 고정 헤더(.app-header,
+     position: sticky, 높이 약 64px) 뒤로 대상 헤딩을 밀어넣던 버그 수정. scroll-margin-top
+     이 있으면 scrollIntoView가 이 여백만큼 위쪽에 미리 여유를 두고 정지함(네이티브 CSS
+     기능이라 JS 오프셋 계산 없이 해결됨). */
+  scroll-margin-top: 84px;
 }
 .raw-line-heading:first-child {
   margin-top: 0;
