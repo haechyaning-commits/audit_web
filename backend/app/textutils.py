@@ -10,6 +10,7 @@ repository.py가 넉넉히(320자) 가져온 buffer를 받아서:
    "…"를 뒤에 붙임.
 """
 import re
+from urllib.parse import quote
 
 # 문서 맨 앞 "제목"/"제 목" 라벨 줄에서 실제 제목만 뽑음(URL 슬러그/카드 표시용).
 # scripts/fix_text_corruption.py의 normalize_title_colon()이 이미 이 라벨 뒤에 콜론을
@@ -77,3 +78,29 @@ def build_preview(buffer: str, target_len: int = 200) -> str:
         cut = target_len  # 자연스러운 경계가 전혀 없으면 예전처럼 목표 길이에서 자름
 
     return prefix + body[:cut].rstrip() + "…"
+
+
+# 원본 PDF/HWP가 실제로 올라와있는 공개 리포(2026-08-12 STATUS.md 조사 — GitHub API로
+# 구조만 확인, 21.8GB라 클론은 안 함). documents.source_file의 "data_repo/" 접두어만
+# 떼면 이 리포의 실제 경로와 정확히 일치함이 그때 확인됨.
+_SOURCE_REPO_RAW_BASE = "https://raw.githubusercontent.com/haechyaning-commits/data/main/"
+_SOURCE_FILE_PREFIX = "data_repo/"
+
+
+def build_source_url(source_file: str | None) -> str | None:
+    """documents.source_file(적재 당시 상대경로)을 원본 파일을 바로 볼 수 있는
+    raw.githubusercontent.com URL로 변환. source_file이 없는 문서(백필 전, 또는
+    애초에 source_file을 못 구한 소수 문서)는 None — 프론트가 링크 버튼을 안 보여줌.
+    경로 세그먼트를 하나씩 인코딩함 — 파일명에 공백/괄호/한글이 흔해서 통째로 quote하면
+    "/"까지 인코딩돼 경로 자체가 깨짐(quote의 기본 safe="/"라 통째로 넣어도 되긴 하지만,
+    의도를 명확히 하려고 세그먼트 단위로 나눔)."""
+    if not source_file:
+        return None
+    path = source_file.strip()
+    if path.startswith(_SOURCE_FILE_PREFIX):
+        path = path[len(_SOURCE_FILE_PREFIX):]
+    path = path.strip("/")
+    if not path:
+        return None
+    encoded = "/".join(quote(segment) for segment in path.split("/"))
+    return _SOURCE_REPO_RAW_BASE + encoded

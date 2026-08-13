@@ -423,6 +423,33 @@ export default function DetailPage() {
               {doc.audit_type || ""}
             </p>
             <div className="detail-header">
+              {/* source_url은 백필 전이거나 원본 경로를 못 구한 소수 문서는 null이라
+                  백엔드가 그냥 필드를 null로 내려줌 — 조건부로 숨김(2026-08-13) */}
+              {doc.source_url && (
+                <a
+                  href={doc.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="source-file-link"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M14 3h7v7M21 3l-9 9M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  원본 파일 보기
+                </a>
+              )}
               <ConfidenceBadge label={doc.confidence} />
             </div>
 

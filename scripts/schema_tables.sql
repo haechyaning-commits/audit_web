@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS documents (
     audit_type      TEXT,               -- 감사종류(복무감사/회계감사/특정감사 등) — 원본 파일명
                                          -- "기관이름_연도_감사종류" 패턴에서 파싱(2026-08-12 추가,
                                          -- scripts/textparse.py의 parse_source_file 참고)
+    source_file     TEXT,               -- 적재 당시 원본 파일 상대경로("data_repo/자체감사파일1/...") —
+                                         -- backend/app/textutils.py의 build_source_url()이 이 값에서
+                                         -- "data_repo/" 접두어만 떼서 haechyaning-commits/data 리포의
+                                         -- raw 파일 URL로 변환함(원본 PDF/HWP 링크, 2026-08-13 추가)
     raw_text        TEXT NOT NULL,      -- 원문 전체 ("원문 펼쳐보기"용)
     parsing_quality TEXT NOT NULL CHECK (parsing_quality IN ('standard', 'partial', 'fallback')),
     summary_point   TEXT,               -- 4줄 요약 1번째 줄: 지적사항

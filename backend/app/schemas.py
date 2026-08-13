@@ -32,6 +32,7 @@ class DocumentDetail(BaseModel):
     audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12
     confidence: str
     raw_text: str
+    source_url: str | None  # 원본 PDF/HWP 링크(GitHub raw) — 백필 전/파싱 실패 문서는 null, 2026-08-13
     summary_point: str | None
     summary_cause: str | None
     summary_action: str | None

@@ -103,7 +103,7 @@ def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Re
 
 
 _GET_DOCUMENT_SQL = """
-SELECT id, institution, year, audit_type, raw_text, parsing_quality,
+SELECT id, institution, year, audit_type, raw_text, parsing_quality, source_file,
        summary_point, summary_cause, summary_action, summary_result, summary_failed,
        summary_freeform, summary_freeform_failed
 FROM documents
