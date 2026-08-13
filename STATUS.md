@@ -37,6 +37,15 @@
    - `main`에 병합 배포 후 확인: `/documents/{id}` 500 없이 `source_url` 정상 응답,
      실제 반환된 raw.githubusercontent.com 링크도 200 OK로 열림(한국조폐공사 2016
      종합감사(27).pdf로 직접 확인) — 기능 end-to-end 완료.
+   - **후속 수정**: 사용자 질문("다운로드가 나아 바로 보기가 나아?")으로 raw.
+     githubusercontent.com이 보안상 모든 파일을 `application/octet-stream` +
+     `nosniff`로 내려줘서 PDF/HWP 둘 다 무조건 다운로드였다는 걸 헤더로 직접 확인함 —
+     `cdn.jsdelivr.net/gh/haechyaning-commits/data@main/`(GitHub 미러, 프론트가 폰트
+     로딩에 이미 쓰던 CDN)로 base URL 교체. jsdelivr는 확장자 기준 실제 MIME 내려줘서
+     PDF는 `application/pdf`로 와서 클릭 시 새 탭에서 바로 보임(직접 헤더 확인), HWP는
+     jsdelivr에서도 `application/octet-stream`(브라우저에 렌더러가 없어서 CDN 상관없이
+     항상 다운로드 — 정상, 못 고치는 부분). `textutils.build_source_url()`의
+     `_SOURCE_REPO_RAW_BASE`만 교체, 경로 인코딩 로직은 동일.
 2. **실배포 진행** — `main`에 병합해서 Vercel/Railway 자동배포 트리거함. 처음엔
    source_file 커밋을 제외한 안전한 것만 먼저 올렸다가(위 1번 백필이 끝나기 전이라),
    백필 완료 확인 후 source_file 커밋도 별도로 병합해서 총 3번 배포함. 확인된 것:
