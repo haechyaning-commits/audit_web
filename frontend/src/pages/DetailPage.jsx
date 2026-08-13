@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildCasePath } from "../caseUrl.js";
 import { getCaseDetail, getCaseSummary } from "../api.js";
+import useDocumentTitle from "../useDocumentTitle.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
 import highlightMatches from "../highlight.jsx";
 
@@ -269,6 +270,15 @@ export default function DetailPage() {
   const [summaryError, setSummaryError] = useState(null);
 
   const backLink = query ? `/?q=${encodeURIComponent(query)}` : "/";
+
+  // 탭 타이틀 — 제목 파싱 실패한 소수 문서는 기관명으로, 그것도 없으면 그냥 기본 타이틀
+  // (useDocumentTitle이 falsy면 안 건드림) 유지. "공공감사데이터 검색" 접미사를 붙여서
+  // 여러 탭 열어놨을 때 어느 서비스인지 구분되게 함.
+  useDocumentTitle(
+    doc && (doc.title || doc.institution)
+      ? `${doc.title || doc.institution} - 공공감사데이터 검색`
+      : null,
+  );
 
   // raw_text -> 블록 목록은 doc이 바뀔 때만 다시 계산(문서 하나가 꽤 길어서 매 렌더마다
   // 다시 파싱하면 낭비) — renderRawText(본문)와 buildToc(목차)가 같은 블록 목록을 공유
