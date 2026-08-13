@@ -152,6 +152,10 @@ def match_with_chunks(clean_docs: dict, embed_ready_path: str):
             "institution": rec.get("institution"),
             "year": rec.get("audit_year"),
             "audit_type": audit_type,
+            # 원본 파일 상대경로 그대로 저장(2026-08-13 추가) — backend가 이 값으로 GitHub
+            # raw 링크를 만듦(textutils.build_source_url). audit_type과 같은 source_file
+            # 값에서 온 거라 별도 파싱 없이 그대로 둠.
+            "source_file": sample.get("source_file") or rec.get("source_file"),
             "raw_text": rec.get("raw_text"),
             "parsing_quality": rec.get("parse_tier"),
         }
