@@ -62,7 +62,10 @@
 #    (오탐 위험 > 실익 판단 — 필요해지면 각 조각의 등장 문맥을 더 모아서 별도 검토).
 #
 # 실행 순서:
-#   1) documents_backup_<날짜>, chunks_backup_<날짜> 테이블로 백업
+#   1) scripts/backup_before_fix.py로 documents.raw_text/chunks.text만 Drive에
+#      jsonl로 백업 (2026-08-13: 원래 `CREATE TABLE ... AS SELECT *`로 테이블째
+#      복사했다가 chunks의 벡터 컬럼까지 같이 복사되면서 Postgres 볼륨이 꽉 차
+#      DiskFull 에러가 실제로 났음 — DB 안에 새 테이블 만드는 방식은 쓰지 말 것)
 #   2) 이 스크립트로 documents.raw_text, chunks.text 수정
 #   3) 라이브 DB에서 재검증 (CHAIN_RE / HWP_LEAK_MARKER 둘 다 0건이어야 함)
 #   4) 바뀐 chunk만 골라 BGE-m3로 재임베딩 (Colab, GPU 필요) 후
