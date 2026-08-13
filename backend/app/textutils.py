@@ -90,13 +90,23 @@ def build_preview(buffer: str, target_len: int = 200) -> str:
 # 원본 PDF/HWP가 실제로 올라와있는 공개 리포(2026-08-12 STATUS.md 조사 — GitHub API로
 # 구조만 확인, 21.8GB라 클론은 안 함). documents.source_file의 "data_repo/" 접두어만
 # 떼면 이 리포의 실제 경로와 정확히 일치함이 그때 확인됨.
-_SOURCE_REPO_RAW_BASE = "https://raw.githubusercontent.com/haechyaning-commits/data/main/"
+#
+# raw.githubusercontent.com이 아니라 jsdelivr GitHub CDN 미러를 쓰는 이유(2026-08-13):
+# raw.githubusercontent.com은 보안상 모든 파일을 Content-Type: application/octet-stream +
+# X-Content-Type-Options: nosniff로 내려줘서, PDF든 HWP든 브라우저가 무조건 다운로드부터
+# 하고 봄. jsdelivr는 확장자로 실제 MIME 타입을 판단해서 내려주기 때문에(직접 헤더 확인함
+# — .pdf는 application/pdf로 옴) PDF는 클릭하면 새 탭에서 바로 보이고, HWP는 브라우저가
+# 아예 렌더링 못 하는 포맷이라 어차피 다운로드됨(이건 CDN을 바꿔도 못 고침, 브라우저에
+# 한글 뷰어가 없어서). 즉 파일 종류별로 최선의 동작이 자동으로 갈림.
+# 프론트 index.html이 폰트(Pretendard) 로딩에 이미 jsdelivr를 쓰고 있어서 새로운
+# 의존성을 추가하는 것도 아님.
+_SOURCE_REPO_RAW_BASE = "https://cdn.jsdelivr.net/gh/haechyaning-commits/data@main/"
 _SOURCE_FILE_PREFIX = "data_repo/"
 
 
 def build_source_url(source_file: str | None) -> str | None:
     """documents.source_file(적재 당시 상대경로)을 원본 파일을 바로 볼 수 있는
-    raw.githubusercontent.com URL로 변환. source_file이 없는 문서(백필 전, 또는
+    jsdelivr CDN URL로 변환. source_file이 없는 문서(백필 전, 또는
     애초에 source_file을 못 구한 소수 문서)는 None — 프론트가 링크 버튼을 안 보여줌.
     경로 세그먼트를 하나씩 인코딩함 — 파일명에 공백/괄호/한글이 흔해서 통째로 quote하면
     "/"까지 인코딩돼 경로 자체가 깨짐(quote의 기본 safe="/"라 통째로 넣어도 되긴 하지만,
