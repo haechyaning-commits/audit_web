@@ -92,6 +92,17 @@ TAG_NAME_RE = re.compile(r"/?\b(?:hp|hc):[A-Za-z0-9]+\b")
 # outlineS(hp:outlineShape 계열로 추정)는 hp:/hc: 접두어 없이 단독 토큰으로 새는 경우가
 # 있어서 TAG_NAME_RE로는 안 잡힘 -> 별도 패턴.
 BARE_LEAK_TOKEN_RE = re.compile(r"\boutlineS(?:hape)?\b")
+# 2026-08-13 3차: chunks.text는 documents.raw_text를 잘라 만든 조각이라, 속성 태그가
+# 청크 경계에서 반으로 잘리는 경우가 있음(실제 사례로 확인 — 한 청크는 "vertpos="로
+# 끝나고 닫는 따옴표+값("145" 등)은 다음 청크 맨 앞으로 넘어가 있음). 이러면 TAG_ATTR_RE가
+# 요구하는 닫는 따옴표가 같은 청크 문자열 안에 없어서 못 잡힘(documents.raw_text는 문서
+# 전체라 이 경계 문제 자체가 없어서 0건, chunks만 29건 남았던 이유). 청크 맨 끝에
+# 매달린(닫는 따옴표 없는) 속성명=값조각 만 별도로 제거 — 길이를 40자로 제한해서 혹시
+# 모를 정상 텍스트 과잉 삭제 위험을 줄임. 속성명은 [A-Za-z]로 시작하게 제한 —
+# Python 정규식의 \w는 한글도 포함해서, [\w:]+= 로 두면 "목표는 완료=100%입니다"처럼
+# 우연히 "="가 낀 정상 한글 문장의 "완료="까지 속성명으로 착각해 지울 위험이 있었음
+# (실제 HWP 속성명은 항상 영문이므로 이 제약이 안전함).
+DANGLING_ATTR_RE = re.compile(r'\b[A-Za-z][A-Za-z0-9:]*=\s*"?[^"\n]{0,40}$')
 HWP_LEAK_MARKER = re.compile(
     r"hp:run|hp:lineseg|hp:sz|hp:pos|hc:\w+|linkListNextIDRef=|textpos=|vertpos=|outlineS"
 )
@@ -188,6 +199,7 @@ def strip_hwpml_leak(text: str) -> str:
     text = TAG_ATTR_RE.sub(" ", text)
     text = TAG_NAME_RE.sub(" ", text)
     text = BARE_LEAK_TOKEN_RE.sub(" ", text)
+    text = DANGLING_ATTR_RE.sub("", text)
     text = re.sub(r"\s*/\s*(?=\s|$)", " ", text)
     text = re.sub(r"[ \t]+", " ", text)           # 개행은 보존, 스페이스/탭만 압축
     text = re.sub(r" *\n *", "\n", text).strip()  # 개행 주변 공백만 정리
