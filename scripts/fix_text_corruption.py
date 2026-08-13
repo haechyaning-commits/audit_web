@@ -51,6 +51,16 @@
 #   -> 총 1,765건 (2026-08-07 기준), 별도 재추출 워크스트림으로 분리.
 #      텍스트 치환으로 복구 불가능하므로 이 스크립트로는 처리 안 함.
 #
+# 5) HWP XML 누출 2차 (2026-08-13) — 1)의 hp:run류 수정 이후에도 표가 복잡한 문서에서
+#    hc:(도형/차트 속성: transMatrix/scaMatrix/rotMatrix/fillBrush/winBrush/pt0~3 등)
+#    계열과 linkListNextIDRef=/textpos=/vertpos=/outlineS가 별도로 새고 있는 걸
+#    audit_hwp_tag_leak.py로 확인(97건, 전체의 0.14%, 한국토지주택공사 2025에 집중).
+#    hc: 태그명은 hp:처럼 단독 토큰으로 떠다니고, 속성 형태(linkListNextIDRef= 등)는
+#    "=" 뒤에 줄바꿈이 끼어 기존 TAG_ATTR_RE가 못 잡던 경우가 있어서 정규식을 확장.
+#    남은 한계: "fff"/"head"/"cha"/"vert"/"col"/"borderFill"/"rowSpan" 같은 영문 조각도
+#    같은 문서들에 섞여 나오지만, 정상 영문 약어와 구분이 애매해 이번엔 손대지 않음
+#    (오탐 위험 > 실익 판단 — 필요해지면 각 조각의 등장 문맥을 더 모아서 별도 검토).
+#
 # 실행 순서:
 #   1) documents_backup_<날짜>, chunks_backup_<날짜> 테이블로 백업
 #   2) 이 스크립트로 documents.raw_text, chunks.text 수정
@@ -69,9 +79,19 @@ import psycopg2
 
 CHAIN_RE = re.compile(r"(?:([가-힣])\1{1,3} ?){2,}")
 DIGIT_CHAIN_RE = re.compile(r"(?:(\d)\1{1,3} ?){2,}")
-TAG_ATTR_RE = re.compile(r'\b[\w:]+="[^"]*"')
-TAG_NAME_RE = re.compile(r"/?\bhp:[A-Za-z]+\b")
-HWP_LEAK_MARKER = re.compile(r"hp:run|hp:lineseg|hp:sz|hp:pos")
+# 2026-08-13 추가: hp:run류 수정(08-07~10) 이후에도, 표가 복잡한 문서에서 hc:(도형/차트
+# 속성) 계열과 linkListNextIDRef=/textpos=/vertpos= 속성이 별도로 새고 있는 게 추가로
+# 발견됨(97건/전체 0.14%, audit_hwp_tag_leak.py로 규모 확인). 실제 오염 샘플을 떠보니
+# "속성=\n"값"" 처럼 = 뒤에 줄바꿈이 끼어 들어오는 경우가 있어서 기존 TAG_ATTR_RE(=
+# 바로 뒤에 따옴표를 요구)가 이걸 못 잡고 있었음 -> \s* 로 완화.
+TAG_ATTR_RE = re.compile(r'\b[\w:]+=\s*"[^"]*"')
+TAG_NAME_RE = re.compile(r"/?\b(?:hp|hc):[A-Za-z0-9]+\b")
+# outlineS(hp:outlineShape 계열로 추정)는 hp:/hc: 접두어 없이 단독 토큰으로 새는 경우가
+# 있어서 TAG_NAME_RE로는 안 잡힘 -> 별도 패턴.
+BARE_LEAK_TOKEN_RE = re.compile(r"\boutlineS(?:hape)?\b")
+HWP_LEAK_MARKER = re.compile(
+    r"hp:run|hp:lineseg|hp:sz|hp:pos|hc:\w+|linkListNextIDRef=|textpos=|vertpos=|outlineS"
+)
 
 # 2026-08-12 추가: 같은 bold_dup 렌더링 버그가 괄호/인용부호에도 나타남
 # ("｢｢업무용 차량...｣｣"처럼 여는/닫는 괄호가 겹쳐 나옴). 한글 글자 중복(CHAIN_RE)과
@@ -164,6 +184,7 @@ def strip_hwpml_leak(text: str) -> str:
     text = html.unescape(text)
     text = TAG_ATTR_RE.sub(" ", text)
     text = TAG_NAME_RE.sub(" ", text)
+    text = BARE_LEAK_TOKEN_RE.sub(" ", text)
     text = re.sub(r"\s*/\s*(?=\s|$)", " ", text)
     text = re.sub(r"[ \t]+", " ", text)           # 개행은 보존, 스페이스/탭만 압축
     text = re.sub(r" *\n *", "\n", text).strip()  # 개행 주변 공백만 정리
