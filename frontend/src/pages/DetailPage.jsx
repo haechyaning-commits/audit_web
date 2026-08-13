@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { buildCasePath } from "../caseUrl.js";
 import { getCaseDetail, getCaseSummary } from "../api.js";
+import useDocumentTitle from "../useDocumentTitle.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
 import highlightMatches from "../highlight.jsx";
 
@@ -264,6 +266,8 @@ export default function DetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -278,6 +282,15 @@ export default function DetailPage() {
   const [summaryError, setSummaryError] = useState(null);
 
   const backLink = query ? `/?q=${encodeURIComponent(query)}` : "/";
+
+  // 탭 타이틀 — 제목 파싱 실패한 소수 문서는 기관명으로, 그것도 없으면 그냥 기본 타이틀
+  // (useDocumentTitle이 falsy면 안 건드림) 유지. "공공감사데이터 검색" 접미사를 붙여서
+  // 여러 탭 열어놨을 때 어느 서비스인지 구분되게 함.
+  useDocumentTitle(
+    doc && (doc.title || doc.institution)
+      ? `${doc.title || doc.institution} - 공공감사데이터 검색`
+      : null,
+  );
 
   // raw_text -> 블록 목록은 doc이 바뀔 때만 다시 계산(문서 하나가 꽤 길어서 매 렌더마다
   // 다시 파싱하면 낭비) — renderRawText(본문)와 buildToc(목차)가 같은 블록 목록을 공유
@@ -317,6 +330,18 @@ export default function DetailPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // 예전 링크(/documents/:id)나 title 파싱이 안 됐던 시점에 만들어진 URL로 들어온
+  // 경우, 문서 로드가 끝나 title/institution/year를 알게 되면 새 URL(/cases/:id/:slug)로
+  // 조용히 교체함(replace라 히스토리에 새 엔트리 안 남고, 뒤로가기는 여전히 검색 결과로 감).
+  // 이미 최신 slug와 일치하면(캐노니컬 링크로 바로 들어온 경우) 아무것도 안 함.
+  useEffect(() => {
+    if (!doc) return;
+    const canonicalPath = buildCasePath(doc.id, doc);
+    if (location.pathname !== canonicalPath) {
+      navigate(`${canonicalPath}${location.search}`, { replace: true });
+    }
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps -- location/navigate는 매 렌더 안정적이지 않아 제외, doc만 트리거로 충분
 
   useEffect(() => {
     function onScroll() {
