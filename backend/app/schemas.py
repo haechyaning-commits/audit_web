@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class SearchResultCard(BaseModel):
     """검색 결과 카드 1개 (architecture.md §8.3)."""
     document_id: str
+    title: str | None  # raw_text 첫 줄("제목 : ...")에서 파싱 — 프론트 URL 슬러그용, 2026-08-13
     institution: str | None
     year: int | None
     audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12
@@ -25,6 +26,7 @@ class DocumentDetail(BaseModel):
     """상세페이지 응답 — 요약 생성은 트리거하지 않고 DB에 캐싱된 값만 반환(없으면 전부 null).
     요약이 필요하면 프론트가 별도로 POST /documents/{id}/summary를 호출함."""
     id: str
+    title: str | None  # raw_text 첫 줄에서 파싱 — 프론트 URL 슬러그용, 2026-08-13
     institution: str | None
     year: int | None
     audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12

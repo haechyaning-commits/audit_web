@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import db, embedding, repository, summary
 from .schemas import DocumentDetail, SearchResponse, SearchResultCard, SummaryResponse
-from .textutils import build_preview
+from .textutils import build_preview, extract_title
 
 CONFIDENCE_LABELS = {
     "standard": "신뢰도 높음",
@@ -86,6 +86,7 @@ async def search(q: str, debug_score: bool = False) -> SearchResponse:
     results = [
         SearchResultCard(
             document_id=r["document_id"],
+            title=extract_title(r["title_buffer"]),
             institution=r["institution"],
             year=r["year"],
             audit_type=r["audit_type"],
@@ -109,6 +110,7 @@ async def get_document_detail(document_id: str) -> DocumentDetail:
 
     return DocumentDetail(
         id=doc["id"],
+        title=extract_title(doc["raw_text"]),
         institution=doc["institution"],
         year=doc["year"],
         audit_type=doc["audit_type"],

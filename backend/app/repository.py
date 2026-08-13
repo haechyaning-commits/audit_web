@@ -64,6 +64,9 @@ SELECT
     doc.year,
     doc.audit_type,
     doc.parsing_quality,
+    -- 제목은 raw_text 맨 앞줄("제목 : ...")에서만 파싱하면 되므로 전체를 안 가져오고
+    -- 200자만 잘라서 넘김(URL 슬러그용, 2026-08-13) — textutils.extract_title이 첫 줄만 봄.
+    left(doc.raw_text, 200) AS title_buffer,
     -- 미리보기는 문서 맨 앞부분(raw_text)이 아니라 실제로 매치된 청크(c.text)에서 뽑음.
     -- raw_text 맨 앞은 "제 목 : ... 징 계 종 류 : ..." 같은 정형화된 서류 양식 헤더라
     -- 검색어랑 무관한 내용만 보여주는 문제가 있었음 — 매치된 청크를 쓰면 실제로

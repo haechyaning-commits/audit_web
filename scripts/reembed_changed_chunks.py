@@ -140,7 +140,12 @@ try:
     with conn.cursor() as cur:
         cur.execute("SELECT embedding FROM chunks WHERE id = %s", (chunk_ids[0],))
         sample = cur.fetchone()[0]
-        print(f"반영 확인(샘플 1건) norm: {np.linalg.norm(np.array(sample)):.6f}")
+        # pgvector-python 0.2+에서 register_vector 등록 시 SELECT 결과가 numpy 배열이
+        # 아니라 Vector 래퍼 객체로 옴 — np.array(sample)은 그 객체를 담은 0차원
+        # object 배열이 돼서 linalg.norm 내부 dot()이 Vector*Vector를 시도해 TypeError남.
+        # to_numpy()로 실제 float 배열을 꺼내야 함.
+        sample_arr = sample.to_numpy() if hasattr(sample, "to_numpy") else np.array(sample)
+        print(f"반영 확인(샘플 1건) norm: {np.linalg.norm(sample_arr):.6f}")
 finally:
     conn.close()
 
