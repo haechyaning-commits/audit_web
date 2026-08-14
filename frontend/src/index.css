@@ -1135,6 +1135,18 @@ body {
   font-style: italic;
   margin-top: 2px;
 }
+/* 각주("87,818,181원1)" 처럼 본문에 붙어 나온 참조 번호에 대응하는 설명줄) — 원래
+   PDF 페이지 하단의 작은 글씨인데 텍스트 추출 시 본문 중간에 섞여 들어옴. 예전엔
+   "숫자) 내용" 형태라 소제목과 똑같이 굵게 나왔던 걸(DetailPage.jsx의 footnote 판별
+   참고), 여기서 캡션처럼 작고 왼쪽에 얇은 선을 둬서 "본문과는 다른 성격의 삽입"이라는
+   걸 시각적으로 표시함(2026-08-14).*/
+.raw-line-footnote {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin: 2px 0 10px;
+}
 /* 표/그림 캡션 뒤에 셀 구분 없이 남은 텍스트 조각 — 문단처럼 흘려 읽으면 뜻 없는 단어
    나열이라 오히려 방해돼서, 기본 접힌 <details>로 감싸 필요할 때만 펼쳐보게 함
    (2026-08-12 4차 — 실제 문서에서 확인) */
