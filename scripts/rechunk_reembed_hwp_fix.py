@@ -76,6 +76,17 @@ def split_into_chunks(text: str, target_size: int = 1300, max_size: int = 3000) 
             sub: list[str] = []
             sub_len = 0
             for s in sentences:
+                # 문장 하나 자체가 max_size보다 길면(마침표 없는 표/나열식 텍스트 등)
+                # 문장 분할로도 못 줄이므로 강제로 글자 수 기준 잘라냄 — 안 그러면
+                # 청크가 임베딩 모델의 max_length(토큰 기준)를 훌쩍 넘겨서 뒷부분이
+                # 통째로 잘려나가는 문제가 생김(실제 검증 중 39,337자짜리 청크 발견).
+                if len(s) > max_size:
+                    if sub:
+                        chunks.append(" ".join(sub))
+                        sub, sub_len = [], 0
+                    for i in range(0, len(s), max_size):
+                        chunks.append(s[i:i + max_size])
+                    continue
                 if sub_len + len(s) > max_size and sub:
                     chunks.append(" ".join(sub))
                     sub, sub_len = [], 0
