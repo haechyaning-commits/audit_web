@@ -36,15 +36,38 @@ const SCROLL_TOP_THRESHOLD = 480;
 // 별도 상수로 뺌(law.go.kr류 공식 문서 타이포 요청, 2026-08-12)
 const TITLE_RE = /^제\s*목\s*[:：]?\s/;
 
+// 2026-08-14: 상단 필드 라벨("제목", "관계부서" 등)이 콜론 없이 공백만으로 구분되는
+// 문서가 실제로 있음(예: "소관부서 [부서]사업소") — 그렇다고 콜론을 완전히 선택
+// (optional, `[:：]?`)로 두면 "조치부서는 ~"/"관련자 T은 ~"처럼 라벨 단어 뒤에 조사가
+// 바로 붙은 평범한 본문 문장까지 걸려버림(실제 문서 "관련자 T은 2019. 1. 31.부터..."로
+// 확인). 그래서 콜론 **또는** 공백 중 하나는 반드시 있어야 매칭되게
+// `(?:[:：]\s*|\s+)`로 강제함 — textutils.py의 _TITLE_LINE_RE와 같은 이유·같은 해법.
+const LABEL_SEP = "(?:[:：]\\s*|\\s+)";
+
+// (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우 — HEADING_LABEL_PATTERNS와
+// splitIntoBlocks(표 블록 안에서 날짜 셀 하나만 있는 줄과 구분할 때) 둘 다에서 씀.
+const PAREN_LABEL_RE = /^[(（][^()（）]{1,20}[)）]$/;
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
-  /^관\s*계\s*기\s*관\s*[:：]?/, // 관계기관
-  // 2026-08-13 9차: "제목/소관기관/조치기관/조치기한/내용" 표준양식("시정, 통보" 처분서)
-  // 실제 문서로 발견 — 관계기관과 다른 라벨이라 별도 추가. 소관기관/조치기관은 "기관"이
-  // 겹쳐서 하나로 묶음.
-  /^(소\s*관|조\s*치)\s*기\s*관\s*[:：]?/, // 소관기관 / 조치기관
+  // 2026-08-14: "관계기관"뿐 아니라 "관계부서"("♣♣팀" 등)도 실제 문서로 확인 —
+  // 기관/부서를 하나로 묶고, 위 LABEL_SEP로 구분자 필수화(콜론 없는 "소관부서 [부서]
+  // 사업소" 형태도 커버하면서 "조치부서는 ~" 같은 본문 오탐은 막음).
+  new RegExp(`^(소\\s*관|조\\s*치|관\\s*계)\\s*(기\\s*관|부\\s*서)\\s*${LABEL_SEP}\\S`),
   /^조\s*치\s*기\s*한\s*[:：]?/, // 조치기한
+  // 2026-08-14: "감사명 : 공모사업 운영실태 특정감사" — 문서 맨 위 개요 라벨.
+  new RegExp(`^감\\s*사\\s*명\\s*${LABEL_SEP}\\S`),
+  // 2026-08-14: "관 련 자 : U(경고)" — 콜론이 있을 때만 라벨로 인정(콜론 없이 "관련자
+  // T은 2019..."처럼 본문 주어로 쓰이는 경우가 실제 문서에 흔해서, 오탐 방지 위해
+  // 이 라벨만 콜론 필수로 좁힘 — "관련자 의견"처럼 콜론 없는 소제목은 놓치지만,
+  // 본문을 헤딩으로 잘못 굵게 만드는 것보다 안전한 쪽을 택함).
+  /^관\s*련\s*자\s*[:：]\s*\S/,
+  // 2026-08-14: "일련번호 2025-03-001" — 처분서 양식 상단 식별번호, 콜론 없이 공백만 씀.
+  new RegExp(`^일\\s*련\\s*번\\s*호\\s*${LABEL_SEP}\\S`),
+  // 2026-08-14: "내 용" 단독 줄 — 그 줄 전체가 이 라벨 하나뿐일 때만(내용을 서술하는
+  // 본문 문장 첫머리에 "내용"이 오는 경우와 헷갈리지 않게 줄 전체 일치로 한정).
+  /^내\s*용\s*$/,
   /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
   // 1. 2. 3. 번호 항목 — 마침표 뒤에 공백이 반드시 있어야 함("20.02.21" 같은 날짜는
   // 공백 없이 붙어있어서 이걸로 구분됨, 실제 오탐 발견돼서 \s*를 \s+로 강화함)
@@ -62,7 +85,7 @@ const HEADING_LABEL_PATTERNS = [
   // 꺾쇠괄호(<>)로 감싸인 경우도 실제 문서에서 발견됨 — 【】와 완전히 같은 이유로 줄
   // 전체를 캡션으로 인정(일반 문장이 줄 전체를 <>로 감싸는 경우는 사실상 없음).
   /^<.+>$/,
-  /^[(（][^()（）]{1,20}[)）]$/, // (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우
+  PAREN_LABEL_RE, // (현황) (위법부당내용) 처럼 줄 전체가 괄호 라벨뿐인 경우
   // 2026-08-13 7차: "[판단근거]" "[지적사항]" "[조치할 사항]" 처럼 대괄호 라벨이 그
   // 줄 통째로 나오는 양식이 실제 문서에 많음(제목/번호항목 없이 이 방식만 쓰는 문서는
   // 전부 강조 없이 밋밋한 본문으로만 보였음). 위 캡션 패턴과 달리 "[부서]사무소는..."처럼
@@ -102,6 +125,26 @@ const HEADING_LABEL_PATTERNS = [
 const BULLET_RE =
   /^(?:[-–—□○◦▪‣·❍※*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
 
+// 2026-08-14: "□"/"○" 같은 원문 불릿 기호가 PDF 폰트 글리프 매핑 문제로 텍스트 추출
+// 시 라틴 알파벳 "q"/"m"으로 저장된 문서를 실제로 확인함(예: "q ｢취업규칙｣ 제9조
+// 제1항...", "m 지부위원장인 [부서]은..." — 원본 PDF에는 □/○로 보임, "네모가 q로
+// 나온다"는 피드백). 뒤에 오는 글자가 익명화 placeholder 기호(#, @◎@ 등 종류가
+// 워낙 다양함)일 때도 있어서 괄호/한글을 일일이 나열하는 대신 "소문자 알파벳으로
+// 이어지는 진짜 영어 단어가 아니면 전부 허용"으로 반대로 좁힘(이 말뭉치가 한국어
+// 문서라 줄 맨 앞에 진짜 영어 단어 "q"/"m" 하나만 오는 경우는 사실상 없음). q/m
+// 단독 글자 뒤에 공백이 반드시 있어야 하므로 "management" 같은 영단어는 애초에
+// 안 걸림. 매칭되면 화면엔 원래 기호(□/○)로 치환해서 보여줌(normalizeGlyphBullet).
+const GLYPH_BULLET_RE = /^([qm])\s+(?=[^a-z\s])/;
+const GLYPH_BULLET_MAP = { q: "□", m: "○" };
+
+/** GLYPH_BULLET_RE에 매칭되는 줄의 맨 앞 글자(q/m)만 원래 기호(□/○)로 바꿔치기.
+ * 매칭 안 되면 원본 그대로 반환(일반 불릿엔 영향 없음). */
+function normalizeGlyphBullet(trimmed) {
+  const m = trimmed.match(GLYPH_BULLET_RE);
+  if (!m) return trimmed;
+  return GLYPH_BULLET_MAP[m[1]] + trimmed.slice(m[1].length);
+}
+
 // 2026-08-12 4차: 전처리 단계에서 표/그림 이미지 자체는 지웠지만, 표 안 내용이 셀 구분
 // 없이 텍스트로만 남아있는 경우가 있음(예: "근무일자 근태구분 직번 질병명 ~201905
 // 질병휴직 [부서] ..."). 이걸 일반 문단처럼 공백으로 이어붙이면 뜻 없는 단어 나열이라
@@ -111,7 +154,14 @@ const BULLET_RE =
 // 이어지는 경우가 있어서, 그 경계를 잡으려면 BULLET_RE에 "❍"가 포함돼 있어야 함(위에서 추가).
 // 2026-08-13 9차: "[표-1]"처럼 키워드-번호 사이가 하이픈인 경우도 실제 문서로 발견돼서
 // [\s-]*로 하이픈 허용(위 HEADING_LABEL_PATTERNS의 동일 패턴과 이유 같음).
-const TABLE_CAPTION_RE = /^[【[]\s*(표|그림|별표)[\s-]*\d*\s*[】\]]/;
+// 2026-08-14: "[관련자 명세]"뿐 아니라 "[공직기강 점검 2회 적발자 현황]"처럼 표/그림
+// 키워드가 아예 없는 캡션도 실제 문서로 다수 확인 — 하나하나 키워드로 나열하는 대신
+// "현황/내역/명세/명단/실태"로 끝나는 대괄호 캡션은 통계·집계표일 가능성이 높다고
+// 보고 통째로 표 트리거에 포함시킴(괄호 안 앞부분 텍스트는 안 가리고 끝 키워드만 봄).
+// "[판단근거]"/"[지적사항]"처럼 실제 서술 문단을 이끄는 라벨은 이 키워드로 안 끝나서
+// 안 걸림(6차 수정 때 겪은 "표 아닌데 표 취급" 오탐과 같은 이유로 끝 $ 고정 유지).
+const TABLE_CAPTION_RE =
+  /^[【[]\s*(표|그림|별표)[\s-]*\d*\s*[】\]]|^[【[][^【】[\]]*(?:명세|현황|내역|명단|실태)\s*[】\]]$/;
 
 // 2026-08-12 6차: 표 데이터 뒤에는 보통 "자료: ○○ 제출자료 재구성" 같은 출처 표기가
 // 붙는데, 그 바로 뒤에 헤딩/불릿 없이 실제 문장이 곧장 이어지는 경우가 있었음(실제 문서로
@@ -121,9 +171,29 @@ const TABLE_CAPTION_RE = /^[【[]\s*(표|그림|별표)[\s-]*\d*\s*[】\]]/;
 // "출처:" 줄을 표 블록을 반드시 끝내는 경계로 인식시킴.
 const SOURCE_NOTE_RE = /^(자료|출처)\s*[:：]/;
 
+// 2026-08-14: "본 문서의 감사요지 및 귀책내용이 누설되어 문제가 발생되지 않도록 특별
+// 문서보안조치 지시 및 관리를 요구합니다." — 페이지마다 반복되는 문서보안 고정 문구가
+// 텍스트 추출 시 그 페이지 위치 그대로 본문 문장 한가운데 섞여 들어옴(실제 문서에서 한
+// 문서에 10번 넘게 반복 확인, "본문 중간에 이상한 게 낀다" 피드백). 내용이 없는 반복
+// 상용구라 자료/출처 표기와 같은 급으로 취급해서 작게 표시 — 지우지는 않음(원문 그대로
+// 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게).
+const SECURITY_NOTICE_RE = /^본\s*문서의\s*감사요지\s*및\s*귀책내용이\s*누설되어/;
+
+// 2026-08-14: 본문 중 붙어서 등장하는 각주 참조("87,818,181원1)", "위임2)")를 문서
+// 전체에서 미리 스캔해서 각주 번호 집합을 만들어둠 — 그 번호로 시작하는 줄이 나오면
+// 진짜 소제목("1) 태양광...")이 아니라 각주 본문("1) 권익위의 의결서 내에는...")일
+// 가능성이 높다고 판단하는 데 씀(splitIntoBlocks 참고). 공백/숫자가 아닌 문자 바로
+// 뒤에 붙은 "숫자)"만 참조로 인정 — 줄 맨 앞 목록 번호("1) 업무개요")는 앞에 아무
+// 문자도 없어서 이 정규식엔 애초에 안 걸림.
+const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
+// 각주 본문 후보 줄 — 목록 헤딩과 똑같은 모양("숫자) 내용")이라 이것만으로는 구분
+// 못 함, splitIntoBlocks에서 위 참조 집합 + 직전 블록 종류까지 같이 봐야 함.
+const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s+\S/;
+
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
- * "caption"(작고 흐린 출처 표기, 독립 블록) / "body"(이어지는 일반 줄) /
- * "blank"(빈 줄, 문단 구분)로 분류. */
+ * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
+ * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
+ * 직전 블록 종류)이 필요해서 여기가 아니라 splitIntoBlocks에서 별도로 먼저 검사함. */
 function classifyLine(line) {
   const trimmed = line.trim();
   if (!trimmed) return "blank";
@@ -137,8 +207,10 @@ function classifyLine(line) {
     return "heading";
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
-  if (SOURCE_NOTE_RE.test(trimmed)) return "caption";
-  if (BULLET_RE.test(trimmed)) return "bullet";
+  if (SOURCE_NOTE_RE.test(trimmed) || SECURITY_NOTICE_RE.test(trimmed))
+    return "caption";
+  if (BULLET_RE.test(trimmed) || GLYPH_BULLET_RE.test(trimmed))
+    return "bullet";
   return "body";
 }
 
@@ -152,35 +224,82 @@ function classifyLine(line) {
  * 그래서 헤딩/불릿 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은
  * 공백으로 합쳐서 하나의 문단으로 흘러가게 함. */
 function splitIntoBlocks(text) {
+  // 문서 전체에서 "숫자)" 형태로 붙어 나온 각주 참조 번호를 미리 수집(각주 판별용,
+  // FOOTNOTE_REF_RE 주석 참고).
+  const footnoteNums = new Set();
+  for (const m of text.matchAll(FOOTNOTE_REF_RE)) {
+    footnoteNums.add(m[1]);
+  }
+
   const blocks = [];
   let para = [];
   let paraType = "body";
   let nextIsTable = false; // 표/그림 캡션 바로 다음 문단인지
+  // 직전에 flush된 블록의 타입 — 각주 판별에 씀(아래 각주 분기 참고). 목록 헤딩은
+  // 항상 그 앞이 "heading"/"bullet"(다른 항목의 헤딩/본문)이고, 각주는 페이지 하단에
+  // 있던 게 그대로 이어붙은 거라 항상 그 앞이 미완성 "body" 문단(또는 바로 위 각주)임.
+  let prevType = null;
 
   function flushPara() {
     if (para.length === 0) return;
     blocks.push({ type: paraType, text: para.join(" ") });
+    prevType = paraType;
     para = [];
     paraType = "body";
   }
 
   for (const rawLine of text.split("\n")) {
-    const kind = classifyLine(rawLine);
     const trimmed = rawLine.trim();
 
-    if (kind === "blank") {
+    if (!trimmed) {
       flushPara();
+      continue;
+    }
+
+    // 2026-08-14: 각주 판별 — classifyLine의 일반 "숫자) 내용" 헤딩 패턴보다 먼저
+    // 검사해야 함. 두 조건을 동시에 요구해서 오탐을 좁힘: ①이 번호가 본문 어딘가에
+    // 참조로 붙어 나온 적이 있고, ②바로 앞이 아직 안 끝난 본문 문단(또는 바로 위
+    // 각주)일 것 — 진짜 목록 헤딩("1) 태양광...")은 항상 상위 헤딩/불릿 블록 바로
+    // 다음에 오므로 ②를 만족하지 않아 여기 안 걸림(실제 문서로 확인).
+    // "바로 앞"은 아직 flush 안 되고 누적 중인 para가 있으면 그 para의 타입(paraType),
+    // 없으면 마지막으로 flush된 블록의 타입(prevType)임 — para가 비어있지 않을 때도
+    // prevType만 보면 그 이전(이미 flush된) 블록 타입을 잘못 참조하게 됨.
+    const effectivePrevType = para.length > 0 ? paraType : prevType;
+    const footnoteMatch = FOOTNOTE_DEF_RE.exec(trimmed);
+    if (
+      footnoteMatch &&
+      footnoteNums.has(footnoteMatch[1]) &&
+      (effectivePrevType === "body" || effectivePrevType === "footnote")
+    ) {
+      flushPara();
+      blocks.push({ type: "footnote", text: trimmed });
+      prevType = "footnote";
+      continue;
+    }
+
+    const kind = classifyLine(trimmed);
+
+    // 2026-08-14: 표 데이터를 접어서 보여주는 중(paraType === "table")에 표 안 날짜
+    // 셀 하나만 있는 줄("(2025. 8. 8.)")이 우연히 PAREN_LABEL_RE(괄호 라벨 헤딩)에도
+    // 걸려서, 매 셀마다 표가 끊기고 남은 행은 표가 아닌 통짜 본문으로 새어나가던 문제를
+    // 실제 문서("[공직기강 점검 2회 적발자 현황]" 표)로 확인함 — 표를 누적하는 중에
+    // 나온 괄호 라벨 줄은 진짜 새 소제목이 아니라 표 셀 조각으로 보고 표 문단에
+    // 그대로 흡수시킴(접힌 박스가 끊기지 않고 표 데이터 전체를 담게 됨).
+    if (kind === "heading" && paraType === "table" && PAREN_LABEL_RE.test(trimmed)) {
+      para.push(trimmed);
       continue;
     }
     if (kind === "heading") {
       flushPara();
       blocks.push({ type: "heading", text: trimmed });
+      prevType = "heading";
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
     }
     if (kind === "caption") {
       flushPara(); // 표 블록이 진행 중이었으면 여기서 확실히 끝냄(6차 수정 이유 참고)
       blocks.push({ type: "caption", text: trimmed });
+      prevType = "caption";
       nextIsTable = false;
       continue;
     }
@@ -188,7 +307,7 @@ function splitIntoBlocks(text) {
       flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리(표 캡션 뒤라도 여기서 끊음)
       paraType = "bullet";
       nextIsTable = false;
-      para.push(trimmed);
+      para.push(normalizeGlyphBullet(trimmed));
       continue;
     }
     if (para.length === 0 && nextIsTable) {
