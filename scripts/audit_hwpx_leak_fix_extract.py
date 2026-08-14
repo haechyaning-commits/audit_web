@@ -110,30 +110,39 @@ todo = [(doc_id, sf, rt) for doc_id, sf, rt in rows if doc_id not in done_ids]
 print(f"이번에 처리할 것: {len(todo)}건")
 
 # ------------------------------------------------------------------
-# 2) 재추출 (체크포인트 append)
+# 2) 재추출 (10개 동시 다운로드 병렬 처리, 체크포인트 append)
 # ------------------------------------------------------------------
+import concurrent.futures
+
+
+def process_one(doc_id, source_file, current_db_text):
+    try:
+        data = download(source_file)
+        new_text = clean_text(extract_hwpx_proper(data)).strip()
+        return {
+            "id": doc_id, "status": "ok",
+            "old_raw_text": current_db_text,  # 지금 DB에 있는(버그 섞인) 값 기준
+            "new_raw_text": new_text,
+        }
+    except Exception as e:
+        return {"id": doc_id, "status": "error", "error": str(e)[:300]}
+
+
 n_done, n_ok, n_err = 0, 0, 0
 with open(CHECKPOINT_PATH, "a", encoding="utf-8") as ckpt:
-    for doc_id, source_file, current_db_text in todo:
-        try:
-            data = download(source_file)
-            new_text = clean_text(extract_hwpx_proper(data)).strip()
-            rec = {
-                "id": doc_id, "status": "ok",
-                "old_raw_text": current_db_text,  # 지금 DB에 있는(버그 섞인) 값 기준
-                "new_raw_text": new_text,
-            }
-        except Exception as e:
-            rec = {"id": doc_id, "status": "error", "error": str(e)[:300]}
-        ckpt.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        ckpt.flush()
-        n_done += 1
-        if rec["status"] == "ok":
-            n_ok += 1
-        else:
-            n_err += 1
-        if n_done % 100 == 0:
-            print(f"진행: {n_done}/{len(todo)} (성공 {n_ok}, 실패 {n_err})")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_one, *args): args[0] for args in todo}
+        for future in concurrent.futures.as_completed(futures):
+            rec = future.result()
+            ckpt.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            ckpt.flush()
+            n_done += 1
+            if rec["status"] == "ok":
+                n_ok += 1
+            else:
+                n_err += 1
+            if n_done % 100 == 0:
+                print(f"진행: {n_done}/{len(todo)} (성공 {n_ok}, 실패 {n_err})")
 
 print(f"\n추출 완료 — 이번 실행 {n_done}건 (성공 {n_ok}, 실패 {n_err})")
 
