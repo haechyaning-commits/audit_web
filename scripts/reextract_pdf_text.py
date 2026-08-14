@@ -21,11 +21,30 @@
 # 문제가 없던 한국공항공사 문서로도 회귀 테스트(정상 유지 확인), 정상적인
 # 단일 컬럼 문서(한국관광공사 등)로도 회귀 없음 확인.
 #
+# **8/14 4차 추가 검증(24개 문서, 다단 후보 8건 + 임의 16건)**:
+# - 크래시 0건. 기존 PyMuPDF 기본 추출(page.get_text())과 비교해 "15자 이상
+#   붙어버린 한글" 개수를 세어보니, 기본 추출은 8/24 문서(33%)에서 최대
+#   63개까지 발생했는데 새 로직은 24/24 전부 0개 — 띄어쓰기 손실이 애초
+#   2,111건(다단 의심)보다 더 넓게 퍼져 있고, 이 재추출 로직이 다단 여부와
+#   무관하게 일반적으로 더 안전하다는 뜻으로 해석됨.
+# - 이 검증 중 새로운 버그를 하나 찾아 고침: PyMuPDF가 같은 시각적 줄도
+#   폰트/서브셋 전환 경계에서 별도 line 객체로 쪼개는 경우가 있어서(예:
+#   "【제 목】"이 "【제" / "목】"로 분리 — 문서 제목 인식 실패 원인이었던
+#   바로 그 패턴), 같은 줄(y0 근접)이면서 가로로 인접한(x 간격 작음)
+#   fragment를 합치는 _merge_same_row_fragments()를 추가함. 처음엔 y0만
+#   보고 합쳤다가 2단 페이지에서 좌/우 컬럼의 첫 줄이 같은 y0라서 서로 다른
+#   컬럼 내용이 한 줄로 잘못 합쳐지는 회귀를 직접 발견 — x 간격 조건(<=50pt,
+#   컬럼 간격 최소치인 페이지폭 15%보다 훨씬 작음)을 추가해 해결. 한국철도
+#   공사 문서의 "◯1 음주관리...◯5 조작판..." 5개 항목 순서가 여전히 정확한지,
+#   8개 2단 후보 문서 전체에서 병합줄이 페이지 폭의 70%를 넘는 의심 사례가
+#   없는지 재확인 완료.
+#
 # **아직 프로토타입 단계 — DB에 바로 반영하지 말 것**:
 # - 이 세션은 Railway DB 쓰기 권한이 없어서 실제 반영 코드는 없음(추출 함수만).
-# - 검증은 5개 문서로만 함 — 2,111건 전체에 적용하기 전에 더 넓은 샘플로
-#   재검증 필요(특히 임계값 gap_threshold=2.5pt가 다른 폰트/기관 문서에도
-#   맞는지 확인 필요, 폰트 크기가 다르면 이 값도 다시 튜닝해야 할 수 있음).
+# - 검증은 24개 문서로 함(원문 글자 단위 비교는 그중 1건만) — 2,111건 전체에
+#   적용하기 전에 더 넓은 샘플로, 특히 원문 raw_text와의 글자 단위 비교
+#   재검증 필요(임계값 gap_threshold=2.5pt가 다른 폰트/기관 문서에도 맞는지
+#   확인 필요, 폰트 크기가 다르면 이 값도 다시 튜닝해야 할 수 있음).
 # - 줄바꿈 단위가 원래 라인 인식(get_text 기본 "blocks")과 다르게 세밀하게
 #   쪼개지는 경우가 있음(예: 밑줄/강조 글자가 한 글자씩 별도 줄로 나오는 등) —
 #   내용 손실은 없지만 프론트(DetailPage.jsx)의 문단 합치기 로직이 알아서
@@ -36,13 +55,11 @@
 import pymupdf
 
 
-def line_text(line, gap_threshold=2.5):
-    """줄 하나(PyMuPDF rawdict의 line)를 문자 좌표 기반으로 이어붙이되, 문자
-    간 간격이 임계값 이상이면 공백을 삽입. PyMuPDF의 기본 단어 인식이 놓치는
-    좁은 간격(이 말뭉치 기준 ~4~6pt)을 직접 재서 보정함(위 모듈 설명 참고)."""
-    chars = []
-    for span in line["spans"]:
-        chars.extend(span.get("chars", []))
+def chars_to_text(chars, gap_threshold=2.5):
+    """문자(char) 목록(이미 읽기 순서로 정렬됨)을 좌표 기반으로 이어붙이되,
+    문자 간 간격이 임계값 이상이면 공백을 삽입. PyMuPDF의 기본 단어 인식이
+    놓치는 좁은 간격(이 말뭉치 기준 ~4~6pt)을 직접 재서 보정함(위 모듈 설명
+    참고)."""
     if not chars:
         return ""
     out = [chars[0]["c"]]
@@ -58,6 +75,67 @@ def line_text(line, gap_threshold=2.5):
     return "".join(out).strip()
 
 
+def line_text(line, gap_threshold=2.5):
+    """줄 하나(PyMuPDF rawdict의 line)를 문자 좌표 기반으로 이어붙임."""
+    chars = []
+    for span in line["spans"]:
+        chars.extend(span.get("chars", []))
+    return chars_to_text(chars, gap_threshold)
+
+
+def _merge_same_row_fragments(fragments, y_tol=1.0, max_x_gap=50.0):
+    """PyMuPDF는 같은 시각적 줄(row)도 폰트/서브셋 전환(예: 문장부호용
+    임베딩 폰트 vs 한글 본문 폰트) 경계에서 별도의 block/line으로 쪼개는
+    경우가 있음 — 특히 "제    목】" 처럼 글자 사이 간격이 아주 넓은 라벨성
+    텍스트에서 자주 발생(간격이 너무 넓어 PyMuPDF 자체가 줄바꿈으로 오인).
+    같은 페이지 안에서 y0(세로 시작 좌표)가 거의 동일한(허용오차 y_tol)
+    fragment들은 실제로는 한 줄일 가능성이 높다.
+
+    주의: 2단 레이아웃 페이지는 좌/우 컬럼의 첫 줄이 y0가 서로 거의 같은
+    경우가 흔함(둘 다 컬럼 맨 위에서 시작) — 이런 경우 y0만 보고 합치면
+    서로 다른 컬럼의 내용이 한 줄로 잘못 이어붙여져서 컬럼 분리 로직 자체가
+    무력화됨(합쳐진 줄의 bbox가 페이지 폭 전체로 넓어져 좌우 판정 불가).
+    그래서 y0 근접뿐 아니라 x 간격도 함께 봐서, 가로로 "붙어있는"
+    fragment끼리만(간격 <= max_x_gap) 합친다 — 이 값은 실제 관측된 줄바꿈
+    오분류 간격(~30pt 이하)보다는 넉넉히 크고, 2단 컬럼 판정에 쓰는 최소
+    컬럼 간격(페이지 폭의 15%, 보통 90pt 이상)보다는 훨씬 작게 잡아
+    컬럼 간 간격은 항상 걸러지도록 함."""
+    fragments = sorted(fragments, key=lambda f: (f["bbox"][1], f["bbox"][0]))
+    y_clusters = []
+    for frag in fragments:
+        y0 = frag["bbox"][1]
+        if y_clusters and abs(y_clusters[-1]["last_y0"] - y0) <= y_tol:
+            y_clusters[-1]["frags"].append(frag)
+            y_clusters[-1]["last_y0"] = y0
+        else:
+            y_clusters.append({"last_y0": y0, "frags": [frag]})
+
+    rows = []
+    for cluster in y_clusters:
+        frags = sorted(cluster["frags"], key=lambda f: f["bbox"][0])
+        cur = [frags[0]]
+        for prev, f in zip(frags, frags[1:]):
+            gap = f["bbox"][0] - prev["bbox"][2]
+            if gap <= max_x_gap:
+                cur.append(f)
+            else:
+                rows.append(cur)
+                cur = [f]
+        rows.append(cur)
+
+    merged = []
+    for frags in rows:
+        chars = []
+        for f in frags:
+            chars.extend(f["chars"])
+        x0 = min(f["bbox"][0] for f in frags)
+        y0 = min(f["bbox"][1] for f in frags)
+        x1 = max(f["bbox"][2] for f in frags)
+        y1 = max(f["bbox"][3] for f in frags)
+        merged.append({"bbox": (x0, y0, x1, y1), "chars": chars})
+    return merged
+
+
 def extract_page_text(page, gap_threshold=2.5):
     """페이지 하나를 컬럼(좌/우) 인식 + 줄 단위 간격 보정 문자 재구성으로
     추출. 2단이면 왼쪽 칼럼 전체(위→아래) 후 오른쪽 칼럼 전체(위→아래)
@@ -67,14 +145,26 @@ def extract_page_text(page, gap_threshold=2.5):
     페이지 폭의 15% 초과, 좌우 각 3줄+, 세로 퍼짐 100pt+)을 씀 — 이미 그
     스크립트로 다단 판정된 문서에만 이 재추출을 적용하는 걸 전제로 함."""
     d = page.get_text("rawdict")
-    lines = []
+    fragments = []
     for block in d["blocks"]:
         if "lines" not in block:
             continue
         for line in block["lines"]:
-            text = line_text(line, gap_threshold)
-            if text:
-                lines.append({"bbox": line["bbox"], "text": text})
+            chars = []
+            for span in line["spans"]:
+                chars.extend(span.get("chars", []))
+            if chars:
+                fragments.append({"bbox": line["bbox"], "chars": chars})
+
+    if not fragments:
+        return ""
+
+    rows = _merge_same_row_fragments(fragments)
+    lines = []
+    for row in rows:
+        text = chars_to_text(row["chars"], gap_threshold)
+        if text:
+            lines.append({"bbox": row["bbox"], "text": text})
 
     if not lines:
         return ""
