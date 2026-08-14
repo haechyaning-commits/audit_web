@@ -42,8 +42,17 @@ import requests
 
 try:
     import pymupdf
-except ImportError:  # Colab에서 pip install pymupdf 필요
-    raise SystemExit("pymupdf가 필요합니다: !pip install pymupdf")
+except ImportError as e:
+    # 2026-08-14: 노트북(Colab)에서 SystemExit을 쓰면 IPython 일부 버전에서
+    # "Internal Python error in the inspect module" 같은 알아보기 힘든 트레이스백
+    # 뭉치가 나오는 버그가 있어서(실제로 사용자가 겪음), 대신 평범한 예외로
+    # 다시 던짐 — 이러면 "pymupdf가 필요합니다" 메시지가 트레이스백 맨 아래에
+    # 깔끔하게 보임. 실행 전에 새 셀에서 아래를 먼저 돌리면 됨:
+    #   !pip install -q pymupdf psycopg2-binary requests
+    raise ImportError(
+        "pymupdf가 설치되어 있지 않습니다. 이 셀을 실행하기 전에 새 셀에서 "
+        "다음을 먼저 실행하세요: !pip install -q pymupdf psycopg2-binary requests"
+    ) from e
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
