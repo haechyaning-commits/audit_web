@@ -69,7 +69,17 @@ def extract_hwpx_proper(zip_bytes: bytes) -> str:
         for name in section_names:
             root = etree.fromstring(z.read(name))
             for p_elem in root.iter(f"{{{NS_HP}}}p"):
-                texts = [t.text for t in p_elem.iter(f"{{{NS_HP}}}t") if t.text]
+                # p_elem.iter()(재귀)로 하면 표가 hp:p 안에 중첩된 hp:p(셀 문단)들을
+                # 포함해버려서, "표 전체가 한 문단으로 뭉친 버전" + "표 셀별로 제대로
+                # 나뉜 버전"이 중복으로 다 잡힘(실제 문서로 검증 중 발견, 예:
+                # e410c25742a07326에서 10,744자->7,792자로 중복 제거됨, 2,952자가 순수
+                # 중복이었음). findall로 이 문단의 "직속" run/t만 가져오면 —
+                # 표를 앵커링하는 바깥 문단은 직속 텍스트가 없어서 빈 채로 건너뛰고,
+                # 안쪽 셀 문단들은 각자 순서대로 한 번씩만 잡힘. 1ca9faabf1df243f(첫
+                # 검증 문서)로 대조해서 표/일반 문단 모두 정답과 정확히 일치함을 확인.
+                texts = [
+                    t.text for t in p_elem.findall(f"{{{NS_HP}}}run/{{{NS_HP}}}t") if t.text
+                ]
                 if texts:
                     paragraphs.append("".join(texts))
         return "\n".join(paragraphs)
