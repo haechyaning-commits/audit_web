@@ -31,11 +31,23 @@
 # 조각을 최대한 걸러내지만 완전하진 않음 — 결과는 "후보 목록"으로만 쓰고, 실제
 # 재추출 전에는 사람이 몇 건 직접 확인 권장(이 저장소의 다른 조사 스크립트들과
 # 같은 방침).
+# 2026-08-14 2차: 처음 버전은 순차 처리(문서 1건씩 다운로드→분석)라 30,120건
+# 기준으로는 몇 시간이 걸릴 만큼 느렸음(사용자가 실행 5분째 진행 로그가 한 번도
+# 안 찍혀서 멈춘 줄 알았음 — 실제로는 200건마다만 찍혀서 그랬던 것뿐이지만,
+# 애초에 이 속도 자체가 비현실적임). 다운로드는 네트워크 대기가 대부분이라
+# ThreadPoolExecutor로 동시에 여러 건 처리하도록 바꿈(I/O 바운드라 GIL 영향 적음).
+# 진행 로그도 200건 → 20건 간격으로 훨씬 자주 찍히게 줄임.
+#
+# 같은 김에 진짜 버그도 하나 발견해서 고침: detect_multicolumn_pages()가
+# doc.close() 뒤에 len(doc)를 호출해서 "document closed" ValueError가 났었음
+# — 모든 문서가 이 예외에 걸려서 사실상 전부 "에러"로만 기록되던 상태였음
+# (사용자가 30,120건 실행 중 실제로 겪음, 5분간 무출력이었던 진짜 원인).
 # ------------------------------------------------------------------
 import json
 import os
-import time
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg2
 import requests
@@ -79,12 +91,14 @@ def build_source_url(source_file):
     return _SOURCE_REPO_RAW_BASE + encoded
 
 
-def detect_multicolumn_pages(pdf_path):
-    """PDF 파일 하나를 열어서 2단(또는 2-up) 레이아웃으로 보이는 페이지 인덱스
+def detect_multicolumn_pages(pdf_bytes):
+    """PDF 바이트를 열어서 2단(또는 2-up) 레이아웃으로 보이는 페이지 인덱스
     목록을 반환. 표 셀 조각(짧고 좁은 블록)은 미리 걸러내고, 문단급 블록만
     가지고 좌우 클러스터의 x좌표 간격 + 세로 퍼짐을 확인함(2026-08-14, 실제
-    PDF 3종 이상으로 반복 조정한 임계값)."""
-    doc = pymupdf.open(pdf_path)
+    PDF 3종 이상으로 반복 조정한 임계값).
+    파일 경로 대신 바이트를 직접 받음 — 여러 스레드가 동시에 돌 때 공유 임시
+    파일 경로가 겹치는 걸 피하기 위함(2026-08-14 2차, 병렬화하면서 변경)."""
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     flagged = []
     for i, page in enumerate(doc):
         blocks = page.get_text("blocks")
@@ -110,8 +124,11 @@ def detect_multicolumn_pages(pdf_path):
         right_yspan = max(b[1] for b in right) - min(b[1] for b in right)
         if left_yspan > 100 and right_yspan > 100:
             flagged.append(i)
+    # len(doc)를 doc.close() 뒤에 호출하면 "document closed" ValueError가 남
+    # (위 2026-08-14 2차 참고) — 닫기 전에 페이지 수를 먼저 저장.
+    npages = len(doc)
     doc.close()
-    return flagged, len(doc)
+    return flagged, npages
 
 
 CHECKPOINT_PATH = "column_layout_checkpoint.jsonl"
@@ -127,7 +144,28 @@ def load_checkpoint():
     return done
 
 
-def main(limit=None):
+def _check_one(doc_id, institution, year, source_file):
+    """문서 1건 처리(다운로드+분석) — 스레드 풀에서 병렬로 호출됨. 순수하게
+    결과 dict만 반환하고 파일/전역 상태는 안 건드림(스레드 안전)."""
+    url = build_source_url(source_file)
+    result = {"id": doc_id, "institution": institution, "year": year, "flagged": []}
+    if not url:
+        return result
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        flagged, npages = detect_multicolumn_pages(resp.content)
+        result["flagged"] = flagged
+        result["npages"] = npages
+    except Exception as e:  # 네트워크/손상 PDF 등 — 개별 실패는 건너뜀
+        result["error"] = str(e)
+    return result
+
+
+def main(limit=None, workers=16):
+    """workers: 동시에 몇 건씩 다운로드+분석할지. 순차 처리는 30,120건 기준
+    몇 시간이 걸릴 만큼 느려서(2026-08-14 2차) 기본을 병렬로 바꿈 — jsdelivr는
+    공개 CDN이라 16 정도는 무리 없음(더 올리고 싶으면 인자로 조절)."""
     conn = psycopg2.connect(DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute("SET statement_timeout = '180s'")
@@ -142,41 +180,40 @@ def main(limit=None):
         rows = rows[:limit]
 
     done = load_checkpoint()
-    print(f"대상 PDF 문서 {len(rows)}건 (이미 처리됨 {len(done)}건, 이어서 진행)")
+    todo = [r for r in rows if r[0] not in done]
+    candidates = [v for v in done.values() if v.get("flagged")]
+    print(
+        f"대상 PDF 문서 {len(rows)}건 (이미 처리됨 {len(done)}건, "
+        f"남은 {len(todo)}건을 {workers}개 동시 처리로 진행)"
+    )
 
+    write_lock = threading.Lock()
     checkpoint_f = open(CHECKPOINT_PATH, "a")
-    candidates = []
+    n_done = 0
     errors = 0
-    for n, (doc_id, institution, year, source_file) in enumerate(rows, 1):
-        if doc_id in done:
-            if done[doc_id].get("flagged"):
-                candidates.append(done[doc_id])
-            continue
 
-        url = build_source_url(source_file)
-        result = {"id": doc_id, "institution": institution, "year": year, "flagged": []}
-        if url:
-            try:
-                resp = requests.get(url, timeout=30)
-                resp.raise_for_status()
-                tmp_path = "/tmp/_col_check.pdf"
-                with open(tmp_path, "wb") as f:
-                    f.write(resp.content)
-                flagged, npages = detect_multicolumn_pages(tmp_path)
-                result["flagged"] = flagged
-                result["npages"] = npages
-            except Exception as e:  # 네트워크/손상 PDF 등 — 개별 실패는 건너뜀
-                result["error"] = str(e)
+    def on_result(result):
+        nonlocal n_done, errors
+        with write_lock:
+            checkpoint_f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            checkpoint_f.flush()
+            n_done += 1
+            if result.get("error"):
                 errors += 1
+            if result["flagged"]:
+                candidates.append(result)
+            # 200건 → 20건 간격으로 훨씬 자주 진행 상황을 찍음(2026-08-14 2차,
+            # 예전엔 5분 넘게 아무 로그가 안 찍혀서 멈춘 줄 알았다는 피드백)
+            if n_done % 20 == 0 or n_done == len(todo):
+                print(
+                    f"  {n_done}/{len(todo)}건 처리(누적 {len(done) + n_done}/{len(rows)}), "
+                    f"후보 {len(candidates)}건, 에러 {errors}건"
+                )
 
-        checkpoint_f.write(json.dumps(result, ensure_ascii=False) + "\n")
-        checkpoint_f.flush()
-        if result["flagged"]:
-            candidates.append(result)
-
-        if n % 200 == 0:
-            print(f"  {n}/{len(rows)}건 처리, 후보 {len(candidates)}건, 에러 {errors}건")
-        time.sleep(0.05)  # jsdelivr CDN 부담 줄이기
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_check_one, *r) for r in todo]
+        for fut in as_completed(futures):
+            on_result(fut.result())
 
     checkpoint_f.close()
 
