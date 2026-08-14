@@ -9,17 +9,24 @@
 # 이 스크립트 자체는 텍스트 재구성 로직을 담지 않음 — 이미 계산된 old/new 쌍을
 # JSON에서 읽어 UPDATE만 함(재구성 로직/PDF는 이 세션 밖 별도 작업, STATUS.md 참고).
 #
-# 43건 확정(사용자가 diff 파일 직접 검토 후 전부 승인, 2026-08-14) — 매칭 안 된 나머지
-# 6건(한국소비자원 3건, 한국세라믹기술원 3건, 다른 표 양식이라 이번 로직 미적용)은 별도.
+# 1차: 43건 확정(사용자가 diff 파일 직접 검토 후 전부 승인, 2026-08-14).
+# 2차: 나머지 6건 중 4건 추가 확정(한국소비자원 3건 + 한국세라믹기술원 1건, 컬럼 구성이
+# 서울대치과병원류와 달라 별도 재구성 로직으로 처리, 2026-08-14) — `table_fix_updates_batch2.json`
+# 사용. 남은 2건(한국세라믹기술원)은 확인 결과 애초에 안 뒤섞여 있어서 수정 불필요로 결론.
+#
+# 이 스크립트는 재사용 가능 — UPDATES_PATH만 배치별 JSON 파일로 바꿔서 여러 번 실행.
 #
 # **실행 순서**:
-#   1) table_fix_updates.json 파일을 Colab `/content/`에 업로드(왼쪽 파일 탐색기에
+#   1) 업데이트 JSON 파일(1차 `table_fix_updates.json` 또는 2차
+#      `table_fix_updates_batch2.json`)을 Colab `/content/`에 업로드(왼쪽 파일 탐색기에
 #      드래그, 또는 `files.upload()`) — doc_id별 {old_raw_text, new_raw_text} 쌍 포함,
 #      old_raw_text가 DB의 현재 값과 다르면 그 문서는 건너뜀(안전장치 — 그 사이에 다른
 #      수정이 들어갔을 가능성 대비).
-#   2) 이 파일 내용을 Colab 셀에 그대로 붙여넣어 실행 — DRY_RUN=True로 먼저 돌려서
-#      "DB의 현재 raw_text가 old_raw_text와 일치하는지" 확인, 이상 없으면 DRY_RUN=False로.
-#   3) 43건뿐이라 WAL/디스크 부담 거의 없음 — 인덱스 DROP 같은 것 불필요.
+#   2) 아래 UPDATES_PATH를 업로드한 파일명에 맞게 바꾸고, 이 파일 내용을 Colab 셀에
+#      그대로 붙여넣어 실행 — DRY_RUN=True로 먼저 돌려서 "DB의 현재 raw_text가
+#      old_raw_text와 일치하는지" 확인, 이상 없으면 DRY_RUN=False로.
+#   3) 몇 건 안 되는 순수 텍스트 UPDATE라 WAL/디스크 부담 거의 없음 — 인덱스 DROP 같은
+#      것 불필요.
 # ------------------------------------------------------------------
 
 # !pip install -q psycopg2-binary
@@ -28,7 +35,7 @@ import json
 
 import psycopg2
 
-UPDATES_PATH = "/content/table_fix_updates.json"
+UPDATES_PATH = "/content/table_fix_updates_batch2.json"  # 배치에 맞게 파일명 수정
 
 DRY_RUN = True  # 먼저 True로 돌려서 old_raw_text 일치 여부 확인, 이상 없으면 False로
 
