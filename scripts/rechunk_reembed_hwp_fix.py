@@ -102,7 +102,16 @@ def split_into_chunks(text: str, target_size: int = 1300, max_size: int = 3000) 
         current_len += len(p)
 
     flush()
-    return [c for c in chunks if c]
+    # 마지막 안전장치 — 위 로직에 놓친 엣지 케이스가 있어도 여기서 무조건
+    # max_size 이하로 강제 캡(실제 검증 중 3,670자짜리가 하나 나온 적 있어서 추가).
+    final_chunks = []
+    for c in chunks:
+        if len(c) > max_size:
+            for i in range(0, len(c), max_size):
+                final_chunks.append(c[i:i + max_size])
+        else:
+            final_chunks.append(c)
+    return [c for c in final_chunks if c]
 
 
 def make_chunk_id(document_id: str, index: int, text: str) -> str:
