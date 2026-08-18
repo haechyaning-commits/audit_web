@@ -128,7 +128,19 @@ def detect_multicolumn_pages(pdf_bytes):
     return flagged, npages
 
 
-CHECKPOINT_PATH = "column_layout_checkpoint.jsonl"
+# 2026-08-18: 원래 상대경로("column_layout_checkpoint.jsonl")로 저장했는데, 이러면
+# Colab 세션(/content/)이 재시작될 때마다(유휴 타임아웃 등) 체크포인트가 통째로
+# 날아감 — 실제로 이전 세션에서 찾은 2,111건 후보가 이렇게 소실되어 이 저장소의
+# 다른 Colab 스크립트(rechunk_reembed_pdf_column_fix.py)가 이 파일을 못 찾는 문제로
+# 이어졌음. 다른 체크포인트 파일들(rechunk_reembed_hwp_fix.py 등)과 동일하게
+# Drive 경로로 변경 — 세션이 끊겨도 유지됨.
+try:
+    from google.colab import drive
+    drive.mount("/content/drive", force_remount=False)
+except Exception:
+    pass
+os.makedirs("/content/drive/MyDrive/audit_project", exist_ok=True)
+CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/column_layout_checkpoint.jsonl"
 
 
 def load_checkpoint():
