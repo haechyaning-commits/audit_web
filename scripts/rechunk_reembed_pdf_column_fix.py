@@ -461,6 +461,44 @@ if DRY_RUN:
     )
 
 # ------------------------------------------------------------------
+# 2.5) 백업 — UPDATE/DELETE 전에 자동반영 대상 문서의 현재 raw_text + 청크를
+#      Drive에 저장. reextract_pdf_text.py 자체 캐비어트("DB 반영 전 반드시
+#      백업 먼저, scripts/backup_before_fix.py류")가 있었는데 이 저장소에
+#      실제로는 그런 스크립트가 없어서, UPDATE 직전에 인라인으로 추가함 —
+#      문제 생기면 이 파일로 documents.raw_text/chunks를 되돌릴 수 있음.
+# ------------------------------------------------------------------
+import datetime  # noqa: E402
+
+BACKUP_PATH = (
+    f"/content/drive/MyDrive/audit_project/"
+    f"pdf_reextract_backup_{datetime.datetime.now():%Y%m%d_%H%M%S}.jsonl"
+)
+_apply_ids = [doc_id for doc_id, _ in apply_list]
+
+conn = psycopg2.connect(DATABASE_URL)
+with conn.cursor() as cur:
+    cur.execute("SET statement_timeout = '60s'")
+    cur.execute("SELECT id, raw_text FROM documents WHERE id = ANY(%s)", (_apply_ids,))
+    _old_docs = dict(cur.fetchall())
+    cur.execute(
+        "SELECT id, document_id, text FROM chunks WHERE document_id = ANY(%s)",
+        (_apply_ids,),
+    )
+    _old_chunks_by_doc: dict[str, list] = {}
+    for cid, did, text in cur.fetchall():
+        _old_chunks_by_doc.setdefault(did, []).append({"id": cid, "text": text})
+conn.close()
+
+with open(BACKUP_PATH, "w", encoding="utf-8") as f:
+    for doc_id in _apply_ids:
+        f.write(json.dumps({
+            "id": doc_id,
+            "raw_text": _old_docs.get(doc_id),
+            "chunks": _old_chunks_by_doc.get(doc_id, []),
+        }, ensure_ascii=False) + "\n")
+print(f"백업 저장 완료: {BACKUP_PATH} ({len(_apply_ids)}건)")
+
+# ------------------------------------------------------------------
 # 3) documents.raw_text UPDATE (자동 반영분만 — 수동검토 큐는 건드리지 않음)
 # ------------------------------------------------------------------
 conn = psycopg2.connect(DATABASE_URL)
