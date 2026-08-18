@@ -56,23 +56,48 @@ const LABEL_SEP = "(?:[:：]\\s*|\\s+)";
 // splitIntoBlocks(표 블록 안에서 날짜 셀 하나만 있는 줄과 구분할 때) 둘 다에서 씀.
 const PAREN_LABEL_RE = /^[(（][^()（）]{1,20}[)）]$/;
 
+// 2026-08-18: 위 라벨들 중 "소관부서 [부서]사업소"/"관련자 : U(경고)"처럼 라벨 뒤에
+// 실제 값이 같은 줄에 바로 붙는 것들은, 지금까지 줄 전체(라벨+값)를 통째로 헤딩 취급해서
+// 굵게 만들고 있었음 — 사용자가 실제 스크린샷(원본 PDF ↔ 웹페이지 비교)으로 "소관부서/
+// 조치부서 등 라벨뿐 아니라 값까지 다 굵어서 여러 필드를 나란히 비교하기 어렵다"고 제보
+// (원본 PDF는 라벨만 굵고 값은 보통 굵기). 이 패턴들만 따로 빼서 라벨 부분만 캡처그룹
+// (그룹 1)으로 잡을 수 있게 하고, splitIntoBlocks에서 "field" 타입 블록으로 렌더링해서
+// 라벨만 <b>, 값은 보통 굵기로 나란히 보여줌(matchFieldLabel 참고). HEADING_LABEL_PATTERNS
+// 에는 안 넣음 — 한 줄이 두 배열에 동시에 걸리면 처리 순서에 따라 결과가 달라져서 배타적으로 관리.
+const FIELD_LABEL_PATTERNS = [
+  // "관계기관"뿐 아니라 "관계부서"("♣♣팀" 등)도 실제 문서로 확인 — 기관/부서를 하나로
+  // 묶고, 위 LABEL_SEP로 구분자 필수화(콜론 없는 "소관부서 [부서]사업소" 형태도 커버하면서
+  // "조치부서는 ~" 같은 본문 오탐은 막음).
+  new RegExp(`^((?:소\\s*관|조\\s*치|관\\s*계)\\s*(?:기\\s*관|부\\s*서))\\s*${LABEL_SEP}`),
+  /^(조\s*치\s*기\s*한)\s*[:：]?\s*/, // 조치기한
+  // "감사명 : 공모사업 운영실태 특정감사" — 문서 맨 위 개요 라벨.
+  new RegExp(`^(감\\s*사\\s*명)\\s*${LABEL_SEP}`),
+  // "관 련 자 : U(경고)" — 콜론이 있을 때만 라벨로 인정(콜론 없이 "관련자 T은 2019..."처럼
+  // 본문 주어로 쓰이는 경우가 실제 문서에 흔해서, 오탐 방지 위해 이 라벨만 콜론 필수로
+  // 좁힘 — "관련자 의견"처럼 콜론 없는 소제목은 놓치지만, 값까지 잘못 굵게 만드는 것보다
+  // 안전한 쪽을 택함).
+  /^(관\s*련\s*자)\s*[:：]\s*/,
+  // "일련번호 2025-03-001" — 처분서 양식 상단 식별번호, 콜론 없이 공백만 씀.
+  new RegExp(`^(일\\s*련\\s*번\\s*호)\\s*${LABEL_SEP}`),
+];
+
+/** 줄이 FIELD_LABEL_PATTERNS 중 하나에 매칭되고, 라벨 뒤에 실제 값이 남아있으면
+ * {label, value}를 반환(라벨만 있고 끝나는 줄은 필드가 아니라 일반 heading으로 두려고
+ * null 반환 — 예: "소관부서" 단독 줄은 흔치 않지만 만약 있다면 값이 없는 셈이라 제외). */
+function matchFieldLabel(trimmed) {
+  for (const re of FIELD_LABEL_PATTERNS) {
+    const m = re.exec(trimmed);
+    if (m) {
+      const value = trimmed.slice(m[0].length);
+      if (value.trim()) return { label: m[1], value };
+    }
+  }
+  return null;
+}
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
-  // 2026-08-14: "관계기관"뿐 아니라 "관계부서"("♣♣팀" 등)도 실제 문서로 확인 —
-  // 기관/부서를 하나로 묶고, 위 LABEL_SEP로 구분자 필수화(콜론 없는 "소관부서 [부서]
-  // 사업소" 형태도 커버하면서 "조치부서는 ~" 같은 본문 오탐은 막음).
-  new RegExp(`^(소\\s*관|조\\s*치|관\\s*계)\\s*(기\\s*관|부\\s*서)\\s*${LABEL_SEP}\\S`),
-  /^조\s*치\s*기\s*한\s*[:：]?/, // 조치기한
-  // 2026-08-14: "감사명 : 공모사업 운영실태 특정감사" — 문서 맨 위 개요 라벨.
-  new RegExp(`^감\\s*사\\s*명\\s*${LABEL_SEP}\\S`),
-  // 2026-08-14: "관 련 자 : U(경고)" — 콜론이 있을 때만 라벨로 인정(콜론 없이 "관련자
-  // T은 2019..."처럼 본문 주어로 쓰이는 경우가 실제 문서에 흔해서, 오탐 방지 위해
-  // 이 라벨만 콜론 필수로 좁힘 — "관련자 의견"처럼 콜론 없는 소제목은 놓치지만,
-  // 본문을 헤딩으로 잘못 굵게 만드는 것보다 안전한 쪽을 택함).
-  /^관\s*련\s*자\s*[:：]\s*\S/,
-  // 2026-08-14: "일련번호 2025-03-001" — 처분서 양식 상단 식별번호, 콜론 없이 공백만 씀.
-  new RegExp(`^일\\s*련\\s*번\\s*호\\s*${LABEL_SEP}\\S`),
   // 2026-08-14: "내 용" 단독 줄 — 그 줄 전체가 이 라벨 하나뿐일 때만(내용을 서술하는
   // 본문 문장 첫머리에 "내용"이 오는 경우와 헷갈리지 않게 줄 전체 일치로 한정).
   /^내\s*용\s*$/,
@@ -209,6 +234,26 @@ const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 각주 본문 후보 줄 — 목록 헤딩과 똑같은 모양("숫자) 내용")이라 이것만으로는 구분
 // 못 함, splitIntoBlocks에서 위 참조 집합 + 직전 블록 종류까지 같이 봐야 함.
 const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s+\S/;
+// 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
+// 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②INLINE_LAW_CITATION_SPLIT_RE로
+// 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
+const LIST_HEADING_NUM_RE = /^(\d{1,2})[.)]\s+\S/;
+function extractListNum(text) {
+  const m = LIST_HEADING_NUM_RE.exec(text);
+  return m ? Number(m[1]) : null;
+}
+
+// 2026-08-18: "1) 법령 「공직자 윤리법」 제3조의 2. 제2항(공기업) '공직유관단체인 우리
+// 공사는..." — 사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보: 원본은 번호+법령
+// 인용(조/항 번호까지)만 굵고 그 뒤 실제 인용문(따옴표로 시작)은 안 굵은 별도 문단인데,
+// 텍스트 추출 시 둘 사이에 줄바꿈이 없어서 한 줄로 붙어버림 — 위 번호 헤딩 패턴이 줄
+// 전체를 헤딩(굵게)으로 삼켜서 인용문까지 통째로 굵게 나오는 문제였음. 법령 인용 라벨은
+// 거의 항상 "...제N조(...)"/"...제N항(...)"처럼 닫는 괄호로 끝나고, 그 직후 공백 +
+// 인용부호(원문을 그대로 인용할 때 쓰는 따옴표 — 법령"명"에 쓰는 「」와는 다름)로 실제
+// 인용문이 시작하므로 그 경계에서 잘라 별도 문단으로 흘려보냄. 라벨 길이를 60자로 제한해서
+// 우연히 나중에 나오는 무관한 괄호+따옴표에 걸리지 않게 함(실제 법령 인용 라벨은 이보다 짧음).
+const INLINE_LAW_CITATION_SPLIT_RE =
+  /^(\d{1,2}[.)]\s+.{2,60}?[)）])\s+([‘’“”'"].+)$/;
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
@@ -227,6 +272,7 @@ function classifyLine(line) {
     return "heading";
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
+  if (matchFieldLabel(trimmed)) return "field";
   if (SOURCE_NOTE_RE.test(trimmed) || SECURITY_NOTICE_RE.test(trimmed))
     return "caption";
   if (BULLET_RE.test(trimmed) || GLYPH_BULLET_RE.test(trimmed))
@@ -259,6 +305,13 @@ function splitIntoBlocks(text) {
   // 항상 그 앞이 "heading"/"bullet"(다른 항목의 헤딩/본문)이고, 각주는 페이지 하단에
   // 있던 게 그대로 이어붙은 거라 항상 그 앞이 미완성 "body" 문단(또는 바로 위 각주)임.
   let prevType = null;
+  // 2026-08-18: 가장 최근에 본 "N) ..." 목록 헤딩의 번호 — 아래 각주 분기에서 씀.
+  // "1) 법령... (본문 설명 문단) 2) 법령..."처럼 번호 목록 항목마다 설명 문단이 붙는
+  // 문서는, 다음 항목("2)")이 항상 헤딩/불릿 바로 다음이 아니라 body 문단 바로 다음에
+  // 옴 — 각주 판별 조건 ②("직전이 body/footnote")를 만족해버려서 실제로는 목록 항목인데
+  // 각주로 오분류되는 문제를 실제 스크린샷으로 확인함(한국가스공사 2021 사례). 직전
+  // 목록 번호 + 1과 정확히 같으면 목록 연속으로 보고 각주 판정에서 제외.
+  let lastHeadingListNum = null;
 
   function flushPara() {
     if (para.length === 0) return;
@@ -286,10 +339,14 @@ function splitIntoBlocks(text) {
     // prevType만 보면 그 이전(이미 flush된) 블록 타입을 잘못 참조하게 됨.
     const effectivePrevType = para.length > 0 ? paraType : prevType;
     const footnoteMatch = FOOTNOTE_DEF_RE.exec(trimmed);
+    const continuesHeadingList =
+      lastHeadingListNum !== null &&
+      Number(footnoteMatch?.[1]) === lastHeadingListNum + 1;
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
-      (effectivePrevType === "body" || effectivePrevType === "footnote")
+      (effectivePrevType === "body" || effectivePrevType === "footnote") &&
+      !continuesHeadingList
     ) {
       flushPara();
       blocks.push({ type: "footnote", text: trimmed });
@@ -311,9 +368,31 @@ function splitIntoBlocks(text) {
     }
     if (kind === "heading") {
       flushPara();
+      // 2026-08-18: "1) 법령 「...」 제N조(...) '인용문..." 처럼 번호 라벨 뒤에 줄바꿈
+      // 없이 인용문이 바로 붙은 경우, 라벨까지만 헤딩으로 두고 인용문은 새 본문 문단으로
+      // 흘려보냄(INLINE_LAW_CITATION_SPLIT_RE 주석 참고) — 실제 스크린샷으로 확인된 과굵게 버그 수정.
+      const citationSplit = INLINE_LAW_CITATION_SPLIT_RE.exec(trimmed);
+      if (citationSplit) {
+        blocks.push({ type: "heading", text: citationSplit[1] });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(citationSplit[1]);
+        nextIsTable = false;
+        paraType = "body";
+        para.push(citationSplit[2]);
+        continue;
+      }
       blocks.push({ type: "heading", text: trimmed });
       prevType = "heading";
+      lastHeadingListNum = extractListNum(trimmed);
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
+      continue;
+    }
+    if (kind === "field") {
+      flushPara();
+      const field = matchFieldLabel(trimmed);
+      blocks.push({ type: "field", label: field.label, value: field.value });
+      prevType = "field";
+      nextIsTable = false;
       continue;
     }
     if (kind === "caption") {
@@ -340,7 +419,12 @@ function splitIntoBlocks(text) {
   // 위 분류 로직(각주/헤딩/표 판별 등)은 전부 원본 "[부서]" 문자열 기준으로 이미
   // 끝난 뒤이므로, 화면에 보여줄 텍스트에만 마지막에 치환을 적용함 — classifyLine
   // 등이 "[부서]"를 헤딩으로 오인하지 않게 설계된 기존 로직(6차 수정)과 안 얽히게 함.
-  return blocks.map((b) => ({ ...b, text: maskDeptPlaceholder(b.text) }));
+  // "field" 블록은 text가 아니라 label/value로 나뉘어 있어서 둘 다 따로 치환.
+  return blocks.map((b) =>
+    b.type === "field"
+      ? { ...b, label: maskDeptPlaceholder(b.label), value: maskDeptPlaceholder(b.value) }
+      : { ...b, text: maskDeptPlaceholder(b.text) },
+  );
 }
 
 /** 헤딩 블록에만 앵커 id를 붙여서 렌더링 — 목차(TocSidebar)가 이 id로 점프함.
@@ -355,6 +439,19 @@ function renderRawText(blocks, query) {
           <summary>표/그림 데이터 (펼쳐보기)</summary>
           <div>{query ? highlightMatches(b.text, query) : b.text}</div>
         </details>
+      );
+    }
+    if (b.type === "field") {
+      // 2026-08-18: 소관부서/조치부서/관련자 등 "라벨 + 값" 필드 — 라벨만 굵게, 값은
+      // 보통 굵기로 나란히(원본 PDF와 같은 대비, matchFieldLabel 주석 참고). 값에서만
+      // 검색어 하이라이트 적용(라벨은 "소관부서" 같은 고정 문구라 검색어와 겹칠 일이 거의 없음).
+      return (
+        <div key={i} className="raw-line raw-line-field">
+          <b className="raw-line-field-label">{b.label}</b>
+          <span className="raw-line-field-value">
+            {query ? highlightMatches(b.value, query) : b.value}
+          </span>
+        </div>
       );
     }
     if (b.type !== "heading") {

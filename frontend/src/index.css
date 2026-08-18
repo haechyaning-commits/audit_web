@@ -1127,6 +1127,25 @@ body {
 .raw-line-bullet {
   margin-top: 10px;
 }
+/* 2026-08-18: 소관부서/조치부서/관련자 등 "라벨 + 값" 필드 — 라벨만 굵게, 값은 보통
+   굵기(DetailPage.jsx의 FIELD_LABEL_PATTERNS/matchFieldLabel 참고). 원본 PDF도 라벨만
+   굵고 값은 보통체인데, 예전엔 줄 전체를 heading으로 묶어서 값까지 다 굵게 나오는 바람에
+   여러 필드를 나란히 비교하기 어렵다는 실제 스크린샷 피드백으로 분리함. */
+.raw-line-field {
+  margin: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.raw-line-field-label {
+  color: var(--text-heading);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.raw-line-field-value {
+  color: var(--text);
+  font-weight: 400;
+}
 /* "자료: ○○ 제출자료 재구성" 같은 출처 표기 — 본문보다 작고 흐리게(각주 느낌),
    표 블록 경계로도 쓰임(2026-08-12 6차) */
 .raw-line-caption {
