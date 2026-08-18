@@ -383,7 +383,15 @@ function splitIntoBlocks(text) {
 
   function flushPara() {
     if (para.length === 0) return;
-    blocks.push({ type: paraType, text: para.join(" ") });
+    // 2026-08-18: 표/그림 조각 블록("table" 타입)은 다른 문단(body/bullet 등)과 달리
+    // PDF 줄바꿈이 "문장이 길어서 끊긴 자리"가 아니라 "표의 서로 다른 셀/행"일 가능성이
+    // 높음 — 실제 문서(한국토지주택공사 "시간외근무 부적절" [표 1])로 확인. 지금까지
+    // 다른 문단처럼 공백으로 다 이어붙여서 완전히 뜻 없는 단어 나열이 됐었는데, 줄바꿈을
+    // 그대로 살리면 최소한 원래 줄 단위 구분은 남길 수 있음 — CSS(`raw-line-table > div`)
+    // 는 이미 white-space: pre-wrap이라 애초에 줄바꿈을 살릴 걸 전제로 하고 있었음(JS가
+    // 안 살리고 있었던 게 이 둘 사이 드리프트였음).
+    const text = paraType === "table" ? para.join("\n") : para.join(" ");
+    blocks.push({ type: paraType, text });
     prevType = paraType;
     para = [];
     paraType = "body";
