@@ -176,6 +176,16 @@ const HEADING_LABEL_PATTERNS = [
 const BULLET_RE =
   /^(?:[-–—□○◦▪‣·❍※*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
 
+// 2026-08-18: "* 폭행 피해사실 : C - B가 휘드른 손에 머리를 2회 맞음\nD - 왼쪽눈썹
+// 좌측을 손톱으로 긁혀..."처럼, 익명화된 인물 라벨(A/B/C.. 1~3글자 대문자)이 "- "로
+// 시작하는 목록 항목을 나타내는 문서를 실제로 확인함(사용자 스크린샷 — 원본 PDF는
+// "C -"/"D -" 항목이 줄바꿈으로 나뉘어 정렬돼 있는데, 웹페이지는 "C -" 항목이 속한
+// "*" 불릿 문단에 "D -" 항목이 그대로 이어붙어서 한 문단으로 뭉쳐 보였음). "D -" 같은
+// 줄은 어떤 기존 불릿 문자로도 시작하지 않아서 새 문단으로 안 끊기고 있었음 — 이
+// 말뭉치의 인물 마스킹 표기(A, B, C.. 또는 AAA, BBB..)가 대문자 라틴 알파벳 1~3글자로
+// 일관되고, 한국어 문장이 대문자 알파벳+대시로 시작하는 경우는 사실상 없어서 좁게 추가.
+const PERSON_LIST_ITEM_RE = /^[A-Z]{1,3}\s*[-–—]\s+\S/;
+
 // 2026-08-14: "□"/"○" 같은 원문 불릿 기호가 PDF 폰트 글리프 매핑 문제로 텍스트 추출
 // 시 라틴 알파벳 "q"/"m"으로 저장된 문서를 실제로 확인함(예: "q ｢취업규칙｣ 제9조
 // 제1항...", "m 지부위원장인 [부서]은..." — 원본 PDF에는 □/○로 보임, "네모가 q로
@@ -241,6 +251,19 @@ const SOURCE_NOTE_RE = /^(자료|출처)\s*[:：]/;
 // 상용구라 자료/출처 표기와 같은 급으로 취급해서 작게 표시 — 지우지는 않음(원문 그대로
 // 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게).
 const SECURITY_NOTICE_RE = /^본\s*문서의\s*감사요지\s*및\s*귀책내용이\s*누설되어/;
+
+// 2026-08-18: "INSIDabcdef_:MS_0001MS_0001 1000_SM1000_SM:_fedcbaDlSNI"처럼 한글이
+// 전혀 없이 영문자·숫자·밑줄·콜론만 뒤섞인 줄이 본문 중간에 끼어있는 걸 실제 문서로
+// 확인함(사용자 스크린샷 — 원본 PDF에는 없는 줄). "abcdef"/"fedcba", "MS_"/"_SM"처럼
+// 앞뒤가 거울상으로 대칭인 조각이 섞여 있어서, 문서 유출 추적용 숨김 워터마크 텍스트
+// 레이어가 추출 과정에서 실수로 같이 뽑혀 나온 것으로 추정됨(정확한 정체는 미확인).
+// 한국어 감사보고서 본문 한 줄 전체가 한글 없이 영문+숫자+밑줄로만 이루어질 일은
+// 사실상 없어서, SECURITY_NOTICE_RE와 같은 급의 반복 상용구로 보고 작게 표시함
+// (지우지는 않음 — 원문 그대로 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게).
+const WATERMARK_NOISE_RE = /^[A-Za-z0-9_:.\s-]{20,}$/;
+function isWatermarkNoise(trimmed) {
+  return trimmed.includes("_") && WATERMARK_NOISE_RE.test(trimmed);
+}
 
 // 2026-08-14: 본문 중 붙어서 등장하는 각주 참조("87,818,181원1)", "위임2)")를 문서
 // 전체에서 미리 스캔해서 각주 번호 집합을 만들어둠 — 그 번호로 시작하는 줄이 나오면
@@ -310,9 +333,17 @@ function classifyLine(line) {
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
   if (matchFieldLabel(trimmed)) return "field";
-  if (SOURCE_NOTE_RE.test(trimmed) || SECURITY_NOTICE_RE.test(trimmed))
+  if (
+    SOURCE_NOTE_RE.test(trimmed) ||
+    SECURITY_NOTICE_RE.test(trimmed) ||
+    isWatermarkNoise(trimmed)
+  )
     return "caption";
-  if (BULLET_RE.test(trimmed) || GLYPH_BULLET_RE.test(trimmed))
+  if (
+    BULLET_RE.test(trimmed) ||
+    GLYPH_BULLET_RE.test(trimmed) ||
+    PERSON_LIST_ITEM_RE.test(trimmed)
+  )
     return "bullet";
   return "body";
 }
