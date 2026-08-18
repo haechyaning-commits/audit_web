@@ -54,9 +54,14 @@ from psycopg2.extras import execute_values
 DRY_RUN = True  # 먼저 True로 돌려서 확인, 이상 없으면 False로
 SIMILARITY_THRESHOLD = 0.90  # 이 밑이면 자동 반영 안 하고 수동검토 큐로 뺌
 
-# audit_pdf_column_layout.py 실행 결과 체크포인트(이미 Drive에 있다고 가정 —
-# "flagged" 페이지가 있는 문서만 이 스크립트의 대상이 됨)
+# audit_pdf_column_layout.py 실행 결과 체크포인트("flagged" 페이지가 있는 문서만
+# 이 스크립트의 대상이 됨). 2026-08-18 이전 버전의 audit_pdf_column_layout.py는
+# 이걸 Drive가 아니라 Colab 로컬(/content/)의 상대경로에 저장했었어서, 세션이
+# 재시작되면 소실되는 문제가 있었음 — 지금은 audit_pdf_column_layout.py도 이
+# Drive 경로로 저장하도록 고쳐뒀으니, 그 스크립트를 (다시) 돌려서 이 파일부터
+# 만드세요. 옛 로컬 경로도 혹시 몰라 폴백으로 같이 확인함.
 CANDIDATE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/column_layout_checkpoint.jsonl"
+_CANDIDATE_CHECKPOINT_FALLBACK = "column_layout_checkpoint.jsonl"  # 옛 버전이 쓰던 로컬 경로
 REVIEW_QUEUE_PATH = "/content/drive/MyDrive/audit_project/pdf_reextract_manual_review.jsonl"
 EMBED_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/pdf_reextract_embed_checkpoint.jsonl"
 BATCH_SIZE = 64
@@ -303,13 +308,29 @@ def make_chunk_id(document_id: str, index: int, text: str) -> str:
 # ------------------------------------------------------------------
 # 1) 대상 문서 조회 — audit_pdf_column_layout.py가 2단 레이아웃으로 플래그한 문서
 # ------------------------------------------------------------------
+_checkpoint_path = None
+for _candidate in (CANDIDATE_CHECKPOINT_PATH, _CANDIDATE_CHECKPOINT_FALLBACK):
+    if os.path.exists(_candidate):
+        _checkpoint_path = _candidate
+        break
+
+if _checkpoint_path is None:
+    raise SystemExit(
+        f"\n{CANDIDATE_CHECKPOINT_PATH} (또는 로컬 {_CANDIDATE_CHECKPOINT_FALLBACK})를 "
+        "찾을 수 없습니다.\n"
+        "scripts/audit_pdf_column_layout.py를 먼저 실행해서 2단 레이아웃 후보 목록부터 "
+        "만드세요(이제 Drive에 저장하도록 고쳐져 있어서, 실행해두면 세션이 끊겨도 "
+        "이 경로에 남습니다). 이미 후보 목록을 다른 이름/경로로 갖고 계시면 "
+        "CANDIDATE_CHECKPOINT_PATH를 그 경로로 바꿔서 다시 실행하세요."
+    )
+
 target_ids = []
-with open(CANDIDATE_CHECKPOINT_PATH, encoding="utf-8") as f:
+with open(_checkpoint_path, encoding="utf-8") as f:
     for line in f:
         rec = json.loads(line)
         if rec.get("flagged"):
             target_ids.append(rec["id"])
-print(f"2단 레이아웃 후보: {len(target_ids)}건")
+print(f"2단 레이아웃 후보: {len(target_ids)}건 (출처: {_checkpoint_path})")
 
 conn = psycopg2.connect(DATABASE_URL)
 with conn.cursor() as cur:
