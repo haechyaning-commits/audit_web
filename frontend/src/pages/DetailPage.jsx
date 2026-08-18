@@ -56,6 +56,17 @@ const LABEL_SEP = "(?:[:：]\\s*|\\s+)";
 // splitIntoBlocks(표 블록 안에서 날짜 셀 하나만 있는 줄과 구분할 때) 둘 다에서 씀.
 const PAREN_LABEL_RE = /^[(（][^()（）]{1,20}[)）]$/;
 
+// 2026-08-18: "◤"(U+25E4, 검은 삼각형) 한 글자만 있는 줄을 실제 문서로 확인함(한국철도공사
+// 2020 복무감사 — "Ⅰ 감사실시 개요" 장 구분 헤딩 바로 다음 줄에 홀로 등장, "1. 감사배경
+// 및 목적" 헤딩 바로 위). 원래 PDF의 장식용 코너 표시(섹션 구분선 등)가 텍스트로 잘못
+// 추출된 것으로 보임 — 뜻 있는 내용이 아닌데 지금까지 body로 취급돼서 그 뒤에 오는
+// "1. 감사배경..." 헤딩 바로 앞에 뜬금없는 조각 문단으로 끼어 있었음("1 뒤에 이상한
+// 기호가 붙어 나온다"는 피드백과 일치하는 정황). 빈 줄과 똑같이 취급해서(문단 구분만
+// 하고 블록 자체를 만들지 않음) 화면에서 사라지게 함 — 같은 계열의 다른 회전형(◢◣◥)도
+// 마찬가지로 장식용일 가능성이 높아 함께 제외(이 문서엔 ◤만 나왔지만, 나머지도 뜻 있는
+// 본문 기호로 실제 쓰인 사례를 찾지 못해 미리 넓혀둠 — 나중에 반례 나오면 좁힐 것).
+const ORNAMENT_GLYPH_LINE_RE = /^[◤◢◣◥]+$/;
+
 // 2026-08-18: 위 라벨들 중 "소관부서 [부서]사업소"/"관련자 : U(경고)"처럼 라벨 뒤에
 // 실제 값이 같은 줄에 바로 붙는 것들은, 지금까지 줄 전체(라벨+값)를 통째로 헤딩 취급해서
 // 굵게 만들고 있었음 — 사용자가 실제 스크린샷(원본 PDF ↔ 웹페이지 비교)으로 "소관부서/
@@ -105,6 +116,13 @@ const HEADING_LABEL_PATTERNS = [
   // 1. 2. 3. 번호 항목 — 마침표 뒤에 공백이 반드시 있어야 함("20.02.21" 같은 날짜는
   // 공백 없이 붙어있어서 이걸로 구분됨, 실제 오탐 발견돼서 \s*를 \s+로 강화함)
   /^\d{1,2}[.)]\s+\S/,
+  // 2026-08-18: "◯1 음주관리 및 근무에 관한 사항 (신분상・행정상조치)"처럼 원문자
+  // (①②③...)가 아니라 "◯"(U+25EF, 큰 동그라미)와 숫자가 띄어쓰기 없이 붙어서 항목
+  // 번호를 나타내는 문서를 실제로 확인함(한국철도공사 2020 복무감사, `dec56dc84bfe3a6c`
+  // — 사용자가 "새로 시작해야 하는데 그냥 본문처럼 보인다"고 제보한 그 항목들). "○"
+  // (U+25CB, BULLET_RE의 흰 동그라미)와는 다른 글자라 기존 불릿 패턴엔 안 걸려서 지금까지
+  // 그냥 body로 흘러들어가고 있었음 — 소제목처럼 굵게 보이도록 헤딩으로 인식.
+  /^◯\d{1,2}\s+\S/,
   // [표 1] [별표 1] [붙임] [참고] 같은 대괄호 캡션만 — "[부서]"(익명화 placeholder,
   // 문장 맨 앞에 수도 없이 나옴)까지 통째로 걸려서 문장을 헤딩 취급하던 심각한 오탐을
   // 6차 수정에서 발견(실제 문서로 확인) — 캡션 키워드로 한정해서 좁힘.
@@ -235,7 +253,7 @@ const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 못 함, splitIntoBlocks에서 위 참조 집합 + 직전 블록 종류까지 같이 봐야 함.
 const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s+\S/;
 // 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
-// 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②INLINE_LAW_CITATION_SPLIT_RE로
+// 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②splitLawCitationHeading으로
 // 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
 const LIST_HEADING_NUM_RE = /^(\d{1,2})[.)]\s+\S/;
 function extractListNum(text) {
@@ -244,16 +262,35 @@ function extractListNum(text) {
 }
 
 // 2026-08-18: "1) 법령 「공직자 윤리법」 제3조의 2. 제2항(공기업) '공직유관단체인 우리
-// 공사는..." — 사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보: 원본은 번호+법령
-// 인용(조/항 번호까지)만 굵고 그 뒤 실제 인용문(따옴표로 시작)은 안 굵은 별도 문단인데,
+// 공사는..." — 사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보: 원본은 번호+법령 인용
+// (조/항 번호까지)만 굵고 그 뒤 실제 인용문(따옴표로 시작)은 안 굵은 별도 문단인데,
 // 텍스트 추출 시 둘 사이에 줄바꿈이 없어서 한 줄로 붙어버림 — 위 번호 헤딩 패턴이 줄
-// 전체를 헤딩(굵게)으로 삼켜서 인용문까지 통째로 굵게 나오는 문제였음. 법령 인용 라벨은
-// 거의 항상 "...제N조(...)"/"...제N항(...)"처럼 닫는 괄호로 끝나고, 그 직후 공백 +
-// 인용부호(원문을 그대로 인용할 때 쓰는 따옴표 — 법령"명"에 쓰는 「」와는 다름)로 실제
-// 인용문이 시작하므로 그 경계에서 잘라 별도 문단으로 흘려보냄. 라벨 길이를 60자로 제한해서
-// 우연히 나중에 나오는 무관한 괄호+따옴표에 걸리지 않게 함(실제 법령 인용 라벨은 이보다 짧음).
-const INLINE_LAW_CITATION_SPLIT_RE =
-  /^(\d{1,2}[.)]\s+.{2,60}?[)）])\s+([‘’“”'"].+)$/;
+// 전체를 헤딩(굵게)으로 삼켜서 인용문까지 통째로 굵게 나오는 문제였음.
+// 실제 raw_text(한국가스공사 2021, `7a766550f0f873b7`)로 검증해보니 "괄호 바로 뒤에
+// 공백+따옴표"로는 못 잡는 경우가 있었음 — "제7조(성실의무) 제1항‘직원은..."처럼 괄호
+// 뒤에 조/항 번호가 공백 없이 하나 더 붙고 나서야 따옴표가 오는 문서도 실제로 있었음
+// (사용자가 "2) 공사 취업규칙도 마찬가지"라고 후속 제보). 그래서 "괄호 바로 뒤"가 아니라
+// "줄 안에서 처음 나오는 인용부호 앞에 닫는 괄호가 하나라도 있었는지"로 조건을 넓힘 —
+// 법령명을 감싸는 「」/｢｣는 인용부호 집합에 안 들어있어서 오탐 안 함(splitLawCitationHeading
+// 참고). 인용부호가 줄 맨 앞에 가깝게(괄호가 나오기도 전에) 나오면 애초에 조건 ②
+// (괄호 있어야 함)에서 걸러짐.
+const QUOTE_CHAR_RE = /[‘’“”'"]/;
+
+/** 번호목록 헤딩 줄에서 "법령/조항 인용 라벨 + 그 뒤에 줄바꿈 없이 붙은 인용문" 경계를
+ * 찾아 [라벨, 인용문]으로 나눔. 조건을 만족 못 하면 null(분리 안 함, 줄 전체를 그대로
+ * 헤딩으로 둠) — 인용부호가 없거나, 있어도 그 앞에 괄호로 끝나는 조/항 인용이 전혀
+ * 없으면(예: 관련자 진술처럼 그냥 문장 중간의 따옴표) 라벨 형태가 아니라고 보고 스킵. */
+function splitLawCitationHeading(trimmed) {
+  if (!LIST_HEADING_NUM_RE.test(trimmed)) return null;
+  const quoteIdx = trimmed.search(QUOTE_CHAR_RE);
+  if (quoteIdx <= 0) return null;
+  const before = trimmed.slice(0, quoteIdx);
+  if (!/[)）]/.test(before)) return null; // 조/항 인용 괄호가 하나도 없으면 라벨 아님
+  const label = before.replace(/\s+$/, "");
+  const body = trimmed.slice(quoteIdx);
+  if (!label || !body) return null;
+  return [label, body];
+}
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
@@ -324,7 +361,7 @@ function splitIntoBlocks(text) {
   for (const rawLine of text.split("\n")) {
     const trimmed = rawLine.trim();
 
-    if (!trimmed) {
+    if (!trimmed || ORNAMENT_GLYPH_LINE_RE.test(trimmed)) {
       flushPara();
       continue;
     }
@@ -370,15 +407,16 @@ function splitIntoBlocks(text) {
       flushPara();
       // 2026-08-18: "1) 법령 「...」 제N조(...) '인용문..." 처럼 번호 라벨 뒤에 줄바꿈
       // 없이 인용문이 바로 붙은 경우, 라벨까지만 헤딩으로 두고 인용문은 새 본문 문단으로
-      // 흘려보냄(INLINE_LAW_CITATION_SPLIT_RE 주석 참고) — 실제 스크린샷으로 확인된 과굵게 버그 수정.
-      const citationSplit = INLINE_LAW_CITATION_SPLIT_RE.exec(trimmed);
+      // 흘려보냄(splitLawCitationHeading 주석 참고) — 실제 스크린샷으로 확인된 과굵게 버그 수정.
+      const citationSplit = splitLawCitationHeading(trimmed);
       if (citationSplit) {
-        blocks.push({ type: "heading", text: citationSplit[1] });
+        const [label, body] = citationSplit;
+        blocks.push({ type: "heading", text: label });
         prevType = "heading";
-        lastHeadingListNum = extractListNum(citationSplit[1]);
+        lastHeadingListNum = extractListNum(label);
         nextIsTable = false;
         paraType = "body";
-        para.push(citationSplit[2]);
+        para.push(body);
         continue;
       }
       blocks.push({ type: "heading", text: trimmed });
