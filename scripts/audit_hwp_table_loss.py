@@ -39,7 +39,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
 import requests
 
-DOWNLOAD_WORKERS = 8  # hwp5txt 서브프로세스 실행이 있어서 PDF 스크립트보다 낮게 잡음
+# 2026-08-18: 처음엔 서브프로세스 실행이 있어서 PDF 스크립트(16)보다 낮게(8) 잡았는데,
+# 실측해보니 hwp5txt 1건 처리에 ~0.29초라 딱히 낮출 이유가 없었음(서브프로세스는 GIL을
+# 안 잡고 있으니 동시성을 올려도 무방) — PDF 스크립트보다 오히려 살짝 높여서 24로 설정.
+DOWNLOAD_WORKERS = 24
 CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_checkpoint.jsonl"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
