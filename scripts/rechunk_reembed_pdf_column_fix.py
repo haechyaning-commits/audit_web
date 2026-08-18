@@ -43,7 +43,9 @@ import hashlib
 import json
 import os
 import re
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import psycopg2
@@ -53,6 +55,8 @@ from psycopg2.extras import execute_values
 
 DRY_RUN = True  # 먼저 True로 돌려서 확인, 이상 없으면 False로
 SIMILARITY_THRESHOLD = 0.90  # 이 밑이면 자동 반영 안 하고 수동검토 큐로 뺌
+DOWNLOAD_WORKERS = 16  # PDF 다운로드+재추출 동시 처리 수 — audit_pdf_column_layout.py와 동일 값
+                       # (I/O 바운드라 GIL 영향 적음, jsdelivr 공개 CDN이라 16 정도는 무리 없음)
 
 # audit_pdf_column_layout.py 실행 결과 체크포인트("flagged" 페이지가 있는 문서만
 # 이 스크립트의 대상이 됨). 2026-08-18 이전 버전의 audit_pdf_column_layout.py는
@@ -365,37 +369,60 @@ print(f"실제 조회된 문서: {len(doc_rows)}건")
 # ------------------------------------------------------------------
 # 2) PDF 다운로드 + 재추출 + 신구 유사도 비교 (자동반영 / 수동검토 분리)
 # ------------------------------------------------------------------
-apply_list = []  # (doc_id, new_text)
-review_list = []  # dict — DB 미반영, 사람 확인용
+# audit_pdf_column_layout.py와 동일하게 ThreadPoolExecutor로 병렬 다운로드
+# (2,137건을 순차로 돌리면 네트워크 대기 때문에 느림 — I/O 바운드라 스레드로 충분).
 
-for doc_id, institution, year, source_file, old_text in doc_rows:
+
+def _process_one(doc_id, institution, year, source_file, old_text):
+    """문서 1건 다운로드+재추출+유사도 비교 — 스레드 풀에서 병렬 호출됨.
+    결과 dict만 반환하고 공유 리스트는 안 건드림(스레드 안전)."""
     url = build_source_url(source_file)
     if not url:
-        review_list.append({"id": doc_id, "error": "source_file 없음/URL 변환 실패"})
-        continue
+        return {"id": doc_id, "ok": False, "error": "source_file 없음/URL 변환 실패"}
     try:
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
         new_text = extract_doc_text(resp.content)
     except Exception as e:
-        review_list.append({"id": doc_id, "institution": institution, "year": year, "error": str(e)})
-        continue
+        return {
+            "id": doc_id, "ok": False, "institution": institution, "year": year,
+            "error": str(e),
+        }
 
     old_norm = re.sub(r"\s+", " ", (old_text or "")).strip()
     new_norm = re.sub(r"\s+", " ", new_text).strip()
     sim = difflib.SequenceMatcher(None, old_norm, new_norm).ratio()
 
     if sim >= SIMILARITY_THRESHOLD:
-        apply_list.append((doc_id, new_text))
-    else:
-        review_list.append({
-            "id": doc_id,
-            "institution": institution,
-            "year": year,
-            "similarity": round(sim, 4),
-            "old_len": len(old_norm),
-            "new_len": len(new_norm),
-        })
+        return {"id": doc_id, "ok": True, "apply": True, "new_text": new_text}
+    return {
+        "id": doc_id, "ok": True, "apply": False,
+        "institution": institution, "year": year,
+        "similarity": round(sim, 4), "old_len": len(old_norm), "new_len": len(new_norm),
+    }
+
+
+apply_list = []  # (doc_id, new_text)
+review_list = []  # dict — DB 미반영, 사람 확인용
+
+print_lock = threading.Lock()
+n_done = 0
+
+with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+    futures = [pool.submit(_process_one, *row) for row in doc_rows]
+    for fut in as_completed(futures):
+        result = fut.result()
+        if result["ok"] and result["apply"]:
+            apply_list.append((result["id"], result["new_text"]))
+        else:
+            review_list.append({k: v for k, v in result.items() if k not in ("ok", "apply")})
+        with print_lock:
+            n_done += 1
+            if n_done % 20 == 0 or n_done == len(doc_rows):
+                print(
+                    f"  {n_done}/{len(doc_rows)}건 처리, "
+                    f"자동반영 {len(apply_list)}건, 수동검토 {len(review_list)}건"
+                )
 
 print(f"\n자동 반영 대상(유사도 >= {SIMILARITY_THRESHOLD}): {len(apply_list)}건")
 print(f"수동 검토 필요(유사도 미달/에러): {len(review_list)}건")
