@@ -65,8 +65,19 @@ DRY_RUN = True  # 먼저 True로 돌려서 확인, 이상 없으면 False로
 # 표 내용을 다시 빼낸 병합 결과 vs DB 옛 raw_text 유사도 게이트 — 이 밑이면
 # 자동 반영 안 하고 수동검토 큐로 뺌 (표 이외의 부분까지 달라졌다는 신호).
 REMOVE_TABLE_SIMILARITY_THRESHOLD = 0.90
-DOWNLOAD_WORKERS = 12  # hwp5txt+hwp5html 두 번의 서브프로세스를 도는 만큼
-                       # audit_hwp_table_loss.py(24)보다 낮춰서 시작 — 실측 후 조정 권장
+DOWNLOAD_WORKERS = 24  # hwp5txt+hwp5html 두 번의 서브프로세스를 도는 만큼
+                       # audit_hwp_table_loss.py(48)보다 낮춰서 시작 — 실측 후 조정 권장
+
+# audit_hwp_table_loss.py 실행 중 requests.get()을 매번 새로 호출해서 스레드마다
+# jsdelivr CDN과 TCP+TLS 핸드셰이크를 새로 맺는 바람에 느렸던 것으로 확인됨
+# (25분에 2,000/30,000건, 완주까지 5시간 이상 예상) — 여기서는 처음부터
+# Session+커넥션풀 재사용으로 작성.
+_session = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(
+    pool_connections=DOWNLOAD_WORKERS, pool_maxsize=DOWNLOAD_WORKERS, max_retries=2
+)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 CANDIDATE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_checkpoint.jsonl"
 REVIEW_QUEUE_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_manual_review.jsonl"
@@ -341,7 +352,7 @@ def _process_one(doc_id, institution, year, source_file, old_text):
     if not url:
         return {"id": doc_id, "ok": False, "error": "source_file 없음/URL 변환 실패"}
     try:
-        resp = requests.get(url, timeout=30)
+        resp = _session.get(url, timeout=30)
         resp.raise_for_status()
         merged_text, baseline_text, n_markers, n_tables, merge_ok = merge_hwp_text_and_tables(
             resp.content

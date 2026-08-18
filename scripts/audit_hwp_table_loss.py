@@ -42,8 +42,21 @@ import requests
 # 2026-08-18: 처음엔 서브프로세스 실행이 있어서 PDF 스크립트(16)보다 낮게(8) 잡았는데,
 # 실측해보니 hwp5txt 1건 처리에 ~0.29초라 딱히 낮출 이유가 없었음(서브프로세스는 GIL을
 # 안 잡고 있으니 동시성을 올려도 무방) — PDF 스크립트보다 오히려 살짝 높여서 24로 설정.
-DOWNLOAD_WORKERS = 24
+#
+# 2026-08-18 추가: 실제 3만건 규모로 돌려보니 25분에 2,000건(진행률로 보면 완주까지
+# 5시간 이상)으로 예상보다 훨씬 느렸음 — 워커 수 문제가 아니라 아래 requests.get()을
+# 매 요청마다 새로 호출해서 스레드마다 jsdelivr CDN과 TCP+TLS 핸드셰이크를 새로 맺고
+# 있었던 게 원인으로 추정(연결 재사용 안 됨). requests.Session + HTTPAdapter로 커넥션
+# 풀을 공유하도록 고치고, 워커도 48로 상향.
+DOWNLOAD_WORKERS = 48
 CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_checkpoint.jsonl"
+
+_session = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(
+    pool_connections=DOWNLOAD_WORKERS, pool_maxsize=DOWNLOAD_WORKERS, max_retries=2
+)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -86,7 +99,7 @@ def _check_one(doc_id, institution, year, source_file, raw_text):
     if not url:
         return {"id": doc_id, "error": "source_file 없음/URL 변환 실패"}
     try:
-        resp = requests.get(url, timeout=30)
+        resp = _session.get(url, timeout=30)
         resp.raise_for_status()
         with tempfile.NamedTemporaryFile(suffix=".hwp", delete=False) as f:
             f.write(resp.content)
