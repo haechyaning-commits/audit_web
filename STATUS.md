@@ -2,6 +2,37 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🚧 구버전 HWP 표 내용 손실 — 복구(merge) 스크립트 작성 (2026-08-18, 이어서)
+
+바로 아래 항목(원인 특정 + `audit_hwp_table_loss.py` 규모조사)에 이어서, 실제
+반영용 복구 스크립트 `scripts/rechunk_reembed_hwp_table_fix.py`(신규)를 미리
+작성해둠 — `audit_hwp_table_loss.py`를 Colab에서 돌려 체크포인트를 만드는 동안
+병행 준비.
+
+- **이 세션(audit_web 컨테이너)은 DB/jsdelivr 접근이 없어서**(egress 정책상
+  차단, `DATABASE_URL`도 미설정) 실제 문서로 끝까지 검증은 못 함. `pip install
+  pyhwp`로 `hwp5txt`/`hwp5html` CLI 자체는 설치·실행 확인했고, `<table>` 파싱
+  +병합 로직은 합성(가짜) HTML/텍스트로 단위 테스트해서 정상 동작 확인함(스크립트
+  헤더에 이 한계와 확인된 범위를 명시해둠).
+- **구조**: 기존 `rechunk_reembed_pdf_column_fix*.py`와 동일한 패턴(DRY_RUN 게이트
+  → 백업 → UPDATE → DELETE/INSERT 청크 → GPU 재임베딩, `split_into_chunks`도 그대로
+  복사해서 재사용).
+- **병합 방식**: `hwp5txt`의 `<표>` 마커와 `hwp5html`의 `<table>` 등장 순서가 1:1
+  대응한다는 이미 검증된 사실(한전KPS 2018 문서, 6개 표)을 이용 — 마커 개수와 실제
+  뽑힌 표 개수가 다르면 자동반영 안 하고 수동검토 큐로 뺌. 표 셀은 `"셀 | 셀"`로
+  펼침(파이프 구분자는 `audit_hwp_table_loss.py`의 `db_has_table_trace` 휴리스틱과
+  일부러 맞춘 것 — 정착된 컨벤션은 아니라서 실제 반영 전 상세페이지 렌더링과
+  어울리는지 확인 권장).
+- **안전장치**: `<표>`를 그냥 제거만 한 "마커제거 기준텍스트"(기존 파이프라인이
+  DB에 저장해온 방식 그대로 재현)를 DB 옛 `raw_text`와 비교해서 유사도
+  `REMOVE_TABLE_SIMILARITY_THRESHOLD=0.90` 미만이면 자동반영 안 함 — 표 내용이
+  아니라 "표 이외 부분까지 이 재추출이 원본과 다르게 뽑았는가"만 걸러내는 게이트.
+- **다음 세션에서 할 일**: 1) `audit_hwp_table_loss.py` Colab 실행 결과(영향 규모)
+  확인, 2) 이 스크립트를 실제로 DRY_RUN=True로 돌려서 자동반영/수동검토 갈림과
+  병합 샘플이 말이 되는지 확인(특히 마커/표 개수 불일치 비율 — hwp5html 출력
+  파일 구성이 문서마다 다를 수 있어 실측 필요), 3) 문제없으면 DRY_RUN=False로
+  반영.
+
 ## 🚧 구버전 HWP 표 내용 손실 — 원인 특정 + 규모조사 스크립트 착수 (2026-08-18)
 
 PDF 3차 반영 후 운영 사이트 실사용 확인 중, 한전KPS 2018(cb8dcfbd7983ba43)에서
