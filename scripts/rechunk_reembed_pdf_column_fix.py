@@ -67,14 +67,33 @@ EMBED_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/pdf_reextract_embe
 BATCH_SIZE = 64
 MAX_LENGTH = 1024  # embed_chunks.py / reembed_changed_chunks.py / rechunk_reembed_hwp_fix.py와 동일 값
 
-DATABASE_URL = None
-try:
-    from google.colab import userdata
-    DATABASE_URL = userdata.get("DATABASE_PUBLIC_URL")
-except Exception:
-    pass
+# 2026-08-18: audit_pdf_column_layout.py는 Colab Secret 이름을 "DATABASE_URL"로
+# 쓰는데(실제로 이 사용자 환경에서 이 이름으로 성공적으로 연결됨), 이 스크립트는
+# 원래 rechunk_reembed_hwp_fix.py(다른 브랜치)를 따라 "DATABASE_PUBLIC_URL"을
+# 먼저 찾다가 실패 -> DATABASE_URL이 None으로 남아 psycopg2가 로컬 소켓에 연결을
+# 시도하며 OperationalError가 난 적이 있음. 이 사용자 환경에서 실제로 동작하는
+# "DATABASE_URL"을 먼저 찾고, "DATABASE_PUBLIC_URL"은 다른 브랜치 스크립트와의
+# 호환을 위해 폴백으로만 남겨둠.
+DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    DATABASE_URL = os.environ.get("DATABASE_URL")
+    try:
+        from google.colab import userdata
+        DATABASE_URL = userdata.get("DATABASE_URL")
+    except Exception:
+        pass
+if not DATABASE_URL:
+    try:
+        from google.colab import userdata
+        DATABASE_URL = userdata.get("DATABASE_PUBLIC_URL")
+    except Exception:
+        pass
+
+if not DATABASE_URL:
+    raise SystemExit(
+        "\nDATABASE_URL을 찾을 수 없습니다. Colab 좌측 열쇠(Secrets) 아이콘에서 "
+        "\"DATABASE_URL\" (또는 \"DATABASE_PUBLIC_URL\") 이름의 Secret이 등록돼 "
+        "있고 이 노트북에 대해 '노트북 접근' 권한이 켜져 있는지 확인하세요."
+    )
 
 
 # ------------------------------------------------------------------
