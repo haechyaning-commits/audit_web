@@ -218,6 +218,34 @@ const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // effectivePrevType 조건이 이미 오탐을 걸러주고 있어 안전함.
 const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
 
+// 2026-08-19: 상위 개요 항목이 "1. 제목 / 2. 관계기관 / 3. ..."처럼 번호로 나열되는
+// 문서인데, 제목 줄 맨 앞의 "1. "만 DB 적재 시점부터 유실된 경우가 실제로 있음(Colab
+// 규모조사 — scripts/audit_title_number_and_wordbreak.py, 67,751건 전수 스캔 결과
+// 4,330건/6.39%, 한국보훈복지의료공단·한국자산관리공사·한국토지주택공사 3개 기관에
+// 96% 집중). raw_text 자체를 고치는 건 DB 백필이 필요해서 이번엔 화면 표시만 보정 —
+// 조사 스크립트와 같은 조건(제목 줄엔 번호가 없는데 바로 다음 헤딩은 "2."(이상)로
+// 시작)일 때만 "1. "을 붙여서 보여줌. TITLE_BLOCK_LEADING_NUM_RE는 fixMissingTitleNumber
+// 에서 이미 번호가 붙어있는 제목 줄을 건드리지 않기 위한 가드로도 씀.
+const TITLE_BLOCK_LEADING_NUM_RE = /^(\d{1,2})[.)]\s/;
+
+/** splitIntoBlocks가 만든 heading 블록 중 제목(TITLE_RE로 판별, isTitle 플래그)
+ * 블록 바로 다음이 "2."(이상) 번호로 시작하는 헤딩이면, 제목 줄 앞의 "1. "이 유실된
+ * 것으로 보고 화면 표시용 텍스트에만 "1. "을 보정해 붙임. DB(원문)는 그대로 두고
+ * isTitle 플래그(블록 생성 시 이미 계산해둠)도 그대로 유지되므로 스타일/목차 제외
+ * 동작에는 영향 없음. */
+function fixMissingTitleNumber(blocks) {
+  const titleIdx = blocks.findIndex((b) => b.type === "heading" && b.isTitle);
+  if (titleIdx === -1 || titleIdx === blocks.length - 1) return;
+  const titleBlock = blocks[titleIdx];
+  if (TITLE_BLOCK_LEADING_NUM_RE.test(titleBlock.text)) return; // 이미 번호 있음
+  const next = blocks[titleIdx + 1];
+  if (next.type !== "heading") return;
+  const m = TITLE_BLOCK_LEADING_NUM_RE.exec(next.text);
+  if (m && Number(m[1]) >= 2) {
+    titleBlock.text = `1. ${titleBlock.text}`;
+  }
+}
+
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
  * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
@@ -336,7 +364,10 @@ function splitIntoBlocks(text) {
     }
     if (kind === "heading") {
       flushPara();
-      blocks.push({ type: "heading", text: trimmed });
+      // isTitle은 여기(원본 trimmed 기준)서 한 번만 계산해 저장 — 아래
+      // fixMissingTitleNumber가 표시용 text에 "1. "을 덧붙여도 TITLE_RE 재검사에
+      // 걸리지 않게(제목 스타일/목차 제외가 계속 정확히 동작하게) 하기 위함.
+      blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
@@ -362,6 +393,9 @@ function splitIntoBlocks(text) {
     para.push(trimmed);
   }
   flushPara();
+  // 제목 줄 번호("1. ") 보정 — isTitle 플래그를 이미 저장해뒀으므로 아래에서 text를
+  // 바꿔도 스타일/목차 판별에는 영향 없음(위 fixMissingTitleNumber 주석 참고).
+  fixMissingTitleNumber(blocks);
   // 위 분류 로직(각주/헤딩/표 판별 등)은 전부 원본 "[부서]" 문자열 기준으로 이미
   // 끝난 뒤이므로, 화면에 보여줄 텍스트에만 마지막에 치환을 적용함 — classifyLine
   // 등이 "[부서]"를 헤딩으로 오인하지 않게 설계된 기존 로직(6차 수정)과 안 얽히게 함.
@@ -389,7 +423,7 @@ function renderRawText(blocks, query) {
         </div>
       );
     }
-    const isTitle = TITLE_RE.test(b.text);
+    const isTitle = b.isTitle;
     const id = `heading-${headingIdx++}`;
     return (
       <div
@@ -412,7 +446,7 @@ function buildToc(blocks) {
   for (const b of blocks) {
     if (b.type !== "heading") continue;
     const id = `heading-${headingIdx++}`;
-    if (TITLE_RE.test(b.text)) continue;
+    if (b.isTitle) continue;
     items.push({ id, text: b.text });
   }
   return items;
