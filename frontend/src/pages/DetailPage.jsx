@@ -211,7 +211,12 @@ const SECURITY_NOTICE_RE = /^본\s*문서의\s*감사요지\s*및\s*귀책내용
 const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 각주 본문 후보 줄 — 목록 헤딩과 똑같은 모양("숫자) 내용")이라 이것만으로는 구분
 // 못 함, splitIntoBlocks에서 위 참조 집합 + 직전 블록 종류까지 같이 봐야 함.
-const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s+\S/;
+// 2026-08-19: "18)「감사규정」..."처럼 닫는 괄호 뒤에 공백 없이 바로 다음 글자가
+// 붙는 실제 문서를 확인함(한국자산관리공사 2021, 9ddc6393057cc532) — 공백을
+// 필수(\s+)로 요구하던 탓에 이 각주가 아예 인식조차 안 되고 직전 문단에 흡수돼
+// 버렸음. \s*로 완화(공백 0개 이상) — footnoteNums 사전 스캔 + splitIntoBlocks의
+// effectivePrevType 조건이 이미 오탐을 걸러주고 있어 안전함.
+const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
@@ -303,9 +308,17 @@ function splitIntoBlocks(text) {
       footnoteNums.has(footnoteMatch[1]) &&
       (effectivePrevType === "body" || effectivePrevType === "footnote")
     ) {
+      // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
+      // 각주 내용이 다음 줄로 넘어간 경우(실제 문서로 확인, "18)「감사규정」..." 다음
+      // 줄에 "4. 주의 : ...") 그 이어지는 줄이 각주 판별에 안 걸려서 별도의 "body"
+      // 문단으로 새어나가고 있었음(사용자 제보: "다 작은글씨인데 왜 한 줄만 적용
+      // 되는지"). bullet/table과 같은 방식(paraType만 바꾸고 para에 누적)으로 고쳐서,
+      // 다음 각주 번호나 헤딩/불릿을 만나기 전까지 이어지는 줄들이 같은 각주 문단으로
+      // 계속 흡수되게 함 — effectivePrevType이 "footnote"로 유지되므로 새 각주 번호가
+      // 나오면 정상적으로 끊기고 다음 각주로 넘어감(위 실제 문서로 검증).
       flushPara();
-      blocks.push({ type: "footnote", text: trimmed });
-      prevType = "footnote";
+      paraType = "footnote";
+      para.push(trimmed);
       continue;
     }
 
