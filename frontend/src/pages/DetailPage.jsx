@@ -379,6 +379,19 @@ function splitIntoBlocks(text) {
       nextIsTable = false;
       continue;
     }
+    // 2026-08-19: 각주를 누적하는 중(paraType === "footnote")에 나온 불릿 줄은 새
+    // 항목이 아니라 그 각주의 하위 설명으로 봄(실제 문서로 확인 — "1) 직장 내
+    // 괴롭힘 : 고용노동부 예방·대응 매뉴얼(2023.4)" 바로 다음 줄이 "- 행위요건 : ..."
+    // 로 그 각주를 부연하는데, 예전엔 불릿을 만나는 즉시 무조건 새 문단으로 끊어서
+    // paraType이 "footnote"에서 "bullet"로 바뀌어버림 — 그러면 바로 이어지는 각주
+    // 2)/3)/4)번이 effectivePrevType 조건("body"|"footnote")을 못 만족해서 각주로
+    // 인식이 안 되고 그 불릿 문단에 통째로 흡수돼 버렸음(한국부동산원 2024,
+    // 4df12939e14a66c3로 확인). 각주 문단 안에서는 흡수시켜서 paraType을
+    // "footnote"로 유지 — 뒤이은 각주 번호가 계속 정상 인식되게 함.
+    if (kind === "bullet" && paraType === "footnote") {
+      para.push(normalizeGlyphBullet(trimmed));
+      continue;
+    }
     if (kind === "bullet") {
       flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리(표 캡션 뒤라도 여기서 끊음)
       paraType = "bullet";
