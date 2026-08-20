@@ -274,6 +274,11 @@ def classify_line(line: str) -> str:
     return "body"
 
 
+# 2026-08-20 임시 디버그용 — 특정 각주 번호의 판정 과정을 추적하고 싶을 때
+# 코드에서 `_DEBUG_NUMS = {"6","7","8"}`처럼 채워서 씀. 기본은 비활성(빈 set).
+_DEBUG_NUMS: set[str] = set()
+
+
 def split_into_blocks(text: str) -> list[dict]:
     footnote_nums = set(m.group(1) for m in FOOTNOTE_REF_RE.finditer(text))
 
@@ -319,6 +324,20 @@ def split_into_blocks(text: str) -> list[dict]:
             and footnote_match is not None
             and int(footnote_match.group(1)) == last_heading_list_num + 1
         )
+        if _DEBUG_NUMS and footnote_match and footnote_match.group(1) in _DEBUG_NUMS:
+            ok = (
+                footnote_match.group(1) in footnote_nums
+                and effective_prev_type in ("body", "footnote")
+                and not continues_heading_list
+            )
+            print(
+                f"[DEBUG] num={footnote_match.group(1)} "
+                f"in_footnote_nums={footnote_match.group(1) in footnote_nums} "
+                f"effective_prev_type={effective_prev_type!r} "
+                f"continues_heading_list={continues_heading_list} "
+                f"last_heading_list_num={last_heading_list_num} "
+                f"-> {'PASS' if ok else 'FAIL'} | {trimmed[:40]!r}"
+            )
         if (
             footnote_match
             and footnote_match.group(1) in footnote_nums
@@ -346,11 +365,15 @@ def split_into_blocks(text: str) -> list[dict]:
                 next_is_table = False
                 para_type = "body"
                 para.append(body)
+                if _DEBUG_NUMS:
+                    print(f"[DEBUG] heading(citation-split) label={label[:40]!r} -> last_heading_list_num={last_heading_list_num}")
                 continue
             blocks.append({"type": "heading", "text": trimmed, "isTitle": bool(TITLE_RE.match(trimmed))})
             prev_type = "heading"
             last_heading_list_num = extract_list_num(trimmed)
             next_is_table = bool(TABLE_CAPTION_RE.match(trimmed))
+            if _DEBUG_NUMS:
+                print(f"[DEBUG] heading text={trimmed[:40]!r} -> last_heading_list_num={last_heading_list_num}")
             continue
         if kind == "field":
             flush_para()
@@ -559,7 +582,11 @@ for doc_id, expect in SELF_TEST_DOCS.items():
     if raw_text is None:
         print(f"  {doc_id}: DB에서 못 찾음 — 자가 검증 스킵(문서가 삭제/변경됐을 수 있음)")
         continue
+    if doc_id == "9ddc6393057cc532":
+        _DEBUG_NUMS = {"5", "6", "7", "8", "9", "10"}  # 임시: 각주 6~10 판정 과정 추적
+        print(f"  --- {doc_id} 디버그 추적 시작 ---")
     blocks = split_into_blocks(raw_text)
+    _DEBUG_NUMS = set()
     n_footnote = sum(1 for b in blocks if b["type"] == "footnote")
     ok = n_footnote == expect["footnote_blocks"]
     print(f"  {doc_id}: footnote 블록 {n_footnote}건 (기대: {expect['footnote_blocks']}) -> {'OK' if ok else 'FAIL'}")
