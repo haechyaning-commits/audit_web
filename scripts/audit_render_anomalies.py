@@ -173,6 +173,33 @@ FOOTNOTE_REF_RE = re.compile(r"[^\s\d](\d{1,2})\)")
 # 바로 뒤에 붙음(원 주석 예시: "87,818,181원1)", "위임2)" — "원"/"임" 모두 한글).
 # 한글 글자로 좁히면 위 날짜/괄호열거/마스킹 오탐이 전부 사라짐(5건 실제 확인).
 FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
+
+# 2026-08-20: 신호② 표본 재조사(18b48a4726dad247)에서 발견한 추가 오탐 —
+# "(통보1)"/"(주의1)"처럼 감사보고서 조치유형을 순번으로 분류한 코드가
+# "통보"/"주의" 둘 다 한글이라 FOOTNOTE_REF_STRICT_RE를 그대로 통과함(각주가
+# 아님). 감사원/공공기관 감사보고서에서 표준적으로 쓰이는 조치요구 유형
+# 명칭만 좁게 나열 — "괄호로 감싼 조치유형+번호" 형태([조치유형N)] 전체가
+# 아니라 "(조치유형N)"처럼 여닫는 괄호가 다 있는 경우만)로 한정해서, 실제
+# 각주 참조(예: "감사원에 통보18)")처럼 괄호 없이 문장 중간에 나오는 경우는
+# 오히려 걸러내지 않도록 함(오탐 필터가 진짜 각주까지 지우는 역효과 방지).
+ACTION_TYPE_KEYWORDS = (
+    "통보", "주의", "시정", "개선", "권고", "문책", "징계", "고발", "훈계", "경고", "변상",
+)
+ACTION_TYPE_CODE_RE = re.compile(
+    r"\((" + "|".join(ACTION_TYPE_KEYWORDS) + r")(\d{1,2})\)"
+)
+
+
+def strict_footnote_nums(text):
+    """FOOTNOTE_REF_STRICT_RE로 잡히는 각주 참조 번호 집합 — 조치유형 분류
+    코드(ACTION_TYPE_CODE_RE와 겹치는 매치)는 제외."""
+    action_spans = [m.span() for m in ACTION_TYPE_CODE_RE.finditer(text)]
+    nums = set()
+    for m in FOOTNOTE_REF_STRICT_RE.finditer(text):
+        if any(a_start <= m.start() and m.end() <= a_end for a_start, a_end in action_spans):
+            continue
+        nums.add(m.group(1))
+    return nums
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
 # 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 각주 오판별
 # 방지(continuesHeadingList)에 쓰이면서 실제 문서(한국조폐공사 2016,
@@ -484,6 +511,25 @@ def run_synthetic_self_tests():
     check("익명화 마스킹(+0+0+0))은 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("압류재산(+0+0+0+0-+0+0+0)의 경우"))
     check("한글 뒤 진짜 각주 참조('금액18)')는 여전히 잡힘", bool(FOOTNOTE_REF_STRICT_RE.search("지적된 금액18)은 환수")))
 
+    # ACTION_TYPE_CODE_RE — 2026-08-20 신호② 표본 재조사(18b48a4726dad247)에서
+    # 발견한 조치유형 분류 코드("(통보1)"/"(주의1)") 오탐 필터.
+    check(
+        "조치유형 코드('(통보1)')는 strict_footnote_nums에서 제외됨",
+        "1" not in strict_footnote_nums("처분요구 사항\n(통보1) ㅇ 그런데 예산집행이"),
+    )
+    check(
+        "조치유형 코드('(주의1)')는 strict_footnote_nums에서 제외됨",
+        "1" not in strict_footnote_nums("(주의1) ㅇ 관련자에게 주의를 촉구"),
+    )
+    check(
+        "괄호 없는 진짜 각주 참조('통보18)')는 여전히 strict_footnote_nums에 잡힘",
+        "18" in strict_footnote_nums("감사원에 통보18)하였다"),
+    )
+    check(
+        "한글 뒤 일반 각주 참조('금액18)')는 strict_footnote_nums에도 여전히 잡힘",
+        "18" in strict_footnote_nums("지적된 금액18)은 환수"),
+    )
+
     # 2026-08-20: 헤딩/각주 번호 충돌 버그 수정(LIST_HEADING_NUM_RE 괄호 전용화 +
     # split_law_citation_heading 번호 접두어 괄호 제외) — 실제 문서로 재현한 케이스들.
     check(
@@ -662,7 +708,7 @@ for i, (doc_id, institution, year, raw_text) in enumerate(rows):
     if long_table:
         reasons.append(f"긴 표잔여 {len(long_table)}건(최대 {max(len(b['text']) for b in long_table)}자)")
 
-    footnote_nums_in_text = set(m.group(1) for m in FOOTNOTE_REF_STRICT_RE.finditer(raw_text))
+    footnote_nums_in_text = strict_footnote_nums(raw_text)
     n_footnote_blocks = sum(1 for b in blocks if b["type"] == "footnote")
     if footnote_nums_in_text and n_footnote_blocks == 0:
         reasons.append(f"각주 참조({len(footnote_nums_in_text)}개) 있는데 각주 블록 0건")
