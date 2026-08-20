@@ -118,7 +118,13 @@ const HEADING_LABEL_PATTERNS = [
   // 2026-08-14: "내 용" 단독 줄 — 그 줄 전체가 이 라벨 하나뿐일 때만(내용을 서술하는
   // 본문 문장 첫머리에 "내용"이 오는 경우와 헷갈리지 않게 줄 전체 일치로 한정).
   /^내\s*용\s*$/,
-  /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
+  // 2026-08-19: 유니코드 로마숫자(Ⅰ,Ⅱ,Ⅲ...)뿐 아니라 라틴 알파벳 I/V/X도 같은
+  // 문자 클래스에 있었음 — ASCII 로마숫자로 표기된 실제 문서 사례는 이 저장소에
+  // 한 번도 검증된 적 없는 방어적 코드였는데, 표 셀 값 "X"(미인증 표시)로 시작하는
+  // 줄("X 기능 개선시...")이 전부 장 제목으로 오인되는 실사용 버그로 이어짐(사용자
+  // 제보: [표 3] 웹 접근성 품질 미인증 현황). 검증된 유니코드 로마숫자만 남기고
+  // 라틴 알파벳 단독 매칭은 제거.
+  /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
   // 2026-08-18: "◯1 음주관리 및 근무에 관한 사항 (신분상・행정상조치)"처럼 원문자
   // (①②③...)가 아니라 "◯"(U+25EF, 큰 동그라미)와 숫자가 띄어쓰기 없이 붙어서 항목
   // 번호를 나타내는 문서를 실제로 확인함(한국철도공사 2020 복무감사, `dec56dc84bfe3a6c`
@@ -294,7 +300,12 @@ function isWatermarkNoise(trimmed) {
 const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 각주 본문 후보 줄 — 목록 헤딩과 똑같은 모양("숫자) 내용")이라 이것만으로는 구분
 // 못 함, splitIntoBlocks에서 위 참조 집합 + 직전 블록 종류까지 같이 봐야 함.
-const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s+\S/;
+// 2026-08-19: "18)「감사규정」..."처럼 닫는 괄호 뒤에 공백 없이 바로 다음 글자가
+// 붙는 실제 문서를 확인함(한국자산관리공사 2021, 9ddc6393057cc532) — 공백을
+// 필수(\s+)로 요구하던 탓에 이 각주가 아예 인식조차 안 되고 직전 문단에 흡수돼
+// 버렸음. \s*로 완화(공백 0개 이상) — footnoteNums 사전 스캔 + splitIntoBlocks의
+// effectivePrevType 조건이 이미 오탐을 걸러주고 있어 안전함.
+const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
 // 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
 // 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②splitLawCitationHeading으로
 // 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
@@ -333,6 +344,34 @@ function splitLawCitationHeading(trimmed) {
   const body = trimmed.slice(quoteIdx);
   if (!label || !body) return null;
   return [label, body];
+}
+
+// 2026-08-19: 상위 개요 항목이 "1. 제목 / 2. 관계기관 / 3. ..."처럼 번호로 나열되는
+// 문서인데, 제목 줄 맨 앞의 "1. "만 DB 적재 시점부터 유실된 경우가 실제로 있음(Colab
+// 규모조사 — scripts/audit_title_number_and_wordbreak.py, 67,751건 전수 스캔 결과
+// 4,330건/6.39%, 한국보훈복지의료공단·한국자산관리공사·한국토지주택공사 3개 기관에
+// 96% 집중). raw_text 자체를 고치는 건 DB 백필이 필요해서 이번엔 화면 표시만 보정 —
+// 조사 스크립트와 같은 조건(제목 줄엔 번호가 없는데 바로 다음 헤딩은 "2."(이상)로
+// 시작)일 때만 "1. "을 붙여서 보여줌. TITLE_BLOCK_LEADING_NUM_RE는 fixMissingTitleNumber
+// 에서 이미 번호가 붙어있는 제목 줄을 건드리지 않기 위한 가드로도 씀.
+const TITLE_BLOCK_LEADING_NUM_RE = /^(\d{1,2})[.)]\s/;
+
+/** splitIntoBlocks가 만든 heading 블록 중 제목(TITLE_RE로 판별, isTitle 플래그)
+ * 블록 바로 다음이 "2."(이상) 번호로 시작하는 헤딩이면, 제목 줄 앞의 "1. "이 유실된
+ * 것으로 보고 화면 표시용 텍스트에만 "1. "을 보정해 붙임. DB(원문)는 그대로 두고
+ * isTitle 플래그(블록 생성 시 이미 계산해둠)도 그대로 유지되므로 스타일/목차 제외
+ * 동작에는 영향 없음. */
+function fixMissingTitleNumber(blocks) {
+  const titleIdx = blocks.findIndex((b) => b.type === "heading" && b.isTitle);
+  if (titleIdx === -1 || titleIdx === blocks.length - 1) return;
+  const titleBlock = blocks[titleIdx];
+  if (TITLE_BLOCK_LEADING_NUM_RE.test(titleBlock.text)) return; // 이미 번호 있음
+  const next = blocks[titleIdx + 1];
+  if (next.type !== "heading") return;
+  const m = TITLE_BLOCK_LEADING_NUM_RE.exec(next.text);
+  if (m && Number(m[1]) >= 2) {
+    titleBlock.text = `1. ${titleBlock.text}`;
+  }
 }
 
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
@@ -497,9 +536,17 @@ function splitIntoBlocks(text) {
       (effectivePrevType === "body" || effectivePrevType === "footnote") &&
       !continuesHeadingList
     ) {
+      // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
+      // 각주 내용이 다음 줄로 넘어간 경우(실제 문서로 확인, "18)「감사규정」..." 다음
+      // 줄에 "4. 주의 : ...") 그 이어지는 줄이 각주 판별에 안 걸려서 별도의 "body"
+      // 문단으로 새어나가고 있었음(사용자 제보: "다 작은글씨인데 왜 한 줄만 적용
+      // 되는지"). bullet/table과 같은 방식(paraType만 바꾸고 para에 누적)으로 고쳐서,
+      // 다음 각주 번호나 헤딩/불릿을 만나기 전까지 이어지는 줄들이 같은 각주 문단으로
+      // 계속 흡수되게 함 — effectivePrevType이 "footnote"로 유지되므로 새 각주 번호가
+      // 나오면 정상적으로 끊기고 다음 각주로 넘어감(위 실제 문서로 검증).
       flushPara();
-      blocks.push({ type: "footnote", text: trimmed });
-      prevType = "footnote";
+      paraType = "footnote";
+      para.push(trimmed);
       continue;
     }
 
@@ -523,7 +570,10 @@ function splitIntoBlocks(text) {
       const citationSplit = splitLawCitationHeading(trimmed);
       if (citationSplit) {
         const [label, body] = citationSplit;
-        blocks.push({ type: "heading", text: label });
+        // 법령인용 라벨은 TITLE_RE("제목" 라벨)에 걸릴 일이 없지만, 아래 일반
+        // heading push와 마찬가지로 isTitle을 명시적으로 계산해둬서 undefined로
+        // 새지 않게 함(fixMissingTitleNumber의 b.isTitle 체크와 일관성 유지).
+        blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
         nextIsTable = false;
@@ -531,7 +581,10 @@ function splitIntoBlocks(text) {
         para.push(body);
         continue;
       }
-      blocks.push({ type: "heading", text: trimmed });
+      // isTitle은 여기(원본 trimmed 기준)서 한 번만 계산해 저장 — 아래
+      // fixMissingTitleNumber가 표시용 text에 "1. "을 덧붙여도 TITLE_RE 재검사에
+      // 걸리지 않게(제목 스타일/목차 제외가 계속 정확히 동작하게) 하기 위함.
+      blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
       lastHeadingListNum = extractListNum(trimmed);
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
@@ -552,6 +605,19 @@ function splitIntoBlocks(text) {
       nextIsTable = false;
       continue;
     }
+    // 2026-08-19: 각주를 누적하는 중(paraType === "footnote")에 나온 불릿 줄은 새
+    // 항목이 아니라 그 각주의 하위 설명으로 봄(실제 문서로 확인 — "1) 직장 내
+    // 괴롭힘 : 고용노동부 예방·대응 매뉴얼(2023.4)" 바로 다음 줄이 "- 행위요건 : ..."
+    // 로 그 각주를 부연하는데, 예전엔 불릿을 만나는 즉시 무조건 새 문단으로 끊어서
+    // paraType이 "footnote"에서 "bullet"로 바뀌어버림 — 그러면 바로 이어지는 각주
+    // 2)/3)/4)번이 effectivePrevType 조건("body"|"footnote")을 못 만족해서 각주로
+    // 인식이 안 되고 그 불릿 문단에 통째로 흡수돼 버렸음(한국부동산원 2024,
+    // 4df12939e14a66c3로 확인). 각주 문단 안에서는 흡수시켜서 paraType을
+    // "footnote"로 유지 — 뒤이은 각주 번호가 계속 정상 인식되게 함.
+    if (kind === "bullet" && paraType === "footnote") {
+      para.push(normalizeGlyphBullet(trimmed));
+      continue;
+    }
     if (kind === "bullet") {
       flushPara(); // 불릿은 새 항목 시작 — 앞 문단과 분리(표 캡션 뒤라도 여기서 끊음)
       paraType = "bullet";
@@ -567,6 +633,9 @@ function splitIntoBlocks(text) {
   }
   if (pendingGlyph) para.push(pendingGlyph); // 문서가 기호 단독 줄로 끝나는 경우
   flushPara();
+  // 제목 줄 번호("1. ") 보정 — isTitle 플래그를 이미 저장해뒀으므로 아래에서 text를
+  // 바꿔도 스타일/목차 판별에는 영향 없음(위 fixMissingTitleNumber 주석 참고).
+  fixMissingTitleNumber(blocks);
   // 위 분류 로직(각주/헤딩/표 판별 등)은 전부 원본 "[부서]" 문자열 기준으로 이미
   // 끝난 뒤이므로, 화면에 보여줄 텍스트에만 마지막에 치환을 적용함 — classifyLine
   // 등이 "[부서]"를 헤딩으로 오인하지 않게 설계된 기존 로직(6차 수정)과 안 얽히게 함.
@@ -612,7 +681,7 @@ function renderRawText(blocks, query) {
         </div>
       );
     }
-    const isTitle = TITLE_RE.test(b.text);
+    const isTitle = b.isTitle;
     const id = `heading-${headingIdx++}`;
     return (
       <div
@@ -635,7 +704,7 @@ function buildToc(blocks) {
   for (const b of blocks) {
     if (b.type !== "heading") continue;
     const id = `heading-${headingIdx++}`;
-    if (TITLE_RE.test(b.text)) continue;
+    if (b.isTitle) continue;
     items.push({ id, text: b.text });
   }
   return items;

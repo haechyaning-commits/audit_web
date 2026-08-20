@@ -28,6 +28,7 @@
 # !pip install -q pyhwp psycopg2-binary requests
 
 import os
+import random
 import re
 import subprocess
 import tempfile
@@ -42,8 +43,21 @@ import requests
 # 2026-08-18: 처음엔 서브프로세스 실행이 있어서 PDF 스크립트(16)보다 낮게(8) 잡았는데,
 # 실측해보니 hwp5txt 1건 처리에 ~0.29초라 딱히 낮출 이유가 없었음(서브프로세스는 GIL을
 # 안 잡고 있으니 동시성을 올려도 무방) — PDF 스크립트보다 오히려 살짝 높여서 24로 설정.
-DOWNLOAD_WORKERS = 24
+#
+# 2026-08-18 추가: 실제 3만건 규모로 돌려보니 25분에 2,000건(진행률로 보면 완주까지
+# 5시간 이상)으로 예상보다 훨씬 느렸음 — 워커 수 문제가 아니라 아래 requests.get()을
+# 매 요청마다 새로 호출해서 스레드마다 jsdelivr CDN과 TCP+TLS 핸드셰이크를 새로 맺고
+# 있었던 게 원인으로 추정(연결 재사용 안 됨). requests.Session + HTTPAdapter로 커넥션
+# 풀을 공유하도록 고치고, 워커도 48로 상향.
+DOWNLOAD_WORKERS = 48
 CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_checkpoint.jsonl"
+
+_session = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(
+    pool_connections=DOWNLOAD_WORKERS, pool_maxsize=DOWNLOAD_WORKERS, max_retries=2
+)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -86,7 +100,7 @@ def _check_one(doc_id, institution, year, source_file, raw_text):
     if not url:
         return {"id": doc_id, "error": "source_file 없음/URL 변환 실패"}
     try:
-        resp = requests.get(url, timeout=30)
+        resp = _session.get(url, timeout=30)
         resp.raise_for_status()
         with tempfile.NamedTemporaryFile(suffix=".hwp", delete=False) as f:
             f.write(resp.content)
@@ -131,7 +145,8 @@ with conn.cursor() as cur:
     )
     doc_rows = cur.fetchall()
 conn.close()
-print(f"대상 .hwp 문서: {len(doc_rows)}건")
+TOTAL_HWP_DOCS = len(doc_rows)  # 표본추출 전 실제 모집단 크기 — 최종 리포트에서 사용
+print(f"대상 .hwp 문서: {TOTAL_HWP_DOCS}건")
 
 done = {}
 if os.path.exists(CHECKPOINT_PATH):
@@ -141,6 +156,26 @@ if os.path.exists(CHECKPOINT_PATH):
             rec = json.loads(line)
             done[rec["id"]] = rec
     print(f"체크포인트에서 {len(done)}건 이미 처리된 것 발견 — 이어서 진행")
+
+# 2026-08-18: 3만건 전수조사가 예상보다 훨씬 느려서(25분에 2,000건, 완주까지 5시간+
+# 추정) — 이 조사의 목적 자체가 "영향받는 비율"을 파악해서 복구 스크립트를 만들
+# 가치가 있는지 판단하는 것이라, 전수조사 대신 무작위 표본으로 축소함(표본 3,000건이면
+# 모집단 3만 기준 비율 추정 오차범위 대략 ±2%p, 95% 신뢰수준 — 규모 판단용으로 충분).
+# 이미 체크포인트에 쌓인 문서는 버리지 않고 표본에 우선 포함시켜 재사용함. 정확한
+# 전수 집계가 필요해지면 RANDOM_SAMPLE_SIZE = None으로 바꿔서 다시 돌리면 됨.
+RANDOM_SAMPLE_SIZE = 3000
+
+if RANDOM_SAMPLE_SIZE and len(doc_rows) > RANDOM_SAMPLE_SIZE:
+    random.seed(42)  # 재현 가능하도록 고정
+    already = [r for r in doc_rows if r[0] in done]
+    remaining_pool = [r for r in doc_rows if r[0] not in done]
+    fill_n = max(0, RANDOM_SAMPLE_SIZE - len(already))
+    sampled_remaining = random.sample(remaining_pool, min(fill_n, len(remaining_pool)))
+    doc_rows = already + sampled_remaining
+    print(
+        f"무작위 표본 {len(doc_rows)}건으로 축소해서 조사(전수조사 아님 — 비율 추정용, "
+        f"이미 처리된 {len(already)}건은 표본에 포함해 재사용)"
+    )
 
 todo = [r for r in doc_rows if r[0] not in done]
 print(f"남은 {len(todo)}건을 {DOWNLOAD_WORKERS}개 동시 처리로 진행")
@@ -171,10 +206,16 @@ with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
 checkpoint_f.close()
 
 affected = [v for v in done.values() if v.get("affected")]
+sample_rate = len(affected) / len(doc_rows) * 100 if doc_rows else 0.0
 print(f"\n=== 결과 ===")
-print(f"전체 .hwp 문서: {len(doc_rows)}건")
-print(f"표 손실 영향받음(표 있었는데 DB엔 흔적 없음): {len(affected)}건 "
-      f"({len(affected)/len(doc_rows)*100:.1f}%)")
+if RANDOM_SAMPLE_SIZE and TOTAL_HWP_DOCS > RANDOM_SAMPLE_SIZE:
+    print(f"표본 문서: {len(doc_rows)}건 (전체 .hwp {TOTAL_HWP_DOCS}건 중 무작위 표본 — 전수조사 아님)")
+    print(f"표 손실 영향받음(표본 내): {len(affected)}건 ({sample_rate:.1f}%)")
+    print(f"=> 전체 {TOTAL_HWP_DOCS}건으로 환산 추정: 약 {round(TOTAL_HWP_DOCS * sample_rate / 100):,}건 "
+          f"(오차범위 대략 ±2%p, 95% 신뢰수준)")
+else:
+    print(f"전체 .hwp 문서: {len(doc_rows)}건")
+    print(f"표 손실 영향받음(표 있었는데 DB엔 흔적 없음): {len(affected)}건 ({sample_rate:.1f}%)")
 
 inst_counter = Counter(v.get("institution", "?") for v in affected)
 print("\n기관별 상위 10:")
