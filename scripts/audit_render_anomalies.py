@@ -111,6 +111,19 @@ def match_field_label(trimmed):
     return None
 
 
+# 2026-08-14 10차: "[통보] ○○팀장은..." "[관련자 의견] 관련자는..."처럼 대괄호
+# 라벨 뒤에 줄바꿈 없이 내용이 바로 이어지는 경우도 헤딩으로 인식시키려고 일부러
+# 줄 끝 고정($) 없이 만든 패턴 — HEADING_LABEL_PATTERNS 맨 끝에서 쓰고,
+# split_into_blocks의 split_bracket_label_heading에서 라벨/내용 분리에도 재사용
+# 하므로 그 두 곳보다 앞에 선언해둠(DetailPage.jsx와 동일 반영, 동작 변경 없음).
+BRACKET_LABEL_WITH_TRAILING_RE = re.compile(
+    r"^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|"
+    r"모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|"
+    r"현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|"
+    r"덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|"
+    r"관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]"
+)
+
 HEADING_LABEL_PATTERNS = [
     TITLE_RE,
     re.compile(r"^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)"),
@@ -122,13 +135,7 @@ HEADING_LABEL_PATTERNS = [
     re.compile(r"^<.+>$"),
     PAREN_LABEL_RE,
     re.compile(r"^\[[^\[\]]{1,20}\]$"),
-    re.compile(
-        r"^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|"
-        r"모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|"
-        r"현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|"
-        r"덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|"
-        r"관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]"
-    ),
+    BRACKET_LABEL_WITH_TRAILING_RE,
 ]
 
 BULLET_RE = re.compile(r"^(?:[-–—□○◦▪‣·❍※•*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)")
@@ -245,6 +252,22 @@ def split_law_citation_heading(trimmed):
         return None  # 조/항 인용 괄호가 없으면 라벨 아님
     label = before.rstrip()
     body = trimmed[quote_idx:]
+    if not label or not body:
+        return None
+    return (label, body)
+
+
+def split_bracket_label_heading(trimmed):
+    """BRACKET_LABEL_WITH_TRAILING_RE("[통보]"/"[관련자 의견]" 등)에 매칭되고
+    "]" 뒤에 실제 내용이 남아있으면 (라벨, 내용)으로 나눔(split_law_citation_heading과
+    같은 목적·같은 방식) — DetailPage.jsx의 splitBracketLabelHeading과 동일 반영.
+    라벨 하나로 줄이 끝나면(내용 없음) None(그 경우는 이미 위 "줄 전체가 라벨뿐"
+    패턴이 먼저 걸러서 실제로는 거의 안 옴)."""
+    m = BRACKET_LABEL_WITH_TRAILING_RE.match(trimmed)
+    if not m:
+        return None
+    label = m.group(0).strip()
+    body = trimmed[len(m.group(0)):].strip()
     if not label or not body:
         return None
     return (label, body)
@@ -410,6 +433,19 @@ def split_into_blocks(text: str) -> list[dict]:
                 blocks.append({"type": "heading", "text": label, "isTitle": bool(TITLE_RE.match(label))})
                 prev_type = "heading"
                 last_heading_list_num = extract_list_num(label)
+                next_is_table = False
+                para_type = "body"
+                para.append(body)
+                continue
+            # 2026-08-20: "[통보] ○○팀장은..." 류(BRACKET_LABEL_WITH_TRAILING_RE) 라벨도
+            # 위 법령인용 라벨과 똑같은 문제(줄 전체가 통째로 볼드돼 다음 줄과 뒤죽박죽)라
+            # 같은 방식으로 라벨/내용 분리(split_bracket_label_heading, DetailPage.jsx 동일).
+            bracket_split = split_bracket_label_heading(trimmed)
+            if bracket_split:
+                label, body = bracket_split
+                blocks.append({"type": "heading", "text": label, "isTitle": False})
+                prev_type = "heading"
+                last_heading_list_num = extract_list_num(label)  # 항상 None
                 next_is_table = False
                 para_type = "body"
                 para.append(body)
@@ -653,6 +689,34 @@ def run_synthetic_self_tests():
     check(
         "그 뒤 진짜 각주 15는 여전히 인식됨(수정 전엔 각주14가 heading으로 끊겨서 막혔음)",
         any(b["type"] == "footnote" and b["text"].startswith("15)") for b in blocks),
+    )
+
+    # 2026-08-20: "[관련자 의견] 관련자는..." 류 대괄호 라벨이 뒤에 오는 긴 문장까지
+    # 통째로 heading(볼드)이 되던 버그 수정 — 한국자산관리공사 2021(9ddc6393057cc532)
+    # 실제 발췌로 재현.
+    text = (
+        "[관련자 의견] 관련자는 감사 결과에 이견을 제기하지 않았고, 모범을\n"
+        "보여야 할 관리자의 위치에도 불구하고 감정에 치우친 행동을 하였다."
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "'[관련자 의견]' 라벨만 heading으로 분리됨(수정 전엔 첫 줄 전체가 heading)",
+        any(b["type"] == "heading" and b["text"] == "[관련자 의견]" for b in blocks),
+    )
+    check(
+        "라벨 뒤 문장은 다음 줄과 하나의 body 문단으로 합쳐짐(수정 전엔 뒤죽박죽)",
+        any(
+            b["type"] == "body"
+            and "관련자는 감사 결과에" in b["text"]
+            and "보여야 할 관리자의 위치" in b["text"]
+            for b in blocks
+        ),
+    )
+    # 회귀 없음: 줄 전체가 라벨뿐(내용 없음)이면 여전히 그 라벨만 heading으로 남음
+    blocks = split_into_blocks("[통보]")
+    check(
+        "내용 없는 '[통보]' 단독 줄은 여전히 그대로 heading(회귀 없음)",
+        any(b["type"] == "heading" and b["text"] == "[통보]" for b in blocks),
     )
 
     if failures:

@@ -112,6 +112,14 @@ function matchFieldLabel(trimmed) {
   return null;
 }
 
+// 2026-08-14 10차: "[통보] ○○팀장은..." "[관련자 의견] 관련자는..."처럼 대괄호
+// 라벨 뒤에 줄바꿈 없이 내용이 바로 이어지는 경우도 헤딩으로 인식시키려고 일부러
+// 줄 끝 고정($) 없이 만든 패턴 — HEADING_LABEL_PATTERNS 맨 끝에서 쓰고,
+// splitIntoBlocks의 splitBracketLabelHeading(아래 splitLawCitationHeading 옆)에서
+// 라벨/내용 분리에도 재사용하므로 그 두 곳보다 앞에 선언해둠(동작 변경 없음).
+const BRACKET_LABEL_WITH_TRAILING_RE =
+  /^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]/;
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
@@ -167,7 +175,10 @@ const HEADING_LABEL_PATTERNS = [
   // 괄호가 또 있는 복합 변형은 이번엔 제외(건수 적고 별도 검증 필요, 다음에 볼 것).
   // 겹치는 라벨(예: 개선요구/개선, 관련자의견/관련자)은 더 긴 쪽을 먼저 둬서 짧은 쪽이
   // 먼저 매칭돼 뒤에 남은 글자 때문에 전체 매칭이 실패하는 일이 없게 순서 조정.
-  /^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]/,
+  // 2026-08-20: 정규식 리터럴은 이 배열 안에 직접 뒀었는데, splitIntoBlocks에서
+  // 라벨/내용 분리(splitBracketLabelHeading)에도 같은 패턴이 필요해져서 상수로
+  // 분리(BRACKET_LABEL_WITH_TRAILING_RE, splitLawCitationHeading 옆) — 동작 변경 없음.
+  BRACKET_LABEL_WITH_TRAILING_RE,
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
@@ -360,6 +371,26 @@ function splitLawCitationHeading(trimmed) {
   if (!/[)）]/.test(afterLeadingNum)) return null; // 조/항 인용 괄호가 없으면 라벨 아님
   const label = before.replace(/\s+$/, "");
   const body = trimmed.slice(quoteIdx);
+  if (!label || !body) return null;
+  return [label, body];
+}
+
+// 2026-08-20: splitIntoBlocks가 BRACKET_LABEL_WITH_TRAILING_RE(위, HEADING_LABEL_PATTERNS
+// 앞에 선언)에 매칭되는 줄 "전체"(라벨+내용)를 통째로 heading(볼드)으로 만들어버려서,
+// 내용이 한 문장으로 다음 줄까지 이어지면 첫 줄만 볼드, 이어지는 줄(다음 줄)은 안
+// 볼드인 채로 뒤섞여 보이는 문제를 실제 스크린샷(한국자산관리공사 2021,
+// 9ddc6393057cc532 — "[관련자 의견] 관련자는 감사 결과에 이견을 제기하지 않았고,
+// 모범을 / 보여야 할 관리자의 위치에도...")으로 확인함(사용자 제보 — "1.은 작은
+// 글씨인데 2.는 볼드체" 류와 같은 계열의 "글씨 크기 뒤죽박죽" 문제).
+/** 위 라벨 패턴에 매칭되고 "]" 뒤에 실제 내용이 남아있으면 [라벨, 내용]으로 나눔
+ * (splitLawCitationHeading과 같은 목적·같은 방식) — 라벨 하나로 줄이 끝나면(내용
+ * 없음) null 반환(그 경우는 이미 위 "줄 전체가 라벨뿐" 패턴이 먼저 걸러서 실제로는
+ * 거의 안 옴). */
+function splitBracketLabelHeading(trimmed) {
+  const m = BRACKET_LABEL_WITH_TRAILING_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[0].trim();
+  const body = trimmed.slice(m[0].length).trim();
   if (!label || !body) return null;
   return [label, body];
 }
@@ -644,6 +675,20 @@ function splitIntoBlocks(text) {
         blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
+      // 2026-08-20: "[통보] ○○팀장은..." 류(BRACKET_LABEL_WITH_TRAILING_RE) 라벨도
+      // 위 법령인용 라벨과 똑같은 문제(줄 전체가 통째로 볼드돼 다음 줄과 뒤죽박죽)라
+      // 같은 방식으로 라벨/내용 분리(splitBracketLabelHeading 주석 참고).
+      const bracketSplit = splitBracketLabelHeading(trimmed);
+      if (bracketSplit) {
+        const [label, body] = bracketSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label); // 항상 null(라벨이 "N)"로 안 시작함)
         nextIsTable = false;
         paraType = "body";
         para.push(body);
