@@ -172,7 +172,15 @@ FOOTNOTE_REF_RE = re.compile(r"[^\s\d](\d{1,2})\)")
 # 한글 글자로 좁히면 위 날짜/괄호열거/마스킹 오탐이 전부 사라짐(5건 실제 확인).
 FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
-LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s+\S")
+# 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 각주 오판별
+# 방지(continuesHeadingList)에 쓰이면서 실제 문서(한국조폐공사 2016,
+# f35fdc468543c358 / 한국자산관리공사 2021, 9ddc6393057cc532)로 확인된 버그가
+# 있었음 — "1. 업무개요 / 2. 관계규정..." 같은 마침표 최상위 섹션 번호(거의
+# 모든 감사보고서에 있는 흔한 구조)까지 이 카운터를 오염시켜서, 뒤에 나오는
+# 진짜 각주("1)"/"2)")가 "목록 연속"으로 오판별돼 인식이 안 되던 문제. 실제
+# "N) 법령 「...」..." 인용 목록은 지금까지 확인된 사례 전부 괄호만 썼음 —
+# 괄호만 받게 좁힘(DetailPage.jsx와 동일하게 반영).
+LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})\)\s+\S")
 
 
 def extract_list_num(text):
@@ -181,6 +189,9 @@ def extract_list_num(text):
 
 
 QUOTE_CHAR_RE = re.compile(r"""[‘’“”'"]""")
+
+
+LEADING_NUM_PREFIX_RE = re.compile(r"^\d{1,2}\)\s*")
 
 
 def split_law_citation_heading(trimmed):
@@ -193,8 +204,15 @@ def split_law_citation_heading(trimmed):
         return None
     quote_idx = m.start()
     before = trimmed[:quote_idx]
-    if not re.search(r"[)）]", before):
-        return None  # 조/항 인용 괄호가 하나도 없으면 라벨 아님
+    # 2026-08-20: "7) 2021. 1. 30. 모바일 익명 커뮤니티 앱인 '블라인드'의..."처럼
+    # 각주 정의 줄 자체가 우연히 비공식 인용부호(속어/앱 이름 등)를 포함하면,
+    # 번호 접두어 자체의 괄호("7)"의 ")")까지 "조/항 인용 괄호"로 오인해서 각주가
+    # 헤딩으로 잘못 쪼개지는 버그를 실제 문서(9ddc6393057cc532)로 확인함 —
+    # 번호 접두어는 제외하고 그 "뒤"에 별도의 조/항 인용 괄호가 있는지만 봄.
+    leading_num = LEADING_NUM_PREFIX_RE.match(before)
+    after_leading_num = before[leading_num.end():] if leading_num else before
+    if not re.search(r"[)）]", after_leading_num):
+        return None  # 조/항 인용 괄호가 없으면 라벨 아님
     label = before.rstrip()
     body = trimmed[quote_idx:]
     if not label or not body:
@@ -452,6 +470,39 @@ def run_synthetic_self_tests():
     check("괄호 열거번호((10))는 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("주의\n(10) ㅇ 그런데 2021"))
     check("익명화 마스킹(+0+0+0))은 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("압류재산(+0+0+0+0-+0+0+0)의 경우"))
     check("한글 뒤 진짜 각주 참조('금액18)')는 여전히 잡힘", bool(FOOTNOTE_REF_STRICT_RE.search("지적된 금액18)은 환수")))
+
+    # 2026-08-20: 헤딩/각주 번호 충돌 버그 수정(LIST_HEADING_NUM_RE 괄호 전용화 +
+    # split_law_citation_heading 번호 접두어 괄호 제외) — 실제 문서로 재현한 케이스들.
+    check(
+        "마침표 섹션번호('5. ...')는 이제 목록 연속 판정에 안 걸림",
+        extract_list_num("5. 공사의 여러 규정, 서약사항 및 지시명령을 위반하여") is None,
+    )
+    check("괄호 목록번호('1) ...')는 여전히 걸림", extract_list_num("1) 법령 「...」") == 1)
+    check(
+        "각주 정의 줄 자체의 괄호('7)')는 법령인용 괄호로 오인 안 됨",
+        split_law_citation_heading(
+            "7) 2021. 1. 30. 모바일 익명 커뮤니티 앱인 '블라인드'의 공사 전용 게시판에"
+        )
+        is None,
+    )
+    check(
+        "진짜 법령인용(번호 뒤 별도 조/항 괄호)은 여전히 분리됨",
+        split_law_citation_heading(
+            "1) 법령 「공직자윤리법」 제3조의2 제2항(공기업) '공직유관단체인 우리 공사는 ...'"
+        )
+        is not None,
+    )
+    # 한국조폐공사 2016(f35fdc468543c358) 실제 발췌 — "회계정책1)"/"적용2)" 각주
+    # 정의가 둘 다 인식되는지(수정 전엔 헤딩/각주 번호 충돌로 실패했음).
+    text = (
+        "기업회계기준에 따르면 최초 채택한 회계정책1)은 합당한 사유가 없는 한 동일한\n"
+        "방식으로 일관성 있게 적용2)하여야 하므로, 유형자산 또한\n\n"
+        "1) 기업회계기준서 제1008호 「회계정책, 회계추정의 변경 및 오류」 문단 5에 따름\n"
+        "2) 일관성 있게 적용하여야 함을 의미함"
+    )
+    blocks = split_into_blocks(text)
+    n_footnote = sum(1 for b in blocks if b["type"] == "footnote")
+    check("한국조폐공사 스타일: 각주 1),2) 둘 다 인식됨", n_footnote == 2)
 
     if failures:
         raise SystemExit(
