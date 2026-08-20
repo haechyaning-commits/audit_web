@@ -155,7 +155,22 @@ def is_watermark_noise(trimmed):
     return "_" in trimmed and bool(WATERMARK_NOISE_RE.match(trimmed))
 
 
+# 2026-08-20: 이 정규식(DetailPage.jsx 원본 그대로) 자체가 오탐이 많다는 걸 실제
+# 전수 스캔에서 발견함 — "공백/숫자가 아닌 아무 문자"가 너무 느슨해서 날짜 표기
+# ('24.06.24)"의 "."), 괄호 열거번호("(10) 그런데..."의 "("), 익명화 마스킹
+# ("+0+0+0)"의 "+") 뒤에 오는 숫자+")"까지 전부 "각주 참조"로 잡아버림(실제
+# 감사보고서 5건을 직접 원문으로 확인, 전부 각주가 아예 없는 정상 문서였음).
+# **split_into_blocks() 안의 footnote_nums 계산은 DetailPage.jsx를 그대로 미러링
+# 해야 하므로 이 느슨한 버전을 그대로 둠** — 대신 아래 전수 스캔의 "각주 참조는
+# 있는데 블록 0건" 신호(신호 ②)를 만들 때만 FOOTNOTE_REF_STRICT_RE를 따로 씀
+# (신호 정확도만 개선, DetailPage.jsx가 실제로 쓰는 판별 로직 자체는 안 건드림 —
+# 오늘은 프로덕션 수정 없이 스캔만 진행하기로 한 결정 유지, STATUS.md 참고).
 FOOTNOTE_REF_RE = re.compile(r"[^\s\d](\d{1,2})\)")
+
+# "각주 참조는 있는데 블록 0건" 신호(②) 전용 — 실제 각주 참조는 항상 한글 글자
+# 바로 뒤에 붙음(원 주석 예시: "87,818,181원1)", "위임2)" — "원"/"임" 모두 한글).
+# 한글 글자로 좁히면 위 날짜/괄호열거/마스킹 오탐이 전부 사라짐(5건 실제 확인).
+FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
 LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s+\S")
 
@@ -431,6 +446,13 @@ def run_synthetic_self_tests():
     blocks = split_into_blocks(text)
     check("장식 글리프(◤) 단독 줄은 body에 안 섞임", not any("◤" in block_render_text(b) for b in blocks if b["type"] == "body"))
 
+    # FOOTNOTE_REF_STRICT_RE — 2026-08-20 전수 스캔에서 발견한 신호②(각주 0건)
+    # 오탐 5종이 이 정규식으로는 각주 참조로 안 잡히는지(진짜 각주 참조는 여전히 잡는지).
+    check("날짜 표기('24.06.24)는 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("계약체결 기한('24.06.10)을 안내"))
+    check("괄호 열거번호((10))는 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("주의\n(10) ㅇ 그런데 2021"))
+    check("익명화 마스킹(+0+0+0))은 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("압류재산(+0+0+0+0-+0+0+0)의 경우"))
+    check("한글 뒤 진짜 각주 참조('금액18)')는 여전히 잡힘", bool(FOOTNOTE_REF_STRICT_RE.search("지적된 금액18)은 환수")))
+
     if failures:
         raise SystemExit(
             f"\n합성 자가 검증 실패({len(failures)}건): {failures}\n"
@@ -537,7 +559,7 @@ for i, (doc_id, institution, year, raw_text) in enumerate(rows):
     if long_table:
         reasons.append(f"긴 표잔여 {len(long_table)}건(최대 {max(len(b['text']) for b in long_table)}자)")
 
-    footnote_nums_in_text = set(m.group(1) for m in FOOTNOTE_REF_RE.finditer(raw_text))
+    footnote_nums_in_text = set(m.group(1) for m in FOOTNOTE_REF_STRICT_RE.finditer(raw_text))
     n_footnote_blocks = sum(1 for b in blocks if b["type"] == "footnote")
     if footnote_nums_in_text and n_footnote_blocks == 0:
         reasons.append(f"각주 참조({len(footnote_nums_in_text)}개) 있는데 각주 블록 0건")
