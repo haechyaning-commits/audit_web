@@ -2,6 +2,48 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-20 — 각주 헤딩 오분류 버그 부분 수정(불릿/표 흡수) — DB로 실증 완료
+
+바로 아래 "각주 헤딩 오분류 연쇄 버그" 항목의 근본 원인을 실제로 고침. 처음엔
+"헤딩 번호와 각주 번호 충돌(continuesHeadingList)"이 원인이라고 가설을
+세웠는데(LIST_HEADING_NUM_RE를 괄호 전용으로 좁힘 + splitLawCitationHeading이
+번호 접두어 자신의 괄호를 오인하지 않게 수정), **실제 DB로 검증하니 9ddc639의
+footnote 개수가 12에서 전혀 안 바뀜** — 가설이 부분적으로 틀렸던 것으로 판명.
+
+**실제 원인 재규명(Colab에서 `_DEBUG_NUMS` 임시 계측으로 매 줄 effectivePrevType
+값을 직접 출력해서 확인, 가설 아님)**:
+1. `"* 당시 관련자는..."`처럼 `*`로 시작하는 줄이 불릿 문단을 열면, 그 뒤
+   이어지는 평문들이 계속 같은 "bullet" 문단으로 흡수되다가 진짜 각주 정의
+   줄(6, 7)까지 삼켜버림 — `effectivePrevType==="bullet"`라서 각주 판별 조건
+   자체를 못 탐.
+2. `"[표 1] ..."` 캡션 뒤 표 데이터를 흡수하는 중에 각주 정의 줄(9)이 나오면
+   마찬가지로 `effectivePrevType==="table"`이라 실패.
+3. 6·9가 실패하며 classifyLine의 "80자 이하+문장종결없음" 휴리스틱에 걸려
+   잘못 heading으로 승격됨 → `lastHeadingListNum`이 오염돼 8·10이 연쇄로 실패.
+
+**수정**: 각주 판별 조건의 `effectivePrevType` 허용 목록을 `("body","footnote")`
+에서 `("body","footnote","bullet","table")`로 확장 — `SOURCE_NOTE_RE`("자료:"/
+"출처:")가 표 블록을 강제로 끝내는 경계로 이미 쓰이는 것과 같은 이유로, 진짜
+각주 정의 줄(번호가 footnoteNums에 있음)도 불릿/표 문단을 끝내는 경계로 인정함.
+`DetailPage.jsx`와 `audit_render_anomalies.py` 양쪽 동일 반영.
+
+**검증**: 실제 원문(사용자가 Colab 디버그 추적으로 확인해준 L61~L109 그대로)으로
+Node 통합 테스트 + 최소 격리 단위 테스트(표/불릿 각각) + 회귀 테스트(일반 표/
+불릿은 여전히 정상 흡수) 전부 통과 → **실제 DB로 최종 확인: 9ddc639 footnote
+12건 → 17건**(예측했던 6/7/8/9/10 다섯 건이 정확히 늘어남). `npm run build`/
+`npm run lint` 통과, Python 포팅 Node/Python 13개 케이스 완전 일치.
+
+**남은 것 — 각주 15/16은 여전히 미해결**: 원인은 이미 특정됨 — 짧은 숫자
+헤딩(예: "15) 과잉금지의 원칙...")이 24자 이하라 그 자체로 heading이 되고,
+그 바로 다음 줄(각주 16)이 `effectivePrevType==="heading"`(직전 heading push
+때 para가 비어서)이라 막힘. `continuesHeadingList`와는 무관한, "헤딩 바로
+다음에 진짜 각주가 연달아 나오는" 케이스 — 오늘은 여기서 멈춤(사용자 판단:
+효과 대비 복잡도가 더 큰 케이스, 다음 세션에서 이어서 진단).
+
+**교훈**: 실제 검증 없이 "이거일 것 같다"는 가설로 self-test 기대값이나
+"원인 특정 완료"를 단정하지 말 것 — 이번에 두 번이나(9ddc639, f35fdc468543c358)
+가설이 실제와 달랐음. 반드시 Colab에서 직접 debug print로 확인 후 결론 낼 것.
+
 ## 📋 2026-08-20 — audit_render_anomalies.py 첫 전수 실행 완료 + 원인 3갈래 확인
 
 `scripts/audit_render_anomalies.py`(PR #29/#30/#31로 최신 `DetailPage.jsx`에
