@@ -120,6 +120,17 @@ function matchFieldLabel(trimmed) {
 const BRACKET_LABEL_WITH_TRAILING_RE =
   /^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]/;
 
+// 2026-08-20: "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n2. 당시...개별면담 내용(...)"
+// 처럼 문서 끝 첨부목록을 여는 "붙임"이 인식되는 라벨이 아니라서 앞 문장(예: "...
+// (주의)")에 그대로 병합되고, 그 안 "2. ..." 항목은 우연히 번호 헤딩 휴리스틱에
+// 걸려 혼자만 볼드로 튀어 보이는 문제를 실제 스크린샷(9ddc6393057cc532)으로 확인함
+// (사용자 제보 — "1.은 작은 글씨인데 2.는 볼드체"). "붙임"을 문단 경계 라벨로
+// 인정해서 앞 문장과는 분리하고, 그 뒤 이어지는 번호 항목들은 splitIntoBlocks의
+// inAttachmentList 플래그로 heading 승격을 막아 하나의 이어지는 문단으로 흡수함.
+// HEADING_LABEL_PATTERNS(아래)와 splitIntoBlocks의 splitAttachmentLabel 둘 다에서
+// 써서 그 두 곳보다 앞에 선언해둠(BRACKET_LABEL_WITH_TRAILING_RE와 같은 이유).
+const ATTACHMENT_LABEL_RE = new RegExp(`^(붙\\s*임)\\s*${LABEL_SEP}`);
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
@@ -179,6 +190,7 @@ const HEADING_LABEL_PATTERNS = [
   // 라벨/내용 분리(splitBracketLabelHeading)에도 같은 패턴이 필요해져서 상수로
   // 분리(BRACKET_LABEL_WITH_TRAILING_RE, splitLawCitationHeading 옆) — 동작 변경 없음.
   BRACKET_LABEL_WITH_TRAILING_RE,
+  ATTACHMENT_LABEL_RE, // "붙임 : ..." — ATTACHMENT_LABEL_RE 주석 참고
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
@@ -395,6 +407,17 @@ function splitBracketLabelHeading(trimmed) {
   return [label, body];
 }
 
+/** ATTACHMENT_LABEL_RE에 매칭되면 [라벨, 나머지내용]으로 나눔(내용이 없으면 body를
+ * 빈 문자열로 반환 — "붙임" 혼자 나오고 다음 줄부터 목록이 시작하는 문서도 있을 수
+ * 있어서 splitLawCitationHeading/splitBracketLabelHeading과 달리 null을 반환 안 함). */
+function splitAttachmentLabel(trimmed) {
+  const m = ATTACHMENT_LABEL_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[1];
+  const body = trimmed.slice(m[0].length).trim();
+  return [label, body];
+}
+
 // 2026-08-19: 상위 개요 항목이 "1. 제목 / 2. 관계기관 / 3. ..."처럼 번호로 나열되는
 // 문서인데, 제목 줄 맨 앞의 "1. "만 DB 적재 시점부터 유실된 경우가 실제로 있음(Colab
 // 규모조사 — scripts/audit_title_number_and_wordbreak.py, 67,751건 전수 스캔 결과
@@ -539,8 +562,14 @@ function splitIntoBlocks(text) {
   // 줄을 바로 blocks에 넣지 않고 보류해뒀다가, 바로 다음 줄과 합쳐서 하나의 줄처럼
   // 분류함("□ 점검 개요"로 합쳐지면 이후 로직 변경 없이도 자연스럽게 처리됨).
   let pendingGlyph = null;
+  // 2026-08-20: "붙임" 라벨 바로 뒤 첨부목록 문단을 누적하는 중인지 — splitAttachmentLabel
+  // 주석 참고. 이 문단이 계속 이어지는 동안(flushPara로 안 끊기는 동안)만 true로 유지되고,
+  // 어떤 이유로든 문단이 끊기면(빈 줄/다른 헤딩·불릿·필드·캡션 등) flushPara()에서
+  // 자동으로 false가 되므로 "같은 문단이 이어지는 동안만" 정확히 유지됨.
+  let inAttachmentList = false;
 
   function flushPara() {
+    inAttachmentList = false;
     if (para.length === 0) return;
     // 2026-08-18: 표/그림 조각 블록("table" 타입)은 다른 문단(body/bullet 등)과 달리
     // PDF 줄바꿈이 "문장이 길어서 끊긴 자리"가 아니라 "표의 서로 다른 셀/행"일 가능성이
@@ -661,6 +690,19 @@ function splitIntoBlocks(text) {
       para.push(trimmed);
       continue;
     }
+    // 2026-08-20: "붙임" 첨부목록 문단을 누적하는 중(inAttachmentList)에 나온 번호
+    // 헤딩 휴리스틱 매칭 줄("2. 당시...")은 새 목록 항목(원래 첨부 캡션 나열이지 새
+    // 섹션 헤딩이 아님)일 뿐인데 heading으로 잘못 승격되던 문제 — splitAttachmentLabel
+    // 주석 참고. 위 각주 흡수와 같은 패턴으로 heading 승격을 막고 그대로 흡수시킴.
+    if (
+      kind === "heading" &&
+      inAttachmentList &&
+      isGenericListHeading(trimmed) &&
+      !splitLawCitationHeading(trimmed)
+    ) {
+      para.push(trimmed);
+      continue;
+    }
     if (kind === "heading") {
       flushPara();
       // 2026-08-18: "1) 법령 「...」 제N조(...) '인용문..." 처럼 번호 라벨 뒤에 줄바꿈
@@ -692,6 +734,20 @@ function splitIntoBlocks(text) {
         nextIsTable = false;
         paraType = "body";
         para.push(body);
+        continue;
+      }
+      // 2026-08-20: "붙임 : 1. ..." 라벨도 같은 이유로 라벨/내용 분리(splitAttachmentLabel
+      // 주석 참고) — 뒤이은 번호 항목들은 위 inAttachmentList 흡수 분기가 계속 처리.
+      const attachmentSplit = splitAttachmentLabel(trimmed);
+      if (attachmentSplit) {
+        const [label, body] = attachmentSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = null;
+        nextIsTable = false;
+        paraType = "body";
+        if (body) para.push(body);
+        inAttachmentList = true;
         continue;
       }
       // isTitle은 여기(원본 trimmed 기준)서 한 번만 계산해 저장 — 아래

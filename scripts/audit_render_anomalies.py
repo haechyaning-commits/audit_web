@@ -124,6 +124,14 @@ BRACKET_LABEL_WITH_TRAILING_RE = re.compile(
     r"관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]"
 )
 
+# 2026-08-20: "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n2. 당시...개별면담 내용(...)"
+# 처럼 문서 끝 첨부목록을 여는 "붙임"이 인식되는 라벨이 아니라서 앞 문장에 그대로
+# 병합되고, 그 안 "2. ..." 항목은 번호 헤딩 휴리스틱에 걸려 혼자만 heading으로
+# 튀는 문제(9ddc6393057cc532 실제 발췌) — HEADING_LABEL_PATTERNS와
+# split_into_blocks의 split_attachment_label 둘 다에서 써서 그 두 곳보다 앞에
+# 선언(DetailPage.jsx와 동일 반영).
+ATTACHMENT_LABEL_RE = re.compile(rf"^(붙\s*임)\s*{LABEL_SEP}")
+
 HEADING_LABEL_PATTERNS = [
     TITLE_RE,
     re.compile(r"^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)"),
@@ -136,6 +144,7 @@ HEADING_LABEL_PATTERNS = [
     PAREN_LABEL_RE,
     re.compile(r"^\[[^\[\]]{1,20}\]$"),
     BRACKET_LABEL_WITH_TRAILING_RE,
+    ATTACHMENT_LABEL_RE,
 ]
 
 BULLET_RE = re.compile(r"^(?:[-–—□○◦▪‣·❍※•*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)")
@@ -273,6 +282,19 @@ def split_bracket_label_heading(trimmed):
     return (label, body)
 
 
+def split_attachment_label(trimmed):
+    """ATTACHMENT_LABEL_RE에 매칭되면 (라벨, 나머지내용)으로 나눔(내용이 없으면
+    빈 문자열 — "붙임" 혼자 나오고 다음 줄부터 목록이 시작하는 문서도 있을 수
+    있어서 위 두 split_*_heading과 달리 None을 반환 안 함). DetailPage.jsx의
+    splitAttachmentLabel과 동일 반영."""
+    m = ATTACHMENT_LABEL_RE.match(trimmed)
+    if not m:
+        return None
+    label = m.group(1)
+    body = trimmed[len(m.group(0)):].strip()
+    return (label, body)
+
+
 TITLE_BLOCK_LEADING_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s")
 
 
@@ -358,9 +380,14 @@ def split_into_blocks(text: str) -> list[dict]:
     prev_type = None
     last_heading_list_num = None
     pending_glyph = None
+    # 2026-08-20: "붙임" 라벨 바로 뒤 첨부목록 문단을 누적하는 중인지 — split_attachment_label
+    # 주석 참고. DetailPage.jsx의 inAttachmentList와 동일 반영 — flush_para()에서 매번
+    # False로 리셋되므로 "같은 문단이 이어지는 동안만" true로 유지됨.
+    in_attachment_list = False
 
     def flush_para():
-        nonlocal para, para_type, prev_type
+        nonlocal para, para_type, prev_type, in_attachment_list
+        in_attachment_list = False
         if not para:
             return
         text_out = "\n".join(para) if para_type == "table" else " ".join(para)
@@ -425,6 +452,19 @@ def split_into_blocks(text: str) -> list[dict]:
         ):
             para.append(trimmed)
             continue
+        # 2026-08-20: "붙임" 첨부목록 문단을 누적하는 중(in_attachment_list)에 나온
+        # 번호 헤딩 휴리스틱 매칭 줄("2. 당시...")은 새 목록 항목(원래 첨부 캡션
+        # 나열이지 새 섹션 헤딩이 아님)일 뿐인데 heading으로 잘못 승격되던 문제 —
+        # split_attachment_label 주석 참고. 위 각주 흡수와 같은 패턴으로 heading
+        # 승격을 막고 그대로 흡수시킴.
+        if (
+            kind == "heading"
+            and in_attachment_list
+            and is_generic_list_heading(trimmed)
+            and not split_law_citation_heading(trimmed)
+        ):
+            para.append(trimmed)
+            continue
         if kind == "heading":
             flush_para()
             citation_split = split_law_citation_heading(trimmed)
@@ -449,6 +489,21 @@ def split_into_blocks(text: str) -> list[dict]:
                 next_is_table = False
                 para_type = "body"
                 para.append(body)
+                continue
+            # 2026-08-20: "붙임 : 1. ..." 라벨도 같은 이유로 라벨/내용 분리
+            # (split_attachment_label 주석 참고) — 뒤이은 번호 항목들은 위
+            # in_attachment_list 흡수 분기가 계속 처리.
+            attachment_split = split_attachment_label(trimmed)
+            if attachment_split:
+                label, body = attachment_split
+                blocks.append({"type": "heading", "text": label, "isTitle": False})
+                prev_type = "heading"
+                last_heading_list_num = None
+                next_is_table = False
+                para_type = "body"
+                if body:
+                    para.append(body)
+                in_attachment_list = True
                 continue
             blocks.append({"type": "heading", "text": trimmed, "isTitle": bool(TITLE_RE.match(trimmed))})
             prev_type = "heading"
@@ -717,6 +772,42 @@ def run_synthetic_self_tests():
     check(
         "내용 없는 '[통보]' 단독 줄은 여전히 그대로 heading(회귀 없음)",
         any(b["type"] == "heading" and b["text"] == "[통보]" for b in blocks),
+    )
+
+    # 2026-08-20: "붙임" 첨부목록 라벨 뒤 "1./2." 번호 항목이 뒤죽박죽 볼드되던 버그
+    # 수정 — 한국자산관리공사 2021(9ddc6393057cc532) 실제 발췌로 재현.
+    text = (
+        "엄중 주의 촉구하시기 바랍니다. (주의)\n"
+        "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n"
+        "2. 당시 직원(XX명) 개별면담 내용(2021. 3. 10.~16.)"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "'붙임'이 앞 문장과 분리돼 별도 heading 라벨이 됨(수정 전엔 앞 문장에 병합)",
+        any(b["type"] == "heading" and b["text"] == "붙임" for b in blocks),
+    )
+    check(
+        "'(주의)' 문장은 '붙임' 이하와 분리된 별도 body 문단(수정 전엔 붙임까지 한 문단)",
+        any(b["type"] == "body" and b["text"].endswith("(주의)") for b in blocks),
+    )
+    check(
+        "'1./2.' 첨부 항목은 하나의 body 문단으로 합쳐지고 heading으로 안 승격됨"
+        "(수정 전엔 '2.'만 heading으로 튐)",
+        any(
+            b["type"] == "body"
+            and "1. 관련자 문답서" in b["text"]
+            and "2. 당시 직원" in b["text"]
+            for b in blocks
+        )
+        and not any(b["type"] == "heading" and b["text"].startswith("2.") for b in blocks),
+    )
+    # 회귀 없음: 빈 줄로 문단이 끊기면 그 뒤엔 in_attachment_list 흡수가 더 이상
+    # 적용되지 않고(일반 번호 헤딩 휴리스틱이 정상 동작) 다음 섹션이 정상 인식됨
+    text = "붙임 : 1. 결과보고서\n\n2. 새로운 섹션"
+    blocks = split_into_blocks(text)
+    check(
+        "빈 줄 뒤엔 attachment 흡수가 안 걸리고 새 heading이 정상 인식됨(회귀 없음)",
+        any(b["type"] == "heading" and b["text"] == "2. 새로운 섹션" for b in blocks),
     )
 
     if failures:
