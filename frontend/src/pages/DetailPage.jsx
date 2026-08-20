@@ -548,10 +548,22 @@ function splitIntoBlocks(text) {
     const continuesHeadingList =
       lastHeadingListNum !== null &&
       Number(footnoteMatch?.[1]) === lastHeadingListNum + 1;
+    // 2026-08-20: 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 디버그
+    // 추적해서 확인함 — "* 당시 관련자는..." 같은 "*" 불릿이 각주 정의 줄보다
+    // 먼저 나와서 그 뒤 평문들을 계속 "bullet" 문단으로 흡수하다가 진짜 각주
+    // 정의 줄까지 삼켜버리는 경우(effectivePrevType==="bullet"), 그리고 "[표 1]"
+    // 캡션 뒤 표 데이터를 흡수하는 중에 각주 정의 줄이 나오는 경우
+    // (effectivePrevType==="table")에는 각주 판별 조건에서 막혀서 각주가 아예
+    // 인식이 안 되고 있었음. SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로
+    // 끝내는 경계로 이미 쓰이는 것과 같은 이유로, 진짜 각주 정의 줄(번호가
+    // footnoteNums에 있음)도 불릿/표 문단을 끝내는 경계로 인정함.
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
-      (effectivePrevType === "body" || effectivePrevType === "footnote") &&
+      (effectivePrevType === "body" ||
+        effectivePrevType === "footnote" ||
+        effectivePrevType === "bullet" ||
+        effectivePrevType === "table") &&
       !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에

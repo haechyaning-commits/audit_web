@@ -274,9 +274,15 @@ def classify_line(line: str) -> str:
     return "body"
 
 
-# 2026-08-20 임시 디버그용 — 특정 각주 번호의 판정 과정을 추적하고 싶을 때
-# 코드에서 `_DEBUG_NUMS = {"6","7","8"}`처럼 채워서 씀. 기본은 비활성(빈 set).
-_DEBUG_NUMS: set[str] = set()
+# 2026-08-20: 각주 판별 조건에서 허용하는 "직전 문단 타입" — 실제 문서(한국자산관리공사
+# 2021, 9ddc6393057cc532)를 디버그 추적해서 확인함. "*" 불릿이 먼저 나와서 그 뒤
+# 평문들을 "bullet" 문단으로 계속 흡수하다가 진짜 각주 정의 줄까지 삼키는 경우, 그리고
+# "[표 N]" 캡션 뒤 표 데이터를 흡수하는 중에 각주 정의 줄이 나오는 경우 둘 다 원래
+# ("body", "footnote")만 허용하던 조건에 안 걸려서 각주 인식이 통째로 실패하고 있었음.
+# SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로 끝내는 경계로 이미 쓰이는 것과
+# 같은 이유로, 진짜 각주 정의 줄(번호가 footnoteNums에 있음)도 불릿/표 문단을 끝내는
+# 경계로 인정함(DetailPage.jsx와 동일하게 반영).
+FOOTNOTE_ALLOWED_PREV_TYPES = frozenset({"body", "footnote", "bullet", "table"})
 
 
 def split_into_blocks(text: str) -> list[dict]:
@@ -324,24 +330,10 @@ def split_into_blocks(text: str) -> list[dict]:
             and footnote_match is not None
             and int(footnote_match.group(1)) == last_heading_list_num + 1
         )
-        if _DEBUG_NUMS and footnote_match and footnote_match.group(1) in _DEBUG_NUMS:
-            ok = (
-                footnote_match.group(1) in footnote_nums
-                and effective_prev_type in ("body", "footnote")
-                and not continues_heading_list
-            )
-            print(
-                f"[DEBUG] num={footnote_match.group(1)} "
-                f"in_footnote_nums={footnote_match.group(1) in footnote_nums} "
-                f"effective_prev_type={effective_prev_type!r} "
-                f"continues_heading_list={continues_heading_list} "
-                f"last_heading_list_num={last_heading_list_num} "
-                f"-> {'PASS' if ok else 'FAIL'} | {trimmed[:40]!r}"
-            )
         if (
             footnote_match
             and footnote_match.group(1) in footnote_nums
-            and effective_prev_type in ("body", "footnote")
+            and effective_prev_type in FOOTNOTE_ALLOWED_PREV_TYPES
             and not continues_heading_list
         ):
             flush_para()
@@ -365,15 +357,11 @@ def split_into_blocks(text: str) -> list[dict]:
                 next_is_table = False
                 para_type = "body"
                 para.append(body)
-                if _DEBUG_NUMS:
-                    print(f"[DEBUG] heading(citation-split) label={label[:40]!r} -> last_heading_list_num={last_heading_list_num}")
                 continue
             blocks.append({"type": "heading", "text": trimmed, "isTitle": bool(TITLE_RE.match(trimmed))})
             prev_type = "heading"
             last_heading_list_num = extract_list_num(trimmed)
             next_is_table = bool(TABLE_CAPTION_RE.match(trimmed))
-            if _DEBUG_NUMS:
-                print(f"[DEBUG] heading text={trimmed[:40]!r} -> last_heading_list_num={last_heading_list_num}")
             continue
         if kind == "field":
             flush_para()
@@ -527,6 +515,48 @@ def run_synthetic_self_tests():
     n_footnote = sum(1 for b in blocks if b["type"] == "footnote")
     check("한국조폐공사 스타일: 각주 1),2) 둘 다 인식됨", n_footnote == 2)
 
+    # 2026-08-20: 각주가 불릿/표 문단에 흡수돼 인식이 통째로 실패하던 버그 수정 —
+    # 한국자산관리공사 2021(9ddc6393057cc532)을 실제 디버그 추적해서 확인한 최소 재현.
+    text = (
+        "본문에서 언급된 판단 내용9)을 참고\n"
+        "[표 1] 구제위원회 판단 내용\n"
+        "위원 성명 의견\n"
+        "AAA 인정\n"
+        "BBB 불인정\n"
+        "9) 위 인정된 사실 외 직장 내 괴롭힘 여부 판단 대상 중 발언은 판단요건에 부합하지 않음"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "표 데이터 흡수 중이던 각주 9 인식(수정 전엔 실패)",
+        any(b["type"] == "footnote" and b["text"].startswith("9)") for b in blocks),
+    )
+    text = (
+        "본문에서 언급된 위원회6)를 참고\n"
+        "* 당시 관련자는 처장실 문 앞에 서서 발언\n"
+        "이에 대해 소관부점이 사건을 인지하고 절차를 진행함\n"
+        "6) 위원회 규정 제41조에 따라 구성된 기구임"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "불릿 문단에 흡수되던 각주 6 인식(수정 전엔 실패)",
+        any(b["type"] == "footnote" and b["text"].startswith("6)") for b in blocks),
+    )
+    # 회귀 없음: 각주 아닌 일반 표/불릿은 여전히 하나로 흡수됨
+    text = "[표 1] 인원 현황\n부서 인원 비고\n총무팀 5 -\n기획팀 3 -\n자료: 각 부서 제출자료 재구성"
+    blocks = split_into_blocks(text)
+    table_block = next((b for b in blocks if b["type"] == "table"), None)
+    check(
+        "일반 표 데이터는 여전히 하나의 table 블록으로 흡수됨(회귀 없음)",
+        table_block is not None and "총무팀" in table_block["text"] and "기획팀" in table_block["text"],
+    )
+    text = "* 폭행 피해사실 : C - B가 휘드른 손에 머리를 2회 맞음\n계속되는 설명 문장"
+    blocks = split_into_blocks(text)
+    bullet_block = next((b for b in blocks if b["type"] == "bullet"), None)
+    check(
+        "일반 불릿 문단은 여전히 정상 흡수됨(회귀 없음)",
+        bullet_block is not None and "계속되는 설명 문장" in bullet_block["text"],
+    )
+
     if failures:
         raise SystemExit(
             f"\n합성 자가 검증 실패({len(failures)}건): {failures}\n"
@@ -582,11 +612,7 @@ for doc_id, expect in SELF_TEST_DOCS.items():
     if raw_text is None:
         print(f"  {doc_id}: DB에서 못 찾음 — 자가 검증 스킵(문서가 삭제/변경됐을 수 있음)")
         continue
-    if doc_id == "9ddc6393057cc532":
-        _DEBUG_NUMS = {"5", "6", "7", "8", "9", "10"}  # 임시: 각주 6~10 판정 과정 추적
-        print(f"  --- {doc_id} 디버그 추적 시작 ---")
     blocks = split_into_blocks(raw_text)
-    _DEBUG_NUMS = set()
     n_footnote = sum(1 for b in blocks if b["type"] == "footnote")
     ok = n_footnote == expect["footnote_blocks"]
     print(f"  {doc_id}: footnote 블록 {n_footnote}건 (기대: {expect['footnote_blocks']}) -> {'OK' if ok else 'FAIL'}")
