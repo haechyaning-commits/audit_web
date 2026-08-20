@@ -26,16 +26,17 @@
 # SELF_TEST_DOCS)의 각주 개수. 둘 중 하나라도 기대와 다르면 바로 멈춤
 # (로직이 갈라졌다는 신호이므로 전수 스캔을 신뢰할 수 없음).
 #
-# **알려진 버그(2026-08-20, 부분 수정됨)**: SELF_TEST_DOCS의 9ddc6393057cc532
+# **알려진 버그(2026-08-20, 전부 수정됨)**: SELF_TEST_DOCS의 9ddc6393057cc532
 # 문서는 실제로는 각주가 19개(6/7/8도 존재)인데 **포팅 문제가 아니라
 # DetailPage.jsx 자체의 실제 렌더링 버그**(Node로 실제 파일과 대조 확인함) 때문에
-# 일부가 body/heading에 흡수됨 — Colab 디버그 추적으로 원인 3가지(불릿/표 문단
+# 일부가 body/heading에 흡수됐었음 — Colab 디버그 추적으로 원인 3가지(불릿/표 문단
 # 흡수, 그로 인한 헤딩 오분류 연쇄)를 실제로 특정해서 effectivePrevType 허용
-# 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건, 실제 DB로 확인 완료).
-# 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가 막힘)이라
-# 아직 미수정 — STATUS.md 2026-08-20 항목 참고. 이 클래스의 버그(각주 참조는
-# 있는데 일부만 인식)는 아래 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고
-# 후보 목록을 볼 것.
+# 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건, 실제 DB로 확인 완료). 남은
+# 15/16도 같은 날 후속 세션에서 해결 — 각주 정의문이 인용한 법조항 번호("5. 공사의
+# 여러 규정...")가 번호 헤딩 휴리스틱에 걸려 heading으로 잘못 승격되던 게 원인이라,
+# 각주 문단 누적 중 나온 이런 줄을 흡수하도록 수정(17→19건, 실제 API로 확인).
+# 이 클래스의 버그(각주 참조는 있는데 일부만 인식)는 아래 4개 탐지 신호로 못 잡을
+# 수 있다는 점을 감안하고 후보 목록을 볼 것.
 #
 # **탐지하는 "구조 이상" 신호** (전부 휴리스틱 — 확정 버그가 아니라 "사람이
 # 확인해볼 가치가 있는 후보"를 걸러내는 용도):
@@ -277,13 +278,13 @@ NUMBERED_HEADING_RE = re.compile(r"^\d{1,2}[.)]\s+\S")
 SENTENCE_END_RE = re.compile(r"[가-힣][.!?](?:\s|$)")
 
 
-def classify_line(line: str) -> str:
-    trimmed = line.strip()
-    if not trimmed:
-        return "blank"
-
+# 2026-08-20: classify_line의 "가/나/다" 및 "1. 2. 3." 번호 헤딩 휴리스틱을 별도
+# 함수로 뽑아냄(DetailPage.jsx의 isGenericListHeading과 동일한 이유·동일한 분리) —
+# split_into_blocks에서 각주 문단 흡수 여부를 판단할 때도 재사용(아래 각주15/16 버그
+# 수정 참고). 동작 변경 없는 순수 리팩터링.
+def is_generic_list_heading(trimmed: str) -> bool:
     if GANADA_HEADING_RE.match(trimmed) and len(trimmed) <= 24:
-        return "heading"
+        return True
     # 2026-08-18: "1. 2. 3." 번호 항목 — 24자 상한 + 두 가지 예외(법령인용 분리
     # 가능하거나, 80자 이내면서 문장 종결로 안 끝나는 경우)는 헤딩으로 인정.
     if NUMBERED_HEADING_RE.match(trimmed) and (
@@ -291,6 +292,16 @@ def classify_line(line: str) -> str:
         or split_law_citation_heading(trimmed)
         or (len(trimmed) <= 80 and not SENTENCE_END_RE.search(trimmed))
     ):
+        return True
+    return False
+
+
+def classify_line(line: str) -> str:
+    trimmed = line.strip()
+    if not trimmed:
+        return "blank"
+
+    if is_generic_list_heading(trimmed):
         return "heading"
     if any(p.match(trimmed) for p in HEADING_LABEL_PATTERNS):
         return "heading"
@@ -373,6 +384,22 @@ def split_into_blocks(text: str) -> list[dict]:
         kind = classify_line(trimmed)
 
         if kind == "heading" and para_type == "table" and PAREN_LABEL_RE.match(trimmed):
+            para.append(trimmed)
+            continue
+        # 2026-08-20: 각주 15/16 미인식 버그 수정(DetailPage.jsx와 동일 반영) — 각주
+        # 정의문이 법조항을 그대로 인용하면서 다음 줄이 "5. ..."처럼 번호로 시작하면
+        # is_generic_list_heading(번호 헤딩 휴리스틱)에 걸려 heading으로 잘못 승격되고,
+        # 그 순간 flush_para()로 각주 문단이 끊겨 prev_type이 "heading"이 됨 — 바로
+        # 다음에 오는 진짜 각주가 FOOTNOTE_ALLOWED_PREV_TYPES에 "heading"이 없어서
+        # 아예 인식 실패로 이어지던 연쇄(실제 문서 9ddc6393057cc532, 각주 17개→19개로
+        # 검증 — 위 PAREN_LABEL_RE 표 흡수와 같은 이유). split_law_citation_heading으로
+        # 분리되는 진짜 법령인용 헤딩은 명확한 구조 신호라 이 흡수에서 제외.
+        if (
+            kind == "heading"
+            and para_type == "footnote"
+            and is_generic_list_heading(trimmed)
+            and not split_law_citation_heading(trimmed)
+        ):
             para.append(trimmed)
             continue
         if kind == "heading":
@@ -605,6 +632,29 @@ def run_synthetic_self_tests():
         bullet_block is not None and "계속되는 설명 문장" in bullet_block["text"],
     )
 
+    # 2026-08-20: 각주 15/16 미인식 버그 수정 — 한국자산관리공사 2021
+    # (9ddc6393057cc532)을 실제 API로 다시 확인해서 진짜 원인을 찾은 최소 재현.
+    # 각주 14 정의문이 인용한 법조항 번호("5. 공사의...")가 번호 헤딩 휴리스틱에
+    # 걸려 heading으로 잘못 승격되면서 그 다음 각주(15)가 막히던 연쇄.
+    text = (
+        "관련 규정14)을 위반한 직원15)에 대해 조치함\n"
+        "14)「인사규정」제44조(징계대상)\n"
+        "5. 공사의 여러 규정, 서약사항 및 지시명령을 위반하여 공사 내의 질서를 문란케 한 직원\n"
+        "15) 과잉금지의 원칙 또는 비례의 원칙을 고려"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "각주 정의문이 인용한 법조항 번호('5. ...')는 헤딩으로 안 끊김(수정 전엔 실패)",
+        any(
+            b["type"] == "footnote" and b["text"].startswith("14)") and "5. 공사의" in b["text"]
+            for b in blocks
+        ),
+    )
+    check(
+        "그 뒤 진짜 각주 15는 여전히 인식됨(수정 전엔 각주14가 heading으로 끊겨서 막혔음)",
+        any(b["type"] == "footnote" and b["text"].startswith("15)") for b in blocks),
+    )
+
     if failures:
         raise SystemExit(
             f"\n합성 자가 검증 실패({len(failures)}건): {failures}\n"
@@ -631,10 +681,14 @@ SELF_TEST_DOCS = {
     # 나오면 마찬가지로 흡수됨 ③6/9가 실패하며 잘못 heading으로 승격돼
     # lastHeadingListNum을 오염시켜 8/10이 연쇄로 실패. effectivePrevType 허용
     # 목록에 "bullet"/"table" 추가로 6~10 전부 해결(12→17건, 실제 DB로 확인 완료).
-    # 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가
-    # effectivePrevType==="heading"에 막힘, continuesHeadingList와 무관) —
-    # 오늘은 여기까지, 다음 세션에서 이어서 진단(STATUS.md 참고).
-    "9ddc6393057cc532": {"footnote_blocks": 17},
+    # 남은 15/16도 이어서 해결(같은 날 후속 세션) — 원인은 각주 14 정의문이 인용한
+    # 법조항 번호("5. 공사의 여러 규정...") 자체가 is_generic_list_heading(번호 헤딩
+    # 휴리스틱)에 걸려 heading으로 승격되고, 그 여파로 prev_type이 "heading"이 돼서
+    # 바로 다음 각주(15)가 FOOTNOTE_ALLOWED_PREV_TYPES를 못 만족해 막히는 연쇄였음
+    # (continuesHeadingList와는 무관, 위 PAREN_LABEL_RE 표 흡수와 같은 종류의 문제).
+    # 각주 문단 누적 중 나온 번호 헤딩 휴리스틱 매칭 줄을 그대로 흡수하도록 수정해서
+    # 15/16까지 전부 해결(17→19건, 실제 API로 가져온 문서로 확인 완료).
+    "9ddc6393057cc532": {"footnote_blocks": 19},
     # 한국부동산원 2024 — 각주 1~11 전부 분리돼야 함(오늘 세 번째로 고친 "각주 중 불릿
     # 흡수" 버그의 실제 재현 문서).
     "4df12939e14a66c3": {"footnote_blocks": 11},

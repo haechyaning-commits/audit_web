@@ -392,22 +392,24 @@ function fixMissingTitleNumber(blocks) {
   }
 }
 
-/** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
- * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
- * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
- * 직전 블록 종류)이 필요해서 여기가 아니라 splitIntoBlocks에서 별도로 먼저 검사함. */
-function classifyLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) return "blank";
+// 2026-08-20: classifyLine의 "가/나/다" 및 "1. 2. 3." 번호 헤딩 휴리스틱을 별도
+// 함수로 뽑아냄 — splitIntoBlocks에서 각주 문단 흡수 여부를 판단할 때도 "이 줄이
+// heading으로 분류된 이유가 이 번호 휴리스틱 때문인지"를 다시 물어야 해서
+// (아래 각주15/16 버그 수정, KOREAN_LETTER_HEADING_RE 부분 참고) classifyLine
+// 안에 인라인으로 있던 로직을 함수로 분리함(동작 변경 없음, 순수 리팩터링).
+const KOREAN_LETTER_HEADING_RE = /^[가나다라마바사아자차카타파하][.)]?\s+\S/;
+const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
+const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
 
+/** 가/나/다 또는 "1. 2. 3." 번호로 시작하는 줄이 classifyLine의 번호 헤딩
+ * 휴리스틱(길이 상한/법령인용 예외)에 걸리는지만 따로 판별. 아래 두 곳에서 씀:
+ * ①classifyLine 자체 ②splitIntoBlocks의 각주 문단 흡수 판단(번호헤딩처럼 보이는
+ * 줄이지만 실은 각주 정의문이 인용한 법조항 번호일 수 있어서, 각주 문단을 누적하는
+ * 중에는 이 휴리스틱으로 인한 heading 승격을 무시하고 그대로 흡수시키려는 목적). */
+function isGenericListHeading(trimmed) {
   // 가/나/다 단독 소제목은 원문에서 보통 그 줄 전체가 짧은 편(예: "가 업무개요") —
   // 본문 문장이 우연히 "나"로 시작하는 경우까지 오탐하지 않게 길이 상한을 둠
-  if (
-    /^[가나다라마바사아자차카타파하][.)]?\s+\S/.test(trimmed) &&
-    trimmed.length <= 24
-  ) {
-    return "heading";
-  }
+  if (KOREAN_LETTER_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
   // 2026-08-18: "1. 2. 3." 번호 항목도 같은 이유로 길이 상한을 둠 — 원문에서 "1. 관계
   // 법령 및 규정"처럼 짧은 소제목 뒤에 줄바꿈 없이 긴 본문이 바로 이어 붙는 경우(PDF
   // 원본부터 그렇게 한 줄이었음, 실제 문서 e6bae4491398a6b2로 확인)가 있어서, 길이
@@ -428,15 +430,26 @@ function classifyLine(line) {
   // 번호로 끝나는 게 보통이라, "문장 종결로 안 끝나면서 너무 길지는 않은(80자 이내)"
   // 조건으로 좁혀서 구분함(e6bae4491398a6b2처럼 실제로 문장 종결로 끝나는 긴 본문은
   // 여전히 안 걸림).
-  const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
   if (
-    /^\d{1,2}[.)]\s+\S/.test(trimmed) &&
+    NUMBERED_HEADING_RE.test(trimmed) &&
     (trimmed.length <= 24 ||
       splitLawCitationHeading(trimmed) ||
       (trimmed.length <= 80 && !SENTENCE_END_RE.test(trimmed)))
   ) {
-    return "heading";
+    return true;
   }
+  return false;
+}
+
+/** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
+ * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
+ * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
+ * 직전 블록 종류)이 필요해서 여기가 아니라 splitIntoBlocks에서 별도로 먼저 검사함. */
+function classifyLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return "blank";
+
+  if (isGenericListHeading(trimmed)) return "heading";
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
   if (matchFieldLabel(trimmed)) return "field";
   if (
@@ -589,6 +602,31 @@ function splitIntoBlocks(text) {
     // 나온 괄호 라벨 줄은 진짜 새 소제목이 아니라 표 셀 조각으로 보고 표 문단에
     // 그대로 흡수시킴(접힌 박스가 끊기지 않고 표 데이터 전체를 담게 됨).
     if (kind === "heading" && paraType === "table" && PAREN_LABEL_RE.test(trimmed)) {
+      para.push(trimmed);
+      continue;
+    }
+    // 2026-08-20: 각주 15/16 미인식 버그(STATUS.md에서 "다음 세션에서 이어서 진단"으로
+    // 미뤄뒀던 것) — 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 다시 추적해서
+    // 진짜 원인을 찾음. 각주 정의문이 "「인사규정」제44조(징계대상)\n5. 공사의 여러
+    // 규정, 서약사항 및 지시명령을 위반하여 공사 내의 질서를 문란케 한 직원"처럼 법조항
+    // 자체를 그대로 인용하면서 다음 줄이 "5. ..."로 시작하는 경우, 이 줄은 각주 14의
+    // 이어지는 설명일 뿐인데 isGenericListHeading(번호 헤딩 휴리스틱, 80자 이하+문장종결
+    // 없음)에 걸려 heading으로 잘못 승격됨 — 그 순간 flushPara()로 각주 14 문단이
+    // 끊기고 prevType이 "heading"이 되어, 바로 다음에 오는 진짜 각주 15/16이
+    // effectivePrevType 허용 목록(body/footnote/bullet/table)에 "heading"이 없어서
+    // 아예 각주로 인식되지 못하는 연쇄로 이어짐. 위 표 흡수(PAREN_LABEL_RE)와 같은
+    // 이유로, 각주 문단을 누적하는 중(paraType === "footnote")에 나온 번호/가나다 헤딩
+    // 휴리스틱 매칭 줄은 진짜 새 소제목이 아니라 각주가 인용한 법조항 번호일 가능성이
+    // 높다고 보고 그대로 흡수시킴 — 실제 문서로 검증: footnote 블록 17개 → 19개(15,16
+    // 정상 인식). splitLawCitationHeading으로 분리되는 진짜 법령인용 헤딩(라벨/인용문
+    // 분리)은 이 흡수에서 제외 — 그 경우는 여전히 명확한 구조 신호라 헤딩으로 분리하는
+    // 게 맞음.
+    if (
+      kind === "heading" &&
+      paraType === "footnote" &&
+      isGenericListHeading(trimmed) &&
+      !splitLawCitationHeading(trimmed)
+    ) {
       para.push(trimmed);
       continue;
     }
