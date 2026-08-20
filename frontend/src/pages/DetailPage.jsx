@@ -42,7 +42,13 @@ const SCROLL_TOP_THRESHOLD = 480;
 // "목" 바로 뒤에 콜론/공백만 허용해서 여전히 못 잡고 있었음("제목이 안 굵고 크기도
 // 작다"는 피드백). 여는/닫는 대괄호를 전부 선택(optional)으로 둬서 유실된 경우
 // ("제 목】...")와 온전한 경우("【제 목】...", "[제 목] ...") 둘 다 커버함.
-const TITLE_RE = /^[[【]?제\s*목\s*[\]】]?\s*[:：]?\s/;
+//
+// 2026-08-18: "제목" 가정의달 공직기강 확립 및 복무점검 결과 보고 * 관련문서: ..."처럼
+// "목" 바로 뒤에 대괄호가 아니라 따옴표(원본은 아마 "가정의달...보고"를 통째로 큰따옴표로
+// 감싼 표기였을 것)가 남은 문서를 실제로 확인함(한국임업진흥원 2026, `bf1dbb1bfa7043dd`
+// — "제목이 눈에 안 띈다"는 피드백). 대괄호와 마찬가지로 따옴표(스트레이트/커브 큰·작은)도
+// 전부 선택으로 둬서 스킵되게 함.
+const TITLE_RE = /^[[【]?제\s*목\s*[\]】"'‘’“”]?\s*[:：]?\s/;
 
 // 2026-08-14: 상단 필드 라벨("제목", "관계부서" 등)이 콜론 없이 공백만으로 구분되는
 // 문서가 실제로 있음(예: "소관부서 [부서]사업소") — 그렇다고 콜론을 완전히 선택
@@ -56,23 +62,59 @@ const LABEL_SEP = "(?:[:：]\\s*|\\s+)";
 // splitIntoBlocks(표 블록 안에서 날짜 셀 하나만 있는 줄과 구분할 때) 둘 다에서 씀.
 const PAREN_LABEL_RE = /^[(（][^()（）]{1,20}[)）]$/;
 
+// 2026-08-18: "◤"(U+25E4, 검은 삼각형) 한 글자만 있는 줄을 실제 문서로 확인함(한국철도공사
+// 2020 복무감사 — "Ⅰ 감사실시 개요" 장 구분 헤딩 바로 다음 줄에 홀로 등장, "1. 감사배경
+// 및 목적" 헤딩 바로 위). 원래 PDF의 장식용 코너 표시(섹션 구분선 등)가 텍스트로 잘못
+// 추출된 것으로 보임 — 뜻 있는 내용이 아닌데 지금까지 body로 취급돼서 그 뒤에 오는
+// "1. 감사배경..." 헤딩 바로 앞에 뜬금없는 조각 문단으로 끼어 있었음("1 뒤에 이상한
+// 기호가 붙어 나온다"는 피드백과 일치하는 정황). 빈 줄과 똑같이 취급해서(문단 구분만
+// 하고 블록 자체를 만들지 않음) 화면에서 사라지게 함 — 같은 계열의 다른 회전형(◢◣◥)도
+// 마찬가지로 장식용일 가능성이 높아 함께 제외(이 문서엔 ◤만 나왔지만, 나머지도 뜻 있는
+// 본문 기호로 실제 쓰인 사례를 찾지 못해 미리 넓혀둠 — 나중에 반례 나오면 좁힐 것).
+const ORNAMENT_GLYPH_LINE_RE = /^[◤◢◣◥]+$/;
+
+// 2026-08-18: 위 라벨들 중 "소관부서 [부서]사업소"/"관련자 : U(경고)"처럼 라벨 뒤에
+// 실제 값이 같은 줄에 바로 붙는 것들은, 지금까지 줄 전체(라벨+값)를 통째로 헤딩 취급해서
+// 굵게 만들고 있었음 — 사용자가 실제 스크린샷(원본 PDF ↔ 웹페이지 비교)으로 "소관부서/
+// 조치부서 등 라벨뿐 아니라 값까지 다 굵어서 여러 필드를 나란히 비교하기 어렵다"고 제보
+// (원본 PDF는 라벨만 굵고 값은 보통 굵기). 이 패턴들만 따로 빼서 라벨 부분만 캡처그룹
+// (그룹 1)으로 잡을 수 있게 하고, splitIntoBlocks에서 "field" 타입 블록으로 렌더링해서
+// 라벨만 <b>, 값은 보통 굵기로 나란히 보여줌(matchFieldLabel 참고). HEADING_LABEL_PATTERNS
+// 에는 안 넣음 — 한 줄이 두 배열에 동시에 걸리면 처리 순서에 따라 결과가 달라져서 배타적으로 관리.
+const FIELD_LABEL_PATTERNS = [
+  // "관계기관"뿐 아니라 "관계부서"("♣♣팀" 등)도 실제 문서로 확인 — 기관/부서를 하나로
+  // 묶고, 위 LABEL_SEP로 구분자 필수화(콜론 없는 "소관부서 [부서]사업소" 형태도 커버하면서
+  // "조치부서는 ~" 같은 본문 오탐은 막음).
+  new RegExp(`^((?:소\\s*관|조\\s*치|관\\s*계)\\s*(?:기\\s*관|부\\s*서))\\s*${LABEL_SEP}`),
+  /^(조\s*치\s*기\s*한)\s*[:：]?\s*/, // 조치기한
+  // "감사명 : 공모사업 운영실태 특정감사" — 문서 맨 위 개요 라벨.
+  new RegExp(`^(감\\s*사\\s*명)\\s*${LABEL_SEP}`),
+  // "관 련 자 : U(경고)" — 콜론이 있을 때만 라벨로 인정(콜론 없이 "관련자 T은 2019..."처럼
+  // 본문 주어로 쓰이는 경우가 실제 문서에 흔해서, 오탐 방지 위해 이 라벨만 콜론 필수로
+  // 좁힘 — "관련자 의견"처럼 콜론 없는 소제목은 놓치지만, 값까지 잘못 굵게 만드는 것보다
+  // 안전한 쪽을 택함).
+  /^(관\s*련\s*자)\s*[:：]\s*/,
+  // "일련번호 2025-03-001" — 처분서 양식 상단 식별번호, 콜론 없이 공백만 씀.
+  new RegExp(`^(일\\s*련\\s*번\\s*호)\\s*${LABEL_SEP}`),
+];
+
+/** 줄이 FIELD_LABEL_PATTERNS 중 하나에 매칭되고, 라벨 뒤에 실제 값이 남아있으면
+ * {label, value}를 반환(라벨만 있고 끝나는 줄은 필드가 아니라 일반 heading으로 두려고
+ * null 반환 — 예: "소관부서" 단독 줄은 흔치 않지만 만약 있다면 값이 없는 셈이라 제외). */
+function matchFieldLabel(trimmed) {
+  for (const re of FIELD_LABEL_PATTERNS) {
+    const m = re.exec(trimmed);
+    if (m) {
+      const value = trimmed.slice(m[0].length);
+      if (value.trim()) return { label: m[1], value };
+    }
+  }
+  return null;
+}
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
-  // 2026-08-14: "관계기관"뿐 아니라 "관계부서"("♣♣팀" 등)도 실제 문서로 확인 —
-  // 기관/부서를 하나로 묶고, 위 LABEL_SEP로 구분자 필수화(콜론 없는 "소관부서 [부서]
-  // 사업소" 형태도 커버하면서 "조치부서는 ~" 같은 본문 오탐은 막음).
-  new RegExp(`^(소\\s*관|조\\s*치|관\\s*계)\\s*(기\\s*관|부\\s*서)\\s*${LABEL_SEP}\\S`),
-  /^조\s*치\s*기\s*한\s*[:：]?/, // 조치기한
-  // 2026-08-14: "감사명 : 공모사업 운영실태 특정감사" — 문서 맨 위 개요 라벨.
-  new RegExp(`^감\\s*사\\s*명\\s*${LABEL_SEP}\\S`),
-  // 2026-08-14: "관 련 자 : U(경고)" — 콜론이 있을 때만 라벨로 인정(콜론 없이 "관련자
-  // T은 2019..."처럼 본문 주어로 쓰이는 경우가 실제 문서에 흔해서, 오탐 방지 위해
-  // 이 라벨만 콜론 필수로 좁힘 — "관련자 의견"처럼 콜론 없는 소제목은 놓치지만,
-  // 본문을 헤딩으로 잘못 굵게 만드는 것보다 안전한 쪽을 택함).
-  /^관\s*련\s*자\s*[:：]\s*\S/,
-  // 2026-08-14: "일련번호 2025-03-001" — 처분서 양식 상단 식별번호, 콜론 없이 공백만 씀.
-  new RegExp(`^일\\s*련\\s*번\\s*호\\s*${LABEL_SEP}\\S`),
   // 2026-08-14: "내 용" 단독 줄 — 그 줄 전체가 이 라벨 하나뿐일 때만(내용을 서술하는
   // 본문 문장 첫머리에 "내용"이 오는 경우와 헷갈리지 않게 줄 전체 일치로 한정).
   /^내\s*용\s*$/,
@@ -83,6 +125,16 @@ const HEADING_LABEL_PATTERNS = [
   // 제보: [표 3] 웹 접근성 품질 미인증 현황). 검증된 유니코드 로마숫자만 남기고
   // 라틴 알파벳 단독 매칭은 제거.
   /^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?\s/, // Ⅰ. Ⅱ. 로마숫자 장 구분
+  // 2026-08-18: "◯1 음주관리 및 근무에 관한 사항 (신분상・행정상조치)"처럼 원문자
+  // (①②③...)가 아니라 "◯"(U+25EF, 큰 동그라미)와 숫자가 띄어쓰기 없이 붙어서 항목
+  // 번호를 나타내는 문서를 실제로 확인함(한국철도공사 2020 복무감사, `dec56dc84bfe3a6c`
+  // — 사용자가 "새로 시작해야 하는데 그냥 본문처럼 보인다"고 제보한 그 항목들). "○"
+  // (U+25CB, BULLET_RE의 흰 동그라미)와는 다른 글자라 기존 불릿 패턴엔 안 걸려서 지금까지
+  // 그냥 body로 흘러들어가고 있었음 — 소제목처럼 굵게 보이도록 헤딩으로 인식.
+  /^◯\d{1,2}\s+\S/,
+  // 1. 2. 3. 번호 항목은 main 브랜치에서 classifyLine의 길이 상한 있는 분기로
+  // 옮겨짐(긴 문단이 통째로 헤딩되던 버그 수정, e6bae4491398a6b2) — 아래
+  // classifyLine 참고, splitLawCitationHeading과 합쳐서 병합함.
   // [표 1] [별표 1] [붙임] [참고] 같은 대괄호 캡션만 — "[부서]"(익명화 placeholder,
   // 문장 맨 앞에 수도 없이 나옴)까지 통째로 걸려서 문장을 헤딩 취급하던 심각한 오탐을
   // 6차 수정에서 발견(실제 문서로 확인) — 캡션 키워드로 한정해서 좁힘.
@@ -133,8 +185,32 @@ const HEADING_LABEL_PATTERNS = [
 // ③만 새 줄 첫머리라는 이유로 뜬금없이 쪼개지는 문제가 실제 문서로 확인됨(한국수력원자력
 // 사례). 실제 목록 항목은 항상 "① 검강검진..."처럼 뒤에 공백이 있으므로, 원문자만
 // 공백 필수(\s+)로 다른 불릿(\s*)과 다르게 조건을 둬서 구분함.
+//
+// 2026-08-18: "•"(U+2022, 표준 불릿 기호)가 기존 char class에 빠져있던 걸 실제 문서로
+// 확인함(한전KPS 2018 특정감사 — "• '12~'16년 기간 동안...\n- 144,346,500원을 횡령..."
+// 처럼 "•"로 시작하는 상위 항목과 "-"로 시작하는 하위 항목이 섞여 나오는데, "•" 줄만
+// 이 패턴에 안 걸려서 body로 분류돼 "-" 줄들과 다른 여백(margin)으로 렌더링되며 "문단
+// 나누는 게 이상하다"는 피드백으로 이어짐 — CSS상 bullet 타입만 margin-top이 붙어서
+// body로 빠진 "•" 줄만 위 여백이 없어 다른 줄들과 간격이 어긋나 보였음). "◦"(연한 원,
+// 이미 있음)와 혼동하기 쉬운 별개 문자라 별도로 추가.
 const BULLET_RE =
-  /^(?:[-–—□○◦▪‣·❍※*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
+  /^(?:[-–—□○◦▪‣·❍※•*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
+
+// 2026-08-18: 불릿 기호 혼자만 있는 줄("□"만 있고 그 뒤에 아무 글자도 없음) — 이런
+// 줄은 BULLET_RE가 요구하는 "기호 다음 글자"가 없어서 안 걸리고 그냥 body로 흘러
+// 들어가던 것. splitIntoBlocks에서 이 줄을 만나면 바로 블록화하지 않고 pendingGlyph로
+// 들고 있다가 다음 줄과 합침(위 pendingGlyph 선언부 주석 참고).
+const LONE_BULLET_GLYPH_RE = /^[-–—□○◦▪‣·❍※•]$/;
+
+// 2026-08-18: "* 폭행 피해사실 : C - B가 휘드른 손에 머리를 2회 맞음\nD - 왼쪽눈썹
+// 좌측을 손톱으로 긁혀..."처럼, 익명화된 인물 라벨(A/B/C.. 1~3글자 대문자)이 "- "로
+// 시작하는 목록 항목을 나타내는 문서를 실제로 확인함(사용자 스크린샷 — 원본 PDF는
+// "C -"/"D -" 항목이 줄바꿈으로 나뉘어 정렬돼 있는데, 웹페이지는 "C -" 항목이 속한
+// "*" 불릿 문단에 "D -" 항목이 그대로 이어붙어서 한 문단으로 뭉쳐 보였음). "D -" 같은
+// 줄은 어떤 기존 불릿 문자로도 시작하지 않아서 새 문단으로 안 끊기고 있었음 — 이
+// 말뭉치의 인물 마스킹 표기(A, B, C.. 또는 AAA, BBB..)가 대문자 라틴 알파벳 1~3글자로
+// 일관되고, 한국어 문장이 대문자 알파벳+대시로 시작하는 경우는 사실상 없어서 좁게 추가.
+const PERSON_LIST_ITEM_RE = /^[A-Z]{1,3}\s*[-–—]\s+\S/;
 
 // 2026-08-14: "□"/"○" 같은 원문 불릿 기호가 PDF 폰트 글리프 매핑 문제로 텍스트 추출
 // 시 라틴 알파벳 "q"/"m"으로 저장된 문서를 실제로 확인함(예: "q ｢취업규칙｣ 제9조
@@ -202,6 +278,19 @@ const SOURCE_NOTE_RE = /^(자료|출처)\s*[:：]/;
 // 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게).
 const SECURITY_NOTICE_RE = /^본\s*문서의\s*감사요지\s*및\s*귀책내용이\s*누설되어/;
 
+// 2026-08-18: "INSIDabcdef_:MS_0001MS_0001 1000_SM1000_SM:_fedcbaDlSNI"처럼 한글이
+// 전혀 없이 영문자·숫자·밑줄·콜론만 뒤섞인 줄이 본문 중간에 끼어있는 걸 실제 문서로
+// 확인함(사용자 스크린샷 — 원본 PDF에는 없는 줄). "abcdef"/"fedcba", "MS_"/"_SM"처럼
+// 앞뒤가 거울상으로 대칭인 조각이 섞여 있어서, 문서 유출 추적용 숨김 워터마크 텍스트
+// 레이어가 추출 과정에서 실수로 같이 뽑혀 나온 것으로 추정됨(정확한 정체는 미확인).
+// 한국어 감사보고서 본문 한 줄 전체가 한글 없이 영문+숫자+밑줄로만 이루어질 일은
+// 사실상 없어서, SECURITY_NOTICE_RE와 같은 급의 반복 상용구로 보고 작게 표시함
+// (지우지는 않음 — 원문 그대로 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게).
+const WATERMARK_NOISE_RE = /^[A-Za-z0-9_:.\s-]{20,}$/;
+function isWatermarkNoise(trimmed) {
+  return trimmed.includes("_") && WATERMARK_NOISE_RE.test(trimmed);
+}
+
 // 2026-08-14: 본문 중 붙어서 등장하는 각주 참조("87,818,181원1)", "위임2)")를 문서
 // 전체에서 미리 스캔해서 각주 번호 집합을 만들어둠 — 그 번호로 시작하는 줄이 나오면
 // 진짜 소제목("1) 태양광...")이 아니라 각주 본문("1) 권익위의 의결서 내에는...")일
@@ -217,6 +306,45 @@ const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 버렸음. \s*로 완화(공백 0개 이상) — footnoteNums 사전 스캔 + splitIntoBlocks의
 // effectivePrevType 조건이 이미 오탐을 걸러주고 있어 안전함.
 const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
+// 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
+// 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②splitLawCitationHeading으로
+// 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
+const LIST_HEADING_NUM_RE = /^(\d{1,2})[.)]\s+\S/;
+function extractListNum(text) {
+  const m = LIST_HEADING_NUM_RE.exec(text);
+  return m ? Number(m[1]) : null;
+}
+
+// 2026-08-18: "1) 법령 「공직자 윤리법」 제3조의 2. 제2항(공기업) '공직유관단체인 우리
+// 공사는..." — 사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보: 원본은 번호+법령 인용
+// (조/항 번호까지)만 굵고 그 뒤 실제 인용문(따옴표로 시작)은 안 굵은 별도 문단인데,
+// 텍스트 추출 시 둘 사이에 줄바꿈이 없어서 한 줄로 붙어버림 — 위 번호 헤딩 패턴이 줄
+// 전체를 헤딩(굵게)으로 삼켜서 인용문까지 통째로 굵게 나오는 문제였음.
+// 실제 raw_text(한국가스공사 2021, `7a766550f0f873b7`)로 검증해보니 "괄호 바로 뒤에
+// 공백+따옴표"로는 못 잡는 경우가 있었음 — "제7조(성실의무) 제1항‘직원은..."처럼 괄호
+// 뒤에 조/항 번호가 공백 없이 하나 더 붙고 나서야 따옴표가 오는 문서도 실제로 있었음
+// (사용자가 "2) 공사 취업규칙도 마찬가지"라고 후속 제보). 그래서 "괄호 바로 뒤"가 아니라
+// "줄 안에서 처음 나오는 인용부호 앞에 닫는 괄호가 하나라도 있었는지"로 조건을 넓힘 —
+// 법령명을 감싸는 「」/｢｣는 인용부호 집합에 안 들어있어서 오탐 안 함(splitLawCitationHeading
+// 참고). 인용부호가 줄 맨 앞에 가깝게(괄호가 나오기도 전에) 나오면 애초에 조건 ②
+// (괄호 있어야 함)에서 걸러짐.
+const QUOTE_CHAR_RE = /[‘’“”'"]/;
+
+/** 번호목록 헤딩 줄에서 "법령/조항 인용 라벨 + 그 뒤에 줄바꿈 없이 붙은 인용문" 경계를
+ * 찾아 [라벨, 인용문]으로 나눔. 조건을 만족 못 하면 null(분리 안 함, 줄 전체를 그대로
+ * 헤딩으로 둠) — 인용부호가 없거나, 있어도 그 앞에 괄호로 끝나는 조/항 인용이 전혀
+ * 없으면(예: 관련자 진술처럼 그냥 문장 중간의 따옴표) 라벨 형태가 아니라고 보고 스킵. */
+function splitLawCitationHeading(trimmed) {
+  if (!LIST_HEADING_NUM_RE.test(trimmed)) return null;
+  const quoteIdx = trimmed.search(QUOTE_CHAR_RE);
+  if (quoteIdx <= 0) return null;
+  const before = trimmed.slice(0, quoteIdx);
+  if (!/[)）]/.test(before)) return null; // 조/항 인용 괄호가 하나도 없으면 라벨 아님
+  const label = before.replace(/\s+$/, "");
+  const body = trimmed.slice(quoteIdx);
+  if (!label || !body) return null;
+  return [label, body];
+}
 
 // 2026-08-19: 상위 개요 항목이 "1. 제목 / 2. 관계기관 / 3. ..."처럼 번호로 나열되는
 // 문서인데, 제목 줄 맨 앞의 "1. "만 DB 적재 시점부터 유실된 경우가 실제로 있음(Colab
@@ -268,13 +396,42 @@ function classifyLine(line) {
   // 상한 없이는 그 문단 전체가 헤딩(진하게)으로 잘못 렌더링됨. 위 가/나/다 케이스와
   // 동일한 상한(24자)을 씀 — 실제 짧은 번호 헤딩("1. 감사배경 및 목적" 등)은 다 그
   // 안에 들어옴.
-  if (/^\d{1,2}[.)]\s+\S/.test(trimmed) && trimmed.length <= 24) {
+  // 예외 1: "1) 법령 「공직자 윤리법」 제3조의 2. 제2항(공기업) '공직유관단체인..."처럼
+  // 24자가 넘는 번호 라벨이라도 splitLawCitationHeading으로 라벨/인용문을 분리할 수
+  // 있는 경우는 헤딩으로 인정 — 어차피 splitIntoBlocks에서 라벨만 남기고 나머지는
+  // body로 떼어내므로 위 24자 상한이 막으려던 문제(긴 문단 전체가 통째로 굵어짐)와
+  // 충돌하지 않음.
+  // 예외 2(2026-08-18, main 병합 중 발견): "1) 공사 「◐◐◐◐◐ 임직원 행동강령」 제12조
+  // (알선·청탁 등의 금지) 제3항"처럼, 라벨 자체가 24자를 넘지만 그 줄에 인용문이 안
+  // 붙어 있고(다음 줄에 별도로 있음, 예외 1과 다름) 그 자체로 완결된 라벨인 경우도
+  // 실제 문서(한국가스공사 2021)로 확인됨 — 24자 상한만 있으면 이것도 body로 떨어져서
+  // 다음 줄(진짜 인용문)과 한 문단으로 뭉쳐버림. 진짜 문단(본문 문장)은 "...다./음./
+  // 함." 같은 한국어 문장 종결로 끝나는 반면 인용 라벨은 "제3항"/"제12조"처럼 조항
+  // 번호로 끝나는 게 보통이라, "문장 종결로 안 끝나면서 너무 길지는 않은(80자 이내)"
+  // 조건으로 좁혀서 구분함(e6bae4491398a6b2처럼 실제로 문장 종결로 끝나는 긴 본문은
+  // 여전히 안 걸림).
+  const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
+  if (
+    /^\d{1,2}[.)]\s+\S/.test(trimmed) &&
+    (trimmed.length <= 24 ||
+      splitLawCitationHeading(trimmed) ||
+      (trimmed.length <= 80 && !SENTENCE_END_RE.test(trimmed)))
+  ) {
     return "heading";
   }
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
-  if (SOURCE_NOTE_RE.test(trimmed) || SECURITY_NOTICE_RE.test(trimmed))
+  if (matchFieldLabel(trimmed)) return "field";
+  if (
+    SOURCE_NOTE_RE.test(trimmed) ||
+    SECURITY_NOTICE_RE.test(trimmed) ||
+    isWatermarkNoise(trimmed)
+  )
     return "caption";
-  if (BULLET_RE.test(trimmed) || GLYPH_BULLET_RE.test(trimmed))
+  if (
+    BULLET_RE.test(trimmed) ||
+    GLYPH_BULLET_RE.test(trimmed) ||
+    PERSON_LIST_ITEM_RE.test(trimmed)
+  )
     return "bullet";
   return "body";
 }
@@ -304,21 +461,60 @@ function splitIntoBlocks(text) {
   // 항상 그 앞이 "heading"/"bullet"(다른 항목의 헤딩/본문)이고, 각주는 페이지 하단에
   // 있던 게 그대로 이어붙은 거라 항상 그 앞이 미완성 "body" 문단(또는 바로 위 각주)임.
   let prevType = null;
+  // 2026-08-18: 가장 최근에 본 "N) ..." 목록 헤딩의 번호 — 아래 각주 분기에서 씀.
+  // "1) 법령... (본문 설명 문단) 2) 법령..."처럼 번호 목록 항목마다 설명 문단이 붙는
+  // 문서는, 다음 항목("2)")이 항상 헤딩/불릿 바로 다음이 아니라 body 문단 바로 다음에
+  // 옴 — 각주 판별 조건 ②("직전이 body/footnote")를 만족해버려서 실제로는 목록 항목인데
+  // 각주로 오분류되는 문제를 실제 스크린샷으로 확인함(한국가스공사 2021 사례). 직전
+  // 목록 번호 + 1과 정확히 같으면 목록 연속으로 보고 각주 판정에서 제외.
+  let lastHeadingListNum = null;
+  // 2026-08-18: "□" 기호 혼자만 있는 줄 바로 다음 줄에 "점검 개요" 같은 실제 소제목
+  // 텍스트가 오는 문서를 실제로 확인함(한국임업진흥원 2026 — 원래 "□ 점검 개요"가 PDF
+  // 줄바꿈으로 기호와 글자가 갈라진 것으로 보임). "□" 혼자인 줄은 뒤에 오는 non-space
+  // 글자가 없어서 BULLET_RE에 안 걸려 그냥 body로 흘러들어가고, 그 다음 줄도 별道
+  // 패턴이 없으면 body라 앞 문단(심하면 제목 문단)에 그대로 흡수되던 문제("본문 중간에
+  // 안 어울리는 게 낀다"/"제목이 눈에 안 띈다"류 피드백과 같은 원인 계열) — 기호 단독
+  // 줄을 바로 blocks에 넣지 않고 보류해뒀다가, 바로 다음 줄과 합쳐서 하나의 줄처럼
+  // 분류함("□ 점검 개요"로 합쳐지면 이후 로직 변경 없이도 자연스럽게 처리됨).
+  let pendingGlyph = null;
 
   function flushPara() {
     if (para.length === 0) return;
-    blocks.push({ type: paraType, text: para.join(" ") });
+    // 2026-08-18: 표/그림 조각 블록("table" 타입)은 다른 문단(body/bullet 등)과 달리
+    // PDF 줄바꿈이 "문장이 길어서 끊긴 자리"가 아니라 "표의 서로 다른 셀/행"일 가능성이
+    // 높음 — 실제 문서(한국토지주택공사 "시간외근무 부적절" [표 1])로 확인. 지금까지
+    // 다른 문단처럼 공백으로 다 이어붙여서 완전히 뜻 없는 단어 나열이 됐었는데, 줄바꿈을
+    // 그대로 살리면 최소한 원래 줄 단위 구분은 남길 수 있음 — CSS(`raw-line-table > div`)
+    // 는 이미 white-space: pre-wrap이라 애초에 줄바꿈을 살릴 걸 전제로 하고 있었음(JS가
+    // 안 살리고 있었던 게 이 둘 사이 드리프트였음).
+    const text = paraType === "table" ? para.join("\n") : para.join(" ");
+    blocks.push({ type: paraType, text });
     prevType = paraType;
     para = [];
     paraType = "body";
   }
 
   for (const rawLine of text.split("\n")) {
-    const trimmed = rawLine.trim();
+    let trimmed = rawLine.trim();
 
-    if (!trimmed) {
+    if (!trimmed || ORNAMENT_GLYPH_LINE_RE.test(trimmed)) {
+      // 다음 줄과 못 합쳐진 채 문단이 끊기는 경우 — 기호를 그냥 잃어버리지 않고
+      // 독립된 조각으로라도 살려둠(원문 그대로 다 보여준다는 기존 방침 유지).
+      if (pendingGlyph) {
+        para.push(pendingGlyph);
+        pendingGlyph = null;
+      }
       flushPara();
       continue;
+    }
+
+    if (LONE_BULLET_GLYPH_RE.test(trimmed)) {
+      pendingGlyph = trimmed;
+      continue;
+    }
+    if (pendingGlyph) {
+      trimmed = `${pendingGlyph} ${trimmed}`;
+      pendingGlyph = null;
     }
 
     // 2026-08-14: 각주 판별 — classifyLine의 일반 "숫자) 내용" 헤딩 패턴보다 먼저
@@ -331,10 +527,14 @@ function splitIntoBlocks(text) {
     // prevType만 보면 그 이전(이미 flush된) 블록 타입을 잘못 참조하게 됨.
     const effectivePrevType = para.length > 0 ? paraType : prevType;
     const footnoteMatch = FOOTNOTE_DEF_RE.exec(trimmed);
+    const continuesHeadingList =
+      lastHeadingListNum !== null &&
+      Number(footnoteMatch?.[1]) === lastHeadingListNum + 1;
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
-      (effectivePrevType === "body" || effectivePrevType === "footnote")
+      (effectivePrevType === "body" || effectivePrevType === "footnote") &&
+      !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
       // 각주 내용이 다음 줄로 넘어간 경우(실제 문서로 확인, "18)「감사규정」..." 다음
@@ -364,12 +564,38 @@ function splitIntoBlocks(text) {
     }
     if (kind === "heading") {
       flushPara();
+      // 2026-08-18: "1) 법령 「...」 제N조(...) '인용문..." 처럼 번호 라벨 뒤에 줄바꿈
+      // 없이 인용문이 바로 붙은 경우, 라벨까지만 헤딩으로 두고 인용문은 새 본문 문단으로
+      // 흘려보냄(splitLawCitationHeading 주석 참고) — 실제 스크린샷으로 확인된 과굵게 버그 수정.
+      const citationSplit = splitLawCitationHeading(trimmed);
+      if (citationSplit) {
+        const [label, body] = citationSplit;
+        // 법령인용 라벨은 TITLE_RE("제목" 라벨)에 걸릴 일이 없지만, 아래 일반
+        // heading push와 마찬가지로 isTitle을 명시적으로 계산해둬서 undefined로
+        // 새지 않게 함(fixMissingTitleNumber의 b.isTitle 체크와 일관성 유지).
+        blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label);
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
       // isTitle은 여기(원본 trimmed 기준)서 한 번만 계산해 저장 — 아래
       // fixMissingTitleNumber가 표시용 text에 "1. "을 덧붙여도 TITLE_RE 재검사에
       // 걸리지 않게(제목 스타일/목차 제외가 계속 정확히 동작하게) 하기 위함.
       blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
+      lastHeadingListNum = extractListNum(trimmed);
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
+      continue;
+    }
+    if (kind === "field") {
+      flushPara();
+      const field = matchFieldLabel(trimmed);
+      blocks.push({ type: "field", label: field.label, value: field.value });
+      prevType = "field";
+      nextIsTable = false;
       continue;
     }
     if (kind === "caption") {
@@ -405,6 +631,7 @@ function splitIntoBlocks(text) {
     }
     para.push(trimmed);
   }
+  if (pendingGlyph) para.push(pendingGlyph); // 문서가 기호 단독 줄로 끝나는 경우
   flushPara();
   // 제목 줄 번호("1. ") 보정 — isTitle 플래그를 이미 저장해뒀으므로 아래에서 text를
   // 바꿔도 스타일/목차 판별에는 영향 없음(위 fixMissingTitleNumber 주석 참고).
@@ -412,7 +639,12 @@ function splitIntoBlocks(text) {
   // 위 분류 로직(각주/헤딩/표 판별 등)은 전부 원본 "[부서]" 문자열 기준으로 이미
   // 끝난 뒤이므로, 화면에 보여줄 텍스트에만 마지막에 치환을 적용함 — classifyLine
   // 등이 "[부서]"를 헤딩으로 오인하지 않게 설계된 기존 로직(6차 수정)과 안 얽히게 함.
-  return blocks.map((b) => ({ ...b, text: maskDeptPlaceholder(b.text) }));
+  // "field" 블록은 text가 아니라 label/value로 나뉘어 있어서 둘 다 따로 치환.
+  return blocks.map((b) =>
+    b.type === "field"
+      ? { ...b, label: maskDeptPlaceholder(b.label), value: maskDeptPlaceholder(b.value) }
+      : { ...b, text: maskDeptPlaceholder(b.text) },
+  );
 }
 
 /** 헤딩 블록에만 앵커 id를 붙여서 렌더링 — 목차(TocSidebar)가 이 id로 점프함.
@@ -427,6 +659,19 @@ function renderRawText(blocks, query) {
           <summary>표/그림 데이터 (펼쳐보기)</summary>
           <div>{query ? highlightMatches(b.text, query) : b.text}</div>
         </details>
+      );
+    }
+    if (b.type === "field") {
+      // 2026-08-18: 소관부서/조치부서/관련자 등 "라벨 + 값" 필드 — 라벨만 굵게, 값은
+      // 보통 굵기로 나란히(원본 PDF와 같은 대비, matchFieldLabel 주석 참고). 값에서만
+      // 검색어 하이라이트 적용(라벨은 "소관부서" 같은 고정 문구라 검색어와 겹칠 일이 거의 없음).
+      return (
+        <div key={i} className="raw-line raw-line-field">
+          <b className="raw-line-field-label">{b.label}</b>
+          <span className="raw-line-field-value">
+            {query ? highlightMatches(b.value, query) : b.value}
+          </span>
+        </div>
       );
     }
     if (b.type !== "heading") {

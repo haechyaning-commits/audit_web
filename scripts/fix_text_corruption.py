@@ -42,7 +42,19 @@
 #    "표" 하나뿐인 라인만 제거 (문장 중간의 "[표 14]" 같은 정상적인
 #    "표" 언급은 안 건드림).
 #
-# 이 네 가지로도 못 고치는 별개 문제(재추출 필요, 이 스크립트 범위 밖):
+# 5) HWP 누출 2차(2026-08-18 추가) — 2)번 수정 후에도 hp:/hc: 네임스페이스
+#    접두어가 아예 없는 "맨 속성명" 잔재("array", "bList", "hasNumRef",
+#    줄바꿈으로 잘린 "hasT"/"linkLi" 조각 등)가 최소 11개 기관 문서에서 실제로
+#    확인됨(사용자 제보, 대구경북첨단의료산업진흥재단 2025/한국임업진흥원 2026
+#    등). 이 말뭉치(한글 전용, 드물게 TFT/KOVIS 같은 대문자 약어만 섞임)엔 자연
+#    발생할 수 없는 "카멜케이스"(소문자 시작 후 대문자가 나오는 형태) 토큰을
+#    일괄 제거하는 방식으로 대응 — CAMEL_CASE_TOKEN_RE 참고. 실제 문서 5건
+#    (오염 2건 + 정상 3건)으로 오탐 0건 확인했으나(스크래치패드 로컬 검증,
+#    DB 미반영), **DB에 실제 반영하기 전에 훨씬 넓은 샘플로 재검증 필요**
+#    (이 세션은 DB 접근이 없어서 못 함 — 아래 실행 순서 3번 재검증 시 특히
+#    "카멜케이스인데 진짜 내용이었던" 오탐이 있는지 꼭 확인할 것).
+#
+# 이 다섯 가지로도 못 고치는 별개 문제(재추출 필요, 이 스크립트 범위 밖):
 #   - raw_text가 50자 미만인데 parsing_quality가 fallback이 아닌 문서
 #   - 인코딩이 깨져 치환문자(U+FFFD)가 섞인 문서
 #   - 표 placeholder를 빼면 전체 300자도 안 되는 문서 (표 파싱 실패로
@@ -70,8 +82,36 @@ import psycopg2
 CHAIN_RE = re.compile(r"(?:([가-힣])\1{1,3} ?){2,}")
 DIGIT_CHAIN_RE = re.compile(r"(?:(\d)\1{1,3} ?){2,}")
 TAG_ATTR_RE = re.compile(r'\b[\w:]+="[^"]*"')
-TAG_NAME_RE = re.compile(r"/?\bhp:[A-Za-z]+\b")
-HWP_LEAK_MARKER = re.compile(r"hp:run|hp:lineseg|hp:sz|hp:pos")
+# 2026-08-18: "id=\n\"2147483648\""처럼 속성명("id=")과 값(따옴표로 감싼 부분) 사이에
+# 줄바꿈이 끼어서 TAG_ATTR_RE(줄바꿈 없이 붙어있다고 가정)가 못 잡는 경우를 한국임업
+# 진흥원 2026 문서로 확인 — 이 사이에 공백/줄바꿈은 허용하되 순서(이름=값)는 그대로
+# 유지해서 별도 정규식으로 처리.
+TAG_ATTR_SPLIT_RE = re.compile(r'\b[\w:]+=\s*"[^"]*"')
+# 같은 문서에서 속성 "이름" 부분이 아예 사라지고 ="16"처럼 값만 덩그러니 남은 경우도
+# 확인됨 — 이름이 없어서 위 두 정규식엔 안 걸림. 앞에 단어 문자가 없는(줄 시작이거나
+# 공백 뒤인) "="값""만 별도로 벗겨냄.
+ORPHAN_TAG_VALUE_RE = re.compile(r'(?<![\w:])="[^"]*"')
+# 2026-08-18: hp: 접두어만 잡던 걸 hc:(도형/차트 속성 태그, 2026-08-13 조사로 발견)까지
+# 넓힘 — 아래 HWP_LEAK_MARKER도 같이 넓혀야 이 태그만 있는 문서에서 가드가 열림.
+TAG_NAME_RE = re.compile(r"/?\b(?:hp|hc):[A-Za-z]+\b")
+# 2026-08-18: hp:/hc: 네임스페이스 접두어조차 없는 "맨 속성명" 누출을 실제 문서로
+# 확인함(대구경북첨단의료산업진흥재단 2025 "array"/"bList"/"hasN", 한국임업진흥원 2026
+# "hasT"/"linkLi"/"styleIDRef" 등 — 사용자 제보로 발견). 하나하나 정확한 단어로 나열하는
+# 대신, 이 말뭉치(한글 전용 감사보고서, 드물게 대문자 약어만 섞임 — TFT/KOVIS/BSC처럼)에는
+# 자연 발생할 수 없는 "소문자로 시작해서 중간에 대문자가 나오는" 카멜케이스 형태를 전부
+# 잡음 — hasNumRef/linkListIDRef/isList/bList/outlineS뿐 아니라 줄바꿈 등으로 중간에
+# 잘린 조각(hasN/hasT/linkLi 등)까지 한 번에 커버됨. 실제 문서 3건(위 2건 + 기존 정상
+# 문서 3건)으로 오탐 0건 확인(스크래치패드 검증, DB 미반영). "array"/"para"처럼 카멜케이스가
+# 아닌 순수 소문자 토큰은 별도로 정확한 단어만 나열(오탐 위험 있어서 좁게 유지).
+CAMEL_CASE_TOKEN_RE = re.compile(r"\b[a-z]{1,10}[A-Z][A-Za-z0-9]*\b")
+BARE_LOWER_TOKEN_RE = re.compile(r"\b(?:array|para)\b")
+HWP_LEAK_MARKER = re.compile(
+    r"hp:run|hp:lineseg|hp:sz|hp:pos"
+    r"|hc:\w+|textpos=|vertpos=|linkListNextIDRef=|outlineS"  # 2026-08-13 조사로 발견
+    r"|hasNumRef=|hasTextRef=|linkListIDRef=|width=|bottom=|merged="  # 2026-08-18 발견
+    r"|\b[a-z]{1,10}[A-Z][A-Za-z0-9]*\b"  # 2026-08-18: 카멜케이스 맨 토큰(위 CAMEL_CASE_TOKEN_RE와 동일)
+    r"|\b(?:array|para)\b"
+)
 
 # 2026-08-12 추가: 같은 bold_dup 렌더링 버그가 괄호/인용부호에도 나타남
 # ("｢｢업무용 차량...｣｣"처럼 여는/닫는 괄호가 겹쳐 나옴). 한글 글자 중복(CHAIN_RE)과
@@ -157,13 +197,21 @@ def strip_table_placeholder(text: str) -> str:
 
 
 def strip_hwpml_leak(text: str) -> str:
-    """HWP XML 누출(hwp_leak) 수정. hp: 태그가 아예 없는 문서는 그대로
-    반환 — 관련 없는 문서까지 공백/줄바꿈을 건드리는 사고 방지용 가드."""
+    """HWP XML 누출(hwp_leak) 수정. HWP_LEAK_MARKER에 안 걸리는 문서는 그대로
+    반환 — 관련 없는 문서까지 공백/줄바꿈을 건드리는 사고 방지용 가드(2026-08-07
+    사고 이후 원칙). 2026-08-18: hp:/hc: 네임스페이스 태그뿐 아니라 접두어 없는
+    카멜케이스 속성명 잔재(hasNumRef/linkListIDRef/bList 등, 줄바꿈으로 잘린
+    조각 포함)까지 같이 벗겨냄 — 가드도 그만큼 넓어졌으니 이 조건에 걸리는
+    문서가 실제로 hwp_leak인지(우연히 카멜케이스 형태 텍스트가 있는 게 아닌지)
+    반영 전 로컬 CSV 재검증 필수."""
     if not HWP_LEAK_MARKER.search(text):
         return text
     text = html.unescape(text)
-    text = TAG_ATTR_RE.sub(" ", text)
+    text = TAG_ATTR_SPLIT_RE.sub(" ", text)  # TAG_ATTR_RE보다 넓은 상위 호환 패턴이라 이거 하나로 충분
+    text = ORPHAN_TAG_VALUE_RE.sub(" ", text)
     text = TAG_NAME_RE.sub(" ", text)
+    text = CAMEL_CASE_TOKEN_RE.sub(" ", text)
+    text = BARE_LOWER_TOKEN_RE.sub(" ", text)
     text = re.sub(r"\s*/\s*(?=\s|$)", " ", text)
     text = re.sub(r"[ \t]+", " ", text)           # 개행은 보존, 스페이스/탭만 압축
     text = re.sub(r" *\n *", "\n", text).strip()  # 개행 주변 공백만 정리
