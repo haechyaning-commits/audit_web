@@ -26,14 +26,16 @@
 # SELF_TEST_DOCS)의 각주 개수. 둘 중 하나라도 기대와 다르면 바로 멈춤
 # (로직이 갈라졌다는 신호이므로 전수 스캔을 신뢰할 수 없음).
 #
-# **알려진 버그(2026-08-20, 아직 미수정)**: SELF_TEST_DOCS의 9ddc6393057cc532
-# 문서는 실제로는 각주가 19개(6/7/8도 존재)인데 splitLawCitationHeading/
-# classifyLine의 헤딩 오판별이 연쇄를 일으켜 각주 6~10/15~16이 body/heading에
-# 흡수되고 12건만 인식됨 — **포팅 문제가 아니라 DetailPage.jsx 자체의 실제
-# 렌더링 버그**(Node로 실제 파일과 대조 확인함). STATUS.md 2026-08-20 항목
-# 참고. 이 스크립트는 일단 "현재(버그 있는) 동작"에 맞춰 기대값을 12로 두고
-# 전수 스캔을 진행하지만, 이 클래스의 버그(각주 참조는 있는데 일부만 인식)는
-# 아래 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고 후보 목록을 볼 것.
+# **알려진 버그(2026-08-20, 부분 수정됨)**: SELF_TEST_DOCS의 9ddc6393057cc532
+# 문서는 실제로는 각주가 19개(6/7/8도 존재)인데 **포팅 문제가 아니라
+# DetailPage.jsx 자체의 실제 렌더링 버그**(Node로 실제 파일과 대조 확인함) 때문에
+# 일부가 body/heading에 흡수됨 — Colab 디버그 추적으로 원인 3가지(불릿/표 문단
+# 흡수, 그로 인한 헤딩 오분류 연쇄)를 실제로 특정해서 effectivePrevType 허용
+# 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건, 실제 DB로 확인 완료).
+# 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가 막힘)이라
+# 아직 미수정 — STATUS.md 2026-08-20 항목 참고. 이 클래스의 버그(각주 참조는
+# 있는데 일부만 인식)는 아래 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고
+# 후보 목록을 볼 것.
 #
 # **탐지하는 "구조 이상" 신호** (전부 휴리스틱 — 확정 버그가 아니라 "사람이
 # 확인해볼 가치가 있는 후보"를 걸러내는 용도):
@@ -172,7 +174,15 @@ FOOTNOTE_REF_RE = re.compile(r"[^\s\d](\d{1,2})\)")
 # 한글 글자로 좁히면 위 날짜/괄호열거/마스킹 오탐이 전부 사라짐(5건 실제 확인).
 FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
-LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s+\S")
+# 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 각주 오판별
+# 방지(continuesHeadingList)에 쓰이면서 실제 문서(한국조폐공사 2016,
+# f35fdc468543c358 / 한국자산관리공사 2021, 9ddc6393057cc532)로 확인된 버그가
+# 있었음 — "1. 업무개요 / 2. 관계규정..." 같은 마침표 최상위 섹션 번호(거의
+# 모든 감사보고서에 있는 흔한 구조)까지 이 카운터를 오염시켜서, 뒤에 나오는
+# 진짜 각주("1)"/"2)")가 "목록 연속"으로 오판별돼 인식이 안 되던 문제. 실제
+# "N) 법령 「...」..." 인용 목록은 지금까지 확인된 사례 전부 괄호만 썼음 —
+# 괄호만 받게 좁힘(DetailPage.jsx와 동일하게 반영).
+LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})\)\s+\S")
 
 
 def extract_list_num(text):
@@ -181,6 +191,9 @@ def extract_list_num(text):
 
 
 QUOTE_CHAR_RE = re.compile(r"""[‘’“”'"]""")
+
+
+LEADING_NUM_PREFIX_RE = re.compile(r"^\d{1,2}\)\s*")
 
 
 def split_law_citation_heading(trimmed):
@@ -193,8 +206,15 @@ def split_law_citation_heading(trimmed):
         return None
     quote_idx = m.start()
     before = trimmed[:quote_idx]
-    if not re.search(r"[)）]", before):
-        return None  # 조/항 인용 괄호가 하나도 없으면 라벨 아님
+    # 2026-08-20: "7) 2021. 1. 30. 모바일 익명 커뮤니티 앱인 '블라인드'의..."처럼
+    # 각주 정의 줄 자체가 우연히 비공식 인용부호(속어/앱 이름 등)를 포함하면,
+    # 번호 접두어 자체의 괄호("7)"의 ")")까지 "조/항 인용 괄호"로 오인해서 각주가
+    # 헤딩으로 잘못 쪼개지는 버그를 실제 문서(9ddc6393057cc532)로 확인함 —
+    # 번호 접두어는 제외하고 그 "뒤"에 별도의 조/항 인용 괄호가 있는지만 봄.
+    leading_num = LEADING_NUM_PREFIX_RE.match(before)
+    after_leading_num = before[leading_num.end():] if leading_num else before
+    if not re.search(r"[)）]", after_leading_num):
+        return None  # 조/항 인용 괄호가 없으면 라벨 아님
     label = before.rstrip()
     body = trimmed[quote_idx:]
     if not label or not body:
@@ -256,6 +276,17 @@ def classify_line(line: str) -> str:
     return "body"
 
 
+# 2026-08-20: 각주 판별 조건에서 허용하는 "직전 문단 타입" — 실제 문서(한국자산관리공사
+# 2021, 9ddc6393057cc532)를 디버그 추적해서 확인함. "*" 불릿이 먼저 나와서 그 뒤
+# 평문들을 "bullet" 문단으로 계속 흡수하다가 진짜 각주 정의 줄까지 삼키는 경우, 그리고
+# "[표 N]" 캡션 뒤 표 데이터를 흡수하는 중에 각주 정의 줄이 나오는 경우 둘 다 원래
+# ("body", "footnote")만 허용하던 조건에 안 걸려서 각주 인식이 통째로 실패하고 있었음.
+# SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로 끝내는 경계로 이미 쓰이는 것과
+# 같은 이유로, 진짜 각주 정의 줄(번호가 footnoteNums에 있음)도 불릿/표 문단을 끝내는
+# 경계로 인정함(DetailPage.jsx와 동일하게 반영).
+FOOTNOTE_ALLOWED_PREV_TYPES = frozenset({"body", "footnote", "bullet", "table"})
+
+
 def split_into_blocks(text: str) -> list[dict]:
     footnote_nums = set(m.group(1) for m in FOOTNOTE_REF_RE.finditer(text))
 
@@ -304,7 +335,7 @@ def split_into_blocks(text: str) -> list[dict]:
         if (
             footnote_match
             and footnote_match.group(1) in footnote_nums
-            and effective_prev_type in ("body", "footnote")
+            and effective_prev_type in FOOTNOTE_ALLOWED_PREV_TYPES
             and not continues_heading_list
         ):
             flush_para()
@@ -453,6 +484,81 @@ def run_synthetic_self_tests():
     check("익명화 마스킹(+0+0+0))은 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("압류재산(+0+0+0+0-+0+0+0)의 경우"))
     check("한글 뒤 진짜 각주 참조('금액18)')는 여전히 잡힘", bool(FOOTNOTE_REF_STRICT_RE.search("지적된 금액18)은 환수")))
 
+    # 2026-08-20: 헤딩/각주 번호 충돌 버그 수정(LIST_HEADING_NUM_RE 괄호 전용화 +
+    # split_law_citation_heading 번호 접두어 괄호 제외) — 실제 문서로 재현한 케이스들.
+    check(
+        "마침표 섹션번호('5. ...')는 이제 목록 연속 판정에 안 걸림",
+        extract_list_num("5. 공사의 여러 규정, 서약사항 및 지시명령을 위반하여") is None,
+    )
+    check("괄호 목록번호('1) ...')는 여전히 걸림", extract_list_num("1) 법령 「...」") == 1)
+    check(
+        "각주 정의 줄 자체의 괄호('7)')는 법령인용 괄호로 오인 안 됨",
+        split_law_citation_heading(
+            "7) 2021. 1. 30. 모바일 익명 커뮤니티 앱인 '블라인드'의 공사 전용 게시판에"
+        )
+        is None,
+    )
+    check(
+        "진짜 법령인용(번호 뒤 별도 조/항 괄호)은 여전히 분리됨",
+        split_law_citation_heading(
+            "1) 법령 「공직자윤리법」 제3조의2 제2항(공기업) '공직유관단체인 우리 공사는 ...'"
+        )
+        is not None,
+    )
+    # 한국조폐공사 2016(f35fdc468543c358) 실제 발췌 — "회계정책1)"/"적용2)" 각주
+    # 정의가 둘 다 인식되는지(수정 전엔 헤딩/각주 번호 충돌로 실패했음).
+    text = (
+        "기업회계기준에 따르면 최초 채택한 회계정책1)은 합당한 사유가 없는 한 동일한\n"
+        "방식으로 일관성 있게 적용2)하여야 하므로, 유형자산 또한\n\n"
+        "1) 기업회계기준서 제1008호 「회계정책, 회계추정의 변경 및 오류」 문단 5에 따름\n"
+        "2) 일관성 있게 적용하여야 함을 의미함"
+    )
+    blocks = split_into_blocks(text)
+    n_footnote = sum(1 for b in blocks if b["type"] == "footnote")
+    check("한국조폐공사 스타일: 각주 1),2) 둘 다 인식됨", n_footnote == 2)
+
+    # 2026-08-20: 각주가 불릿/표 문단에 흡수돼 인식이 통째로 실패하던 버그 수정 —
+    # 한국자산관리공사 2021(9ddc6393057cc532)을 실제 디버그 추적해서 확인한 최소 재현.
+    text = (
+        "본문에서 언급된 판단 내용9)을 참고\n"
+        "[표 1] 구제위원회 판단 내용\n"
+        "위원 성명 의견\n"
+        "AAA 인정\n"
+        "BBB 불인정\n"
+        "9) 위 인정된 사실 외 직장 내 괴롭힘 여부 판단 대상 중 발언은 판단요건에 부합하지 않음"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "표 데이터 흡수 중이던 각주 9 인식(수정 전엔 실패)",
+        any(b["type"] == "footnote" and b["text"].startswith("9)") for b in blocks),
+    )
+    text = (
+        "본문에서 언급된 위원회6)를 참고\n"
+        "* 당시 관련자는 처장실 문 앞에 서서 발언\n"
+        "이에 대해 소관부점이 사건을 인지하고 절차를 진행함\n"
+        "6) 위원회 규정 제41조에 따라 구성된 기구임"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "불릿 문단에 흡수되던 각주 6 인식(수정 전엔 실패)",
+        any(b["type"] == "footnote" and b["text"].startswith("6)") for b in blocks),
+    )
+    # 회귀 없음: 각주 아닌 일반 표/불릿은 여전히 하나로 흡수됨
+    text = "[표 1] 인원 현황\n부서 인원 비고\n총무팀 5 -\n기획팀 3 -\n자료: 각 부서 제출자료 재구성"
+    blocks = split_into_blocks(text)
+    table_block = next((b for b in blocks if b["type"] == "table"), None)
+    check(
+        "일반 표 데이터는 여전히 하나의 table 블록으로 흡수됨(회귀 없음)",
+        table_block is not None and "총무팀" in table_block["text"] and "기획팀" in table_block["text"],
+    )
+    text = "* 폭행 피해사실 : C - B가 휘드른 손에 머리를 2회 맞음\n계속되는 설명 문장"
+    blocks = split_into_blocks(text)
+    bullet_block = next((b for b in blocks if b["type"] == "bullet"), None)
+    check(
+        "일반 불릿 문단은 여전히 정상 흡수됨(회귀 없음)",
+        bullet_block is not None and "계속되는 설명 문장" in bullet_block["text"],
+    )
+
     if failures:
         raise SystemExit(
             f"\n합성 자가 검증 실패({len(failures)}건): {failures}\n"
@@ -471,21 +577,18 @@ print("합성 자가 검증 통과\n")
 # 기대치와 다르면 포팅이 DetailPage.jsx와 갈라졌다는 뜻이므로 바로 중단.
 # ------------------------------------------------------------------
 SELF_TEST_DOCS = {
-    # 한국자산관리공사 2021 — 2026-08-20: 사용자가 Colab에서 처음 돌려보니 12건으로
-    # 나와서(기존 주석엔 16건이 "정답"이라고 돼 있었음) 원인 추적함. 8/19 시점 주석의
-    # "6/7/8은 별도 각주 정의 없이 실제로 존재 안 함"은 틀린 설명이었음 — 실제로는
-    # 각주 1~19가 전부 원문에 존재하는데, DetailPage.jsx의 splitLawCitationHeading/
-    # classifyLine 헤딩 휴리스티이 각주 정의 줄(줄바꿈으로 문장부호 없이 끝나거나,
-    # 각주 번호 자체의 ")"를 법령인용 괄호로 오인)에 오발동해서 각주 6~10/15~16이
-    # heading/body로 잘못 흡수되는 **실제 프로덕션 렌더링 버그**(main에 이미 존재,
-    # 이 스크립트가 만든 버그 아님 — Node로 실제 DetailPage.jsx와 대조해 확인함).
-    # continuesHeadingList가 "각주 번호"와 "헤딩 번호"를 구분 못 해서 한 번 헤딩으로
-    # 오분류되면 뒤이은 각주들까지 연쇄로 깨짐. 좁은 수정(법령인용 분리 조건 강화)은
-    # 가능하지만 더 근본적인 continuesHeadingList 쪽은 실제 문서 전수로 회귀 검증이
-    # 필요해서 이번엔 보류 — DB 접근 있는 세션에서 제대로 고칠 것(다음 할 일 참고).
-    # 그때까지는 "12"가 현재 코드의 검증된(=일관된) 실제 동작이므로 이 값으로 맞춰둠 —
-    # 나중에 버그를 고치면 이 기대값도 16으로 다시 올릴 것.
-    "9ddc6393057cc532": {"footnote_blocks": 12},
+    # 한국자산관리공사 2021 — 2026-08-20: 8/19 시점 주석의 "6/7/8은 별도 각주 정의
+    # 없이 실제로 존재 안 함"은 틀린 설명이었음(실제로는 각주 1~19가 전부 원문에
+    # 존재). Colab 디버그 추적(effectivePrevType 실제 값을 매 줄 출력)으로 원인을
+    # 정확히 특정 — ①"*" 불릿이 먼저 나오면 그 뒤 평문이 계속 "bullet" 문단으로
+    # 흡수되다 각주 6/7까지 삼킴 ②"[표 N]" 캡션 뒤 표 데이터 흡수 중 각주 9가
+    # 나오면 마찬가지로 흡수됨 ③6/9가 실패하며 잘못 heading으로 승격돼
+    # lastHeadingListNum을 오염시켜 8/10이 연쇄로 실패. effectivePrevType 허용
+    # 목록에 "bullet"/"table" 추가로 6~10 전부 해결(12→17건, 실제 DB로 확인 완료).
+    # 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가
+    # effectivePrevType==="heading"에 막힘, continuesHeadingList와 무관) —
+    # 오늘은 여기까지, 다음 세션에서 이어서 진단(STATUS.md 참고).
+    "9ddc6393057cc532": {"footnote_blocks": 17},
     # 한국부동산원 2024 — 각주 1~11 전부 분리돼야 함(오늘 세 번째로 고친 "각주 중 불릿
     # 흡수" 버그의 실제 재현 문서).
     "4df12939e14a66c3": {"footnote_blocks": 11},

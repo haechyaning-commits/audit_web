@@ -309,7 +309,17 @@ const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
 // 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
 // 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②splitLawCitationHeading으로
 // 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
-const LIST_HEADING_NUM_RE = /^(\d{1,2})[.)]\s+\S/;
+//
+// 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 ①에서 각주
+// 오판별 방지용 lastHeadingListNum으로 쓰이면서 실제 문서(한국조폐공사 2016,
+// f35fdc468543c358)로 확인된 버그가 있었음 — "1. 업무개요 / 2. 관계규정..."
+// 처럼 마침표로 된 최상위 문서 섹션 번호(사실상 모든 감사보고서에 있는 흔한
+// 구조)까지 이 카운터를 오염시켜서, 그 뒤에 나오는 진짜 각주("1)"/"2)")가
+// "목록 연속"으로 오판별돼 아예 각주로 인식이 안 되는 문제였음(한국자산관리공사
+// 2021, 9ddc6393057cc532에서도 재현). 실제 "N) 법령 「...」..." 인용 목록은
+// 지금까지 확인된 사례 전부 괄호(")")만 썼지 마침표를 쓴 적이 없어서, 괄호만
+// 받게 좁힘 — 마침표로 된 최상위 섹션 번호는 이제 이 카운터에 안 걸림.
+const LIST_HEADING_NUM_RE = /^(\d{1,2})\)\s+\S/;
 function extractListNum(text) {
   const m = LIST_HEADING_NUM_RE.exec(text);
   return m ? Number(m[1]) : null;
@@ -339,7 +349,15 @@ function splitLawCitationHeading(trimmed) {
   const quoteIdx = trimmed.search(QUOTE_CHAR_RE);
   if (quoteIdx <= 0) return null;
   const before = trimmed.slice(0, quoteIdx);
-  if (!/[)）]/.test(before)) return null; // 조/항 인용 괄호가 하나도 없으면 라벨 아님
+  // 2026-08-20: "7) 2021. 1. 30. 모바일 익명 커뮤니티 앱인 '블라인드'의..."처럼
+  // 각주 정의 줄 자체가 우연히 비공식 인용부호(속어/앱 이름 등)를 포함하면,
+  // 번호 접두어 자체의 괄호("7)"의 ")")까지 "조/항 인용 괄호"로 오인해서 각주가
+  // 헤딩으로 잘못 쪼개지는 버그를 실제 문서(한국자산관리공사 2021,
+  // 9ddc6393057cc532)로 확인함 — 번호 접두어는 제외하고 그 "뒤"에 별도의
+  // 조/항 인용 괄호가 있는지만 봄.
+  const leadingNum = before.match(/^\d{1,2}\)\s*/);
+  const afterLeadingNum = leadingNum ? before.slice(leadingNum[0].length) : before;
+  if (!/[)）]/.test(afterLeadingNum)) return null; // 조/항 인용 괄호가 없으면 라벨 아님
   const label = before.replace(/\s+$/, "");
   const body = trimmed.slice(quoteIdx);
   if (!label || !body) return null;
@@ -530,10 +548,22 @@ function splitIntoBlocks(text) {
     const continuesHeadingList =
       lastHeadingListNum !== null &&
       Number(footnoteMatch?.[1]) === lastHeadingListNum + 1;
+    // 2026-08-20: 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 디버그
+    // 추적해서 확인함 — "* 당시 관련자는..." 같은 "*" 불릿이 각주 정의 줄보다
+    // 먼저 나와서 그 뒤 평문들을 계속 "bullet" 문단으로 흡수하다가 진짜 각주
+    // 정의 줄까지 삼켜버리는 경우(effectivePrevType==="bullet"), 그리고 "[표 1]"
+    // 캡션 뒤 표 데이터를 흡수하는 중에 각주 정의 줄이 나오는 경우
+    // (effectivePrevType==="table")에는 각주 판별 조건에서 막혀서 각주가 아예
+    // 인식이 안 되고 있었음. SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로
+    // 끝내는 경계로 이미 쓰이는 것과 같은 이유로, 진짜 각주 정의 줄(번호가
+    // footnoteNums에 있음)도 불릿/표 문단을 끝내는 경계로 인정함.
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
-      (effectivePrevType === "body" || effectivePrevType === "footnote") &&
+      (effectivePrevType === "body" ||
+        effectivePrevType === "footnote" ||
+        effectivePrevType === "bullet" ||
+        effectivePrevType === "table") &&
       !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
