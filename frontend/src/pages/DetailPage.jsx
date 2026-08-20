@@ -193,8 +193,13 @@ const HEADING_LABEL_PATTERNS = [
 // 나누는 게 이상하다"는 피드백으로 이어짐 — CSS상 bullet 타입만 margin-top이 붙어서
 // body로 빠진 "•" 줄만 위 여백이 없어 다른 줄들과 간격이 어긋나 보였음). "◦"(연한 원,
 // 이미 있음)와 혼동하기 쉬운 별개 문자라 별도로 추가.
+// 2026-08-20: 실제 문서(한국자산관리공사 2019, 65fc6662db4c8570)로 확인 — 불릿 기호로
+// "○"(원 기호, U+25CB)가 아니라 "ㅇ"(한글 자음 '이응', U+3147)를 쓰는 문서가 있음. 화면상
+// 둘이 구분이 거의 안 되는 유니코드 혼동 문자라 지금까지 놓치고 있었음 — "ㅇ 또한, ..."/
+// "ㅇ 따라서, ..." 같은 줄이 불릿으로 안 걸리고 그냥 body로 흘러들어가서, 앞뒤 문단과
+// 문단 구분 없이 통째로 뭉쳐버리는 문제(사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보).
 const BULLET_RE =
-  /^(?:[-–—□○◦▪‣·❍※•*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
+  /^(?:[-–—□○◦▪‣·❍※•*ㅇ]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)/;
 
 // 2026-08-18: 불릿 기호 혼자만 있는 줄("□"만 있고 그 뒤에 아무 글자도 없음) — 이런
 // 줄은 BULLET_RE가 요구하는 "기호 다음 글자"가 없어서 안 걸리고 그냥 body로 흘러
@@ -429,11 +434,23 @@ function classifyLine(line) {
   // 조건으로 좁혀서 구분함(e6bae4491398a6b2처럼 실제로 문장 종결로 끝나는 긴 본문은
   // 여전히 안 걸림).
   const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
+  // 2026-08-20: 위 "80자 이내+문장종결없음" 조건이 예외 2가 노린 진짜 법령인용
+  // 라벨("...제12조(...) 제3항")뿐 아니라, 마침표 없이 끝나는 흔한 한국어 나열식
+  // 목록 항목("1. 법령, 관계규정 또는 감독기관 등의 지시·명령·처분 등을 위반한
+  // 사람")까지 통째로 헤딩(굵게)으로 오탐하는 걸 실제 문서로 확인함(한국자산관리공사
+  // 2019, 65fc6662db4c8570 — 「인사규정」 제44조 열거 항목 1/2/3/5/11이 전부 각각
+  // 독립된 헤딩으로 쪼개짐). 예외 2가 실제로 노리는 케이스는 항상 「법령명」 인용이나
+  // "제N조/항/호" 조항 참조를 포함하므로, 그 힌트가 있을 때만 이 조건을 인정하도록
+  // 좁힘 — 조항 참조가 전혀 없는 평범한 나열 항목은 body로 남아 이어지는 항목들과
+  // 자연스럽게 한 문단으로 합쳐짐.
+  const LAW_CITATION_HINT_RE = /「|제\s*\d+\s*(?:조|항|호)/;
   if (
     /^\d{1,2}[.)]\s+\S/.test(trimmed) &&
     (trimmed.length <= 24 ||
       splitLawCitationHeading(trimmed) ||
-      (trimmed.length <= 80 && !SENTENCE_END_RE.test(trimmed)))
+      (trimmed.length <= 80 &&
+        !SENTENCE_END_RE.test(trimmed) &&
+        LAW_CITATION_HINT_RE.test(trimmed)))
   ) {
     return "heading";
   }
@@ -486,6 +503,13 @@ function splitIntoBlocks(text) {
   // 각주로 오분류되는 문제를 실제 스크린샷으로 확인함(한국가스공사 2021 사례). 직전
   // 목록 번호 + 1과 정확히 같으면 목록 연속으로 보고 각주 판정에서 제외.
   let lastHeadingListNum = null;
+  // 2026-08-20: 가장 최근에 push된 heading 블록의 원문 텍스트 — 아래 각주 분기에서
+  // "(징계)"/"(현황)" 같은 괄호 라벨(PAREN_LABEL_RE)이 각주 정의 줄 바로 앞에 오는
+  // 경우를 구분하는 데 씀(한국자산관리공사 2019, 65fc6662db4c8570로 확인). 이런
+  // 괄호 라벨은 번호 목록의 헤딩이 아니라 그냥 절 끝에 붙는 처분유형 표시라 그 뒤에
+  // 바로 각주가 나와도 "목록 항목과 헷갈릴 위험"이 없음 — effectivePrevType==="heading"
+  // 이면 무조건 각주를 막던 조건을 이 경우에만 풀어줌.
+  let prevHeadingText = null;
   // 2026-08-18: "□" 기호 혼자만 있는 줄 바로 다음 줄에 "점검 개요" 같은 실제 소제목
   // 텍스트가 오는 문서를 실제로 확인함(한국임업진흥원 2026 — 원래 "□ 점검 개요"가 PDF
   // 줄바꿈으로 기호와 글자가 갈라진 것으로 보임). "□" 혼자인 줄은 뒤에 오는 non-space
@@ -557,13 +581,26 @@ function splitIntoBlocks(text) {
     // 인식이 안 되고 있었음. SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로
     // 끝내는 경계로 이미 쓰이는 것과 같은 이유로, 진짜 각주 정의 줄(번호가
     // footnoteNums에 있음)도 불릿/표 문단을 끝내는 경계로 인정함.
+    // 2026-08-20: 실제 문서(한국자산관리공사 2019, 65fc6662db4c8570) — "(징계)" 같은
+    // 괄호 라벨(PAREN_LABEL_RE)이 heading으로 push된 바로 다음 줄에 진짜 각주가 오는
+    // 경우, 지금까지는 effectivePrevType==="heading"이라 무조건 막혀서 각주 인식이
+    // 실패하고 그 여파로 lastHeadingListNum이 오염돼 다음 각주까지 연쇄로 헤딩화되는
+    // 문제가 있었음(STATUS.md "각주 15/16" 항목과 같은 코드 경로, 다른 트리거).
+    // 괄호 라벨은 번호 목록 헤딩이 아니라서(lastHeadingListNum이 그 라벨 자체로는
+    // 갱신되지 않음, extractListNum이 null 반환) "번호 목록 항목과 헷갈릴 위험"이
+    // 원천적으로 없음 — 이 경우에만 heading을 각주 허용 타입에 포함시킴.
+    const prevHeadingIsParenLabel =
+      effectivePrevType === "heading" &&
+      prevHeadingText !== null &&
+      PAREN_LABEL_RE.test(prevHeadingText);
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
       (effectivePrevType === "body" ||
         effectivePrevType === "footnote" ||
         effectivePrevType === "bullet" ||
-        effectivePrevType === "table") &&
+        effectivePrevType === "table" ||
+        prevHeadingIsParenLabel) &&
       !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
@@ -605,6 +642,7 @@ function splitIntoBlocks(text) {
         // 새지 않게 함(fixMissingTitleNumber의 b.isTitle 체크와 일관성 유지).
         blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
+        prevHeadingText = label;
         lastHeadingListNum = extractListNum(label);
         nextIsTable = false;
         paraType = "body";
@@ -616,6 +654,7 @@ function splitIntoBlocks(text) {
       // 걸리지 않게(제목 스타일/목차 제외가 계속 정확히 동작하게) 하기 위함.
       blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
+      prevHeadingText = trimmed;
       lastHeadingListNum = extractListNum(trimmed);
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
