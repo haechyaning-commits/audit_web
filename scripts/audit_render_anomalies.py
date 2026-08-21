@@ -26,16 +26,19 @@
 # SELF_TEST_DOCS)의 각주 개수. 둘 중 하나라도 기대와 다르면 바로 멈춤
 # (로직이 갈라졌다는 신호이므로 전수 스캔을 신뢰할 수 없음).
 #
-# **알려진 버그(2026-08-20, 부분 수정됨)**: SELF_TEST_DOCS의 9ddc6393057cc532
+# **알려진 버그(2026-08-20 발견, 2026-08-21 수정 — 실 DB 재검증 전)**: SELF_TEST_DOCS의 9ddc6393057cc532
 # 문서는 실제로는 각주가 19개(6/7/8도 존재)인데 **포팅 문제가 아니라
 # DetailPage.jsx 자체의 실제 렌더링 버그**(Node로 실제 파일과 대조 확인함) 때문에
 # 일부가 body/heading에 흡수됨 — Colab 디버그 추적으로 원인 3가지(불릿/표 문단
 # 흡수, 그로 인한 헤딩 오분류 연쇄)를 실제로 특정해서 effectivePrevType 허용
 # 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건, 실제 DB로 확인 완료).
-# 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가 막힘)이라
-# 아직 미수정 — STATUS.md 2026-08-20 항목 참고. 이 클래스의 버그(각주 참조는
-# 있는데 일부만 인식)는 아래 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고
-# 후보 목록을 볼 것.
+# 남은 15/16(짧은 숫자 헤딩 직후 각주가 막히는 문제)도 같은 방식으로
+# effectivePrevType 허용 목록에 "heading" 추가해서 수정(합성 재현 테스트로
+# 검증, 아래 자가 검증 참고) — **다만 이 세션은 DB 접근이 없어서 실제
+# 9ddc6393057cc532 문서로 12→19건까지 다 늘어나는지는 아직 재확인 못 함**,
+# 다음 Colab 세션에서 SELF_TEST_DOCS 기대치(19)와 실제 결과가 맞는지 반드시
+# 재검증할 것. 이 클래스의 버그(각주 참조는 있는데 일부만 인식)는 아래 4개
+# 탐지 신호로 못 잡을 수 있다는 점을 감안하고 후보 목록을 볼 것.
 #
 # **탐지하는 "구조 이상" 신호** (전부 휴리스틱 — 확정 버그가 아니라 "사람이
 # 확인해볼 가치가 있는 후보"를 걸러내는 용도):
@@ -284,7 +287,14 @@ def classify_line(line: str) -> str:
 # SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로 끝내는 경계로 이미 쓰이는 것과
 # 같은 이유로, 진짜 각주 정의 줄(번호가 footnoteNums에 있음)도 불릿/표 문단을 끝내는
 # 경계로 인정함(DetailPage.jsx와 동일하게 반영).
-FOOTNOTE_ALLOWED_PREV_TYPES = frozenset({"body", "footnote", "bullet", "table"})
+#
+# 2026-08-21(각주 15/16, 8/20에 특정한 원인 기반): "15) 과잉금지의 원칙..."처럼 각주 본문 자체가
+# 24자 이하로 짧으면 classify_line의 "짧은 번호 헤딩" 규칙에 걸려 heading으로
+# 잘못 승격됨 — 그 직후엔 heading 자체가 각주 인식 허용 목록에 없어서 정작 진짜
+# 각주였던 그 줄이 인식 안 되고 heading으로 새어버렸음(그 뒤로 이어지는 각주도
+# 직전이 "heading"이라 연쇄로 계속 heading이 됨). bullet/table을 인정한 것과
+# 같은 이유로 heading 직후도 허용(DetailPage.jsx와 동일하게 반영).
+FOOTNOTE_ALLOWED_PREV_TYPES = frozenset({"body", "footnote", "bullet", "table", "heading"})
 
 
 def split_into_blocks(text: str) -> list[dict]:
@@ -543,6 +553,39 @@ def run_synthetic_self_tests():
         "불릿 문단에 흡수되던 각주 6 인식(수정 전엔 실패)",
         any(b["type"] == "footnote" and b["text"].startswith("6)") for b in blocks),
     )
+
+    # 2026-08-21: 각주 15/16 — 짧은(24자 이하) 각주 정의가 heading 바로 다음에
+    # 오면, classify_line의 "짧은 번호 헤딩" 규칙 때문에 그 각주 줄 자신이
+    # heading으로 잘못 승격돼서 각주로 아예 인식이 안 되던 버그(그 뒤로 이어지는
+    # 각주도 직전이 "heading"이라 연쇄로 계속 heading이 됨). 최소 재현.
+    text = (
+        "본문에서 지적된 사항15)과 비례원칙16)을 위반함\n"
+        "다. 위법성 판단\n"
+        "15) 과잉금지의 원칙 위반\n"
+        "16) 비례의 원칙 위반"
+    )
+    blocks = split_into_blocks(text)
+    footnote_texts = [b["text"] for b in blocks if b["type"] == "footnote"]
+    check(
+        "heading 직후 짧은 각주 15/16 둘 다 인식(수정 전엔 둘 다 heading으로 샘)",
+        any(t.startswith("15)") for t in footnote_texts)
+        and any(t.startswith("16)") for t in footnote_texts),
+    )
+    # 회귀 없음: 진짜 번호목록(연속 번호)이 heading 뒤에 와도 각주로 안 새고
+    # 여전히 heading으로 남는지(continuesHeadingList가 여전히 이 케이스를 막음).
+    text = (
+        "관련 법령은 아래와 같음\n"
+        "1) 법령 「공직자윤리법」 제3조\n"
+        "2) 법령 「국가공무원법」 제63조"
+    )
+    blocks = split_into_blocks(text)
+    heading_texts = [b["text"] for b in blocks if b["type"] == "heading"]
+    check(
+        "연속 번호목록은 heading 뒤에 와도 여전히 heading 유지(회귀 없음)",
+        any(t.startswith("1)") for t in heading_texts)
+        and any(t.startswith("2)") for t in heading_texts),
+    )
+
     # 회귀 없음: 각주 아닌 일반 표/불릿은 여전히 하나로 흡수됨
     text = "[표 1] 인원 현황\n부서 인원 비고\n총무팀 5 -\n기획팀 3 -\n자료: 각 부서 제출자료 재구성"
     blocks = split_into_blocks(text)
@@ -585,10 +628,14 @@ SELF_TEST_DOCS = {
     # 나오면 마찬가지로 흡수됨 ③6/9가 실패하며 잘못 heading으로 승격돼
     # lastHeadingListNum을 오염시켜 8/10이 연쇄로 실패. effectivePrevType 허용
     # 목록에 "bullet"/"table" 추가로 6~10 전부 해결(12→17건, 실제 DB로 확인 완료).
-    # 남은 15/16은 별개 원인(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가
-    # effectivePrevType==="heading"에 막힘, continuesHeadingList와 무관) —
-    # 오늘은 여기까지, 다음 세션에서 이어서 진단(STATUS.md 참고).
-    "9ddc6393057cc532": {"footnote_blocks": 17},
+    # 남은 15/16(짧은 숫자 헤딩이 연달아 나오면 그 사이 각주가
+    # effectivePrevType==="heading"에 막힘, continuesHeadingList와 무관)도
+    # 2026-08-21에 같은 방식(effectivePrevType 허용 목록에 "heading" 추가)으로
+    # 수정 — 실제 문서 총 각주 19개 중 남은 2개라 17→19를 기대치로 갱신함.
+    # **주의: 이 세션은 DB 접근이 없어서 합성 재현 테스트로만 검증했고, 이
+    # 기대치(19)는 아직 실제 DB로 재확인 전임** — 다음 Colab 세션에서 이 값이
+    # 실제로 맞는지 반드시 먼저 확인할 것(다르면 포팅/원인 특정이 갈라진 것).
+    "9ddc6393057cc532": {"footnote_blocks": 19},
     # 한국부동산원 2024 — 각주 1~11 전부 분리돼야 함(오늘 세 번째로 고친 "각주 중 불릿
     # 흡수" 버그의 실제 재현 문서).
     "4df12939e14a66c3": {"footnote_blocks": 11},

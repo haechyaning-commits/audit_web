@@ -557,13 +557,27 @@ function splitIntoBlocks(text) {
     // 인식이 안 되고 있었음. SOURCE_NOTE_RE("자료:"/"출처:")가 표 블록을 강제로
     // 끝내는 경계로 이미 쓰이는 것과 같은 이유로, 진짜 각주 정의 줄(번호가
     // footnoteNums에 있음)도 불릿/표 문단을 끝내는 경계로 인정함.
+    //
+    // 2026-08-21(각주 15/16, 8/20에 특정한 원인 기반): 같은 문서에서 "15) 과잉금지의 원칙..."처럼
+    // 각주 본문 자체가 24자 이하로 짧으면, 바로 위 classifyLine의 "짧은 번호
+    // 헤딩" 규칙에 걸려 이 줄이 heading으로 잘못 승격됨 — 그 heading push
+    // 직후엔 para가 비어서 effectivePrevType이 "heading"이 되는데, 이게 허용
+    // 목록에 없어서 정작 진짜 각주였던 이 줄 자신이 각주로 인식조차 안 되고
+    // heading으로 새어버렸던 것(그 뒤에 이어지는 각주도 직전이 "heading"이라
+    // 같은 이유로 연쇄로 계속 heading이 됨). 재현: 실제 heading 줄 바로 다음에
+    // 짧은 각주 정의가 오는 최소 케이스로 확인(아래 자가 검증 참고). bullet/
+    // table을 인정한 것과 같은 이유로 heading 직후도 진짜 각주 정의 줄(번호가
+    // footnoteNums에 있음, continuesHeadingList로 목록 연속은 여전히 걸러짐)이면
+    // 인정함 — 일단 첫 각주 한 줄만 정상 인식되면 그 다음부터는 paraType이
+    // "footnote"로 유지되므로 연쇄 자체가 더 이상 안 생김.
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
       (effectivePrevType === "body" ||
         effectivePrevType === "footnote" ||
         effectivePrevType === "bullet" ||
-        effectivePrevType === "table") &&
+        effectivePrevType === "table" ||
+        effectivePrevType === "heading") &&
       !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에

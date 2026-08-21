@@ -2,6 +2,35 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-21 — 각주 15/16 버그 수정(DetailPage.jsx) — 합성 재현으로 검증, 실 DB 재검증 필요
+
+어제(8/20) 특정한 원인 그대로 수정: 짧은(24자 이하) 각주 정의 줄이 `classifyLine`의
+"짧은 번호 헤딩" 규칙에 걸려 heading으로 잘못 승격되는데, 그 직전 줄이 진짜 heading이면
+`effectivePrevType`이 "heading"이 돼서 각주 판별 조건(허용 목록: body/footnote/bullet/
+table)에 안 걸림 — 그래서 각주 자신이 각주로 인식조차 안 되고 heading으로 새어버리고,
+그 뒤 이어지는 각주도 직전이 "heading"이라 연쇄로 계속 heading이 됨(각주 15/16이 이 경로로
+실패).
+
+**수정**: 각주 판별 조건의 `effectivePrevType` 허용 목록에 `"heading"` 추가 —
+8/20에 bullet/table을 추가했던 것과 같은 이유. `continuesHeadingList`(연속 번호목록
+판별)가 여전히 진짜 번호목록 헤딩과의 오탐을 막아줌. `DetailPage.jsx`와
+`scripts/audit_render_anomalies.py` 양쪽 동일 반영.
+
+**검증**: `DetailPage.jsx`의 관련 함수(TITLE_RE~splitIntoBlocks)를 Node로 직접 떼어내
+1) 수정 전 재현(heading 바로 다음 짧은 각주 15/16이 실제로 둘 다 heading으로 새는 것
+확인) 2) 수정 후 둘 다 footnote로 인식되는 것 확인 3) 기존에 검증됐던 케이스들(한국조폐공사
+각주 1/2, 표/불릿 흡수 중 각주 6/9, 일반 표/불릿 회귀, **연속 번호목록이 heading 뒤에
+와도 여전히 heading으로 유지되는 것**) 전부 회귀 없음 확인. `npm run build`/`npm run lint`
+통과. `scripts/audit_render_anomalies.py`의 합성 자가 검증(1단계, DB 불필요)도 같은
+케이스로 전부 통과.
+
+**주의 — 아직 실 DB로 재검증 못 함**: 이 세션은 Railway DB 접근이 없어서, `SELF_TEST_DOCS`의
+`9ddc6393057cc532` 기대치를 17→19(총 각주 19개 중 남은 15/16 두 건)로 갱신은 해뒀지만
+Colab에서 실제로 19가 나오는지는 아직 확인 못함(STATUS.md 교훈 참고 — 가설만으로 단정
+안 함). **다음에 반드시**: `scripts/audit_render_anomalies.py`를 Colab에서 다시 돌려서
+①자가 검증 2단계(9ddc6393057cc532 footnote_blocks==19) 통과하는지 ②전수 재스캔해서
+신호② 잔여 건수 얼마나 더 줄어드는지 확인.
+
 ## 📋 2026-08-20 마무리 — 재스캔 결과(4,137건) + 남은 문제 3갈래 재분류 + 새 원인(데이터 유실) 발견
 
 바로 아래 "각주 헤딩 오분류 버그 부분 수정" 항목(불릿/표 흡수 수정, PR #33)이
