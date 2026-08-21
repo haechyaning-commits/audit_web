@@ -46,6 +46,12 @@
 #      한 블록이 통짜로 길어짐(오늘 발견한 버그들의 공통 증상).
 #   2) 문서 안에 각주 참조 번호(footnoteNums)는 있는데 실제 footnote 타입
 #      블록이 하나도 안 만들어진 경우 — 각주 인식이 통째로 실패했을 가능성.
+#      2026-08-21: strict_footnote_nums()로 조치유형 코드("(통보1)" 등) 오탐을
+#      스캔 단계에서부터 걸러내고, 후보에는 classify_footnote_zero_signal()로
+#      "①렌더링 버그 의심(정의 줄이 원문에 있는데 흡수됨)" / "③원본 각주 유실
+#      의심(정의 줄이 원문에 아예 없음)" 태그를 붙여서 사람이 표본 확인할 때
+#      우선순위를 좁힐 수 있게 함(STATUS.md 8/20 항목의 3갈래 분류 중 ②는
+#      이제 스캔 단계에서 제외되므로 후보엔 ①/③만 남음).
 #   3) 렌더링된 블록 텍스트 총 글자 수(공백 제외) vs 원본 raw_text 글자 수
 #      (공백 제외)가 크게 다른 경우 — 블록화 과정에서 내용이 조용히
 #      유실/중복됐을 가능성(정상이면 공백 정규화 차이 정도만 있어야 함).
@@ -175,6 +181,32 @@ FOOTNOTE_REF_RE = re.compile(r"[^\s\d](\d{1,2})\)")
 # 바로 뒤에 붙음(원 주석 예시: "87,818,181원1)", "위임2)" — "원"/"임" 모두 한글).
 # 한글 글자로 좁히면 위 날짜/괄호열거/마스킹 오탐이 전부 사라짐(5건 실제 확인).
 FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
+
+# 2026-08-21: 8/20 2차 스캔 표본 조사(18b48a4726dad247)로 새 오탐 유형 발견 —
+# "(통보1)"/"(주의1)"처럼 조치유형을 분류하는 괄호 코드가 라벨(1~4글자, 전부
+# 한글)+번호로 이루어져 있어서 FOOTNOTE_REF_STRICT_RE가 여전히 각주 참조로
+# 오인함(라벨이 2글자 이상이면 "숫자) 바로 앞 한 글자"만 보는 걸로는 못 거름 —
+# "통보1)"의 경우 "보1)"만 보면 그 앞 글자가 "통"이라 괄호가 있는 줄 자체를
+# 놓침). 실제 각주 참조("87,818,181원1)", "위임2)")는 항상 문장 중간에 바로
+# 붙는 형태로 앞에 여는 괄호가 없는 반면, 이 오탐들은 항상 "(라벨N)"처럼
+# 통째로 괄호 하나에 들어있음 — 그 괄호 전체 스팬을 먼저 찾아서, 그 안에
+# 들어가는 FOOTNOTE_REF_STRICT_RE 매치는 제외함(단일 글자 lookbehind로는
+# 여러 글자 라벨을 못 걸러서 스팬 비교 방식으로 함).
+ACTION_TYPE_CODE_RE = re.compile(r"\([가-힣]{1,4}\d{1,2}\)")
+
+
+def strict_footnote_nums(raw_text):
+    """FOOTNOTE_REF_STRICT_RE 매치 중 "(라벨N)" 조치유형 코드에 속한 것은 제외하고
+    진짜 각주 참조 번호만 집합으로 반환."""
+    excluded_spans = [m.span() for m in ACTION_TYPE_CODE_RE.finditer(raw_text)]
+    nums = set()
+    for m in FOOTNOTE_REF_STRICT_RE.finditer(raw_text):
+        if any(s <= m.start() and m.end() <= e for s, e in excluded_spans):
+            continue
+        nums.add(m.group(1))
+    return nums
+
+
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
 # 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 각주 오판별
 # 방지(continuesHeadingList)에 쓰이면서 실제 문서(한국조폐공사 2016,
@@ -190,6 +222,29 @@ LIST_HEADING_NUM_RE = re.compile(r"^(\d{1,2})\)\s+\S")
 def extract_list_num(text):
     m = LIST_HEADING_NUM_RE.match(text)
     return int(m.group(1)) if m else None
+
+
+# 2026-08-21: STATUS.md 8/20 항목 — 남은 신호②(각주 참조는 있는데 블록 0건)가
+# 최소 3가지 다른 원인이 섞여 있다고 정리했음:
+#   ①아직 못 고친 렌더링 버그(정의 줄은 원문에 있는데 흡수/오분류돼서 인식 실패)
+#   ②스캐너 신호 자체의 오탐(위 strict_footnote_nums로 이미 상당수 걸러짐)
+#   ③원본 데이터 자체에 각주 설명이 없음(텍스트 추출 단계에서 유실 — 프론트
+#     수정으로는 해결 불가, 988fef1135220d92에서 실제 확인)
+# ②는 이제 strict_footnote_nums()가 스캔 단계에서부터 걸러내므로(footnote_nums_
+# in_text가 빈 집합이 되면 애초에 후보로 안 뽑힘), 후보로 남는 건 ①과 ③뿐임 —
+# 그 둘을 가르는 기준은 "참조된 각주 번호 중 하나라도 원문에 정의 줄(FOOTNOTE_
+# DEF_RE와 같은 모양, 줄 맨 앞 "N) ...")이 실제로 있는지": 있으면 렌더링이
+# 뭔가를 잘못 흡수해서 놓친 것(①), 하나도 없으면 애초에 원문에 없던 것(③).
+# 한 문서에 여러 각주 참조가 섞여 있을 수 있어 "하나라도 정의 줄이 있으면 ①"
+# 쪽으로 판정(보수적으로 렌더링 버그 가능성을 먼저 의심 — 어차피 사람이 표본
+# 확인해볼 후보를 좁히는 용도라, 실제 원인은 표본 조사에서 최종 확인해야 함).
+def classify_footnote_zero_signal(raw_text, footnote_nums_in_text):
+    lines = [ln.strip() for ln in raw_text.split("\n") if ln.strip()]
+    for num in footnote_nums_in_text:
+        def_re = re.compile(rf"^{num}\)\s*\S")
+        if any(def_re.match(ln) for ln in lines):
+            return "① 렌더링 버그 의심(정의 줄은 원문에 있음)"
+    return "③ 원본 각주 유실 의심(정의 줄이 원문에 없음)"
 
 
 QUOTE_CHAR_RE = re.compile(r"""[‘’“”'"]""")
@@ -492,6 +547,39 @@ def run_synthetic_self_tests():
     check("괄호 열거번호((10))는 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("주의\n(10) ㅇ 그런데 2021"))
     check("익명화 마스킹(+0+0+0))은 각주 참조로 안 잡힘", not FOOTNOTE_REF_STRICT_RE.search("압류재산(+0+0+0+0-+0+0+0)의 경우"))
     check("한글 뒤 진짜 각주 참조('금액18)')는 여전히 잡힘", bool(FOOTNOTE_REF_STRICT_RE.search("지적된 금액18)은 환수")))
+    # 2026-08-21: 조치유형 분류 코드("(통보1)"/"(주의1)")가 각주 참조로 오인되지
+    # 않는지(strict_footnote_nums, ACTION_TYPE_CODE_RE 스팬 제외 적용) —
+    # 18b48a4726dad247 실제 사례. 라벨이 2글자라 단순 lookbehind로는 못 거르는
+    # 케이스라 FOOTNOTE_REF_STRICT_RE.search 직접 호출이 아니라 helper로 확인.
+    check("조치유형 코드('(통보1)')는 각주 참조로 안 잡힘", strict_footnote_nums("점검 결과 (통보1) 조치함") == set())
+    check("조치유형 코드('(주의1)')는 각주 참조로 안 잡힘", strict_footnote_nums("관련자에게 (주의1) 처분") == set())
+    check(
+        "같은 줄에 조치유형 코드와 진짜 각주가 같이 있어도 진짜 각주는 여전히 잡힘",
+        strict_footnote_nums("(통보1) 지적된 금액18)은 환수") == {"18"},
+    )
+
+    # 2026-08-21: classify_footnote_zero_signal — 신호②(각주 참조는 있는데 블록
+    # 0건) 후보를 ①렌더링 버그 의심/③원본 각주 유실 의심으로 가르는 로직.
+    # 988fef1135220d92류(원문에 각주 정의 자체가 없는 문서)의 최소 재현.
+    check(
+        "정의 줄이 원문에 전혀 없으면 '원본 각주 유실 의심'(③)",
+        classify_footnote_zero_signal(
+            "수송요율1)이 적용됨. 수송요율2)도 마찬가지",
+            {"1", "2"},
+        )
+        == "③ 원본 각주 유실 의심(정의 줄이 원문에 없음)",
+    )
+    # 9ddc6393057cc532류(정의 줄은 원문에 있는데 렌더링이 흡수해서 놓친 경우)의
+    # 최소 재현 — 참조된 번호 중 하나(6)는 정의 줄이 실제로 있으므로 렌더링
+    # 버그 의심으로 분류돼야 함(다른 번호 하나(99)는 정의 줄이 없어도 무관).
+    check(
+        "정의 줄이 원문에 하나라도 있으면 '렌더링 버그 의심'(①)",
+        classify_footnote_zero_signal(
+            "본문에서 언급된 위원회6)와 항목99)을 참고\n6) 위원회 규정 제41조에 따라 구성된 기구임",
+            {"6", "99"},
+        )
+        == "① 렌더링 버그 의심(정의 줄은 원문에 있음)",
+    )
 
     # 2026-08-20: 헤딩/각주 번호 충돌 버그 수정(LIST_HEADING_NUM_RE 괄호 전용화 +
     # split_law_citation_heading 번호 접두어 괄호 제외) — 실제 문서로 재현한 케이스들.
@@ -706,10 +794,11 @@ for i, (doc_id, institution, year, raw_text) in enumerate(rows):
     if long_table:
         reasons.append(f"긴 표잔여 {len(long_table)}건(최대 {max(len(b['text']) for b in long_table)}자)")
 
-    footnote_nums_in_text = set(m.group(1) for m in FOOTNOTE_REF_STRICT_RE.finditer(raw_text))
+    footnote_nums_in_text = strict_footnote_nums(raw_text)
     n_footnote_blocks = sum(1 for b in blocks if b["type"] == "footnote")
     if footnote_nums_in_text and n_footnote_blocks == 0:
-        reasons.append(f"각주 참조({len(footnote_nums_in_text)}개) 있는데 각주 블록 0건")
+        tag = classify_footnote_zero_signal(raw_text, footnote_nums_in_text)
+        reasons.append(f"각주 참조({len(footnote_nums_in_text)}개) 있는데 각주 블록 0건 — {tag}")
 
     rendered_chars = sum(len(re.sub(r"\s+", "", block_render_text(b))) for b in blocks)
     orig_chars = len(re.sub(r"\s+", "", raw_text))
