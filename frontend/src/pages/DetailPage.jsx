@@ -490,6 +490,10 @@ const TABLE_INTERLEAVE_RE = /연번[\s\n]*지적사항[\s\n]*처분/;
 const KOREAN_LETTER_HEADING_RE = /^[가나다라마바사아자차카타파하][.)]?\s+\S/;
 const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
 const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
+// isGenericListHeading 안에서만 쓰이지만, 줄마다(최대 세 번까지) 호출되므로 다른
+// top-level 정규식들과 같이 모듈 스코프로 끌어올림 — scripts/audit_render_anomalies.py의
+// LAW_CITATION_HINT_RE(430행)와 동일 반영(코드 리뷰로 발견, 2026-08-21).
+const LAW_CITATION_HINT_RE = /「|제\s*\d+\s*(?:조|항|호)/;
 
 /** 가/나/다 또는 "1. 2. 3." 번호로 시작하는 줄이 classifyLine의 번호 헤딩
  * 휴리스틱(길이 상한/법령인용 예외)에 걸리는지만 따로 판별. 아래 두 곳에서 씀:
@@ -528,9 +532,9 @@ function isGenericListHeading(trimmed) {
   // 독립된 헤딩으로 쪼개짐). 예외 2가 실제로 노리는 케이스는 항상 「법령명」 인용이나
   // "제N조/항/호" 조항 참조를 포함하므로, 그 힌트가 있을 때만 이 조건을 인정하도록
   // 좁힘 — 조항 참조가 전혀 없는 평범한 나열 항목은 body로 남아 이어지는 항목들과
-  // 자연스럽게 한 문단으로 합쳐짐. (SENTENCE_END_RE는 이 함수 밖 top-level에 이미
-  // 선언돼 있음 — isGenericListHeading 추출 리팩터링 때 같이 끌어올려짐.)
-  const LAW_CITATION_HINT_RE = /「|제\s*\d+\s*(?:조|항|호)/;
+  // 자연스럽게 한 문단으로 합쳐짐. (SENTENCE_END_RE/LAW_CITATION_HINT_RE는 이 함수
+  // 밖 top-level에 이미 선언돼 있음 — isGenericListHeading 추출 리팩터링 때 같이
+  // 끌어올려짐.)
   if (
     NUMBERED_HEADING_RE.test(trimmed) &&
     (trimmed.length <= 24 ||
@@ -744,6 +748,13 @@ function splitIntoBlocks(text) {
     // 다른 나열식 목록 오탐(각주와 무관하게 헤딩으로 잘못 굵어지는 문제)까지
     // 같이 고침 — 둘 다 유지(위 heading 허용은 범용 안전망으로, 좁은
     // prevHeadingIsParenLabel 전용 분기는 위 heading 허용의 부분집합이라 병합 시 생략).
+    //
+    // 2026-08-21(코드 리뷰로 발견): "붙임" 첨부목록을 누적하는 중(inAttachmentList)에
+    // 나온 목록 번호("2) 당시 직원...")가, 본문 어딘가의 실제 각주 참조("...하였고2)")와
+    // 우연히 같은 숫자라 위 조건에 걸려 각주로 오분류되던 문제 — continuesHeadingList가
+    // 목록(헤딩) 연속만 방어하고 첨부목록 연속은 방어하지 못해서 생긴 틈. inAttachmentList도
+    // continuesHeadingList와 같은 이유로 제외 — 이러면 이 줄은 아래 classifyLine으로
+    // 흘러가 kind==="body"(또는 위 inAttachmentList 흡수 분기)로 정상 처리됨.
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
@@ -754,7 +765,8 @@ function splitIntoBlocks(text) {
         effectivePrevType === "heading" ||
         effectivePrevType === "caption" ||
         effectivePrevType === "field") &&
-      !continuesHeadingList
+      !continuesHeadingList &&
+      !inAttachmentList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에
       // 각주 내용이 다음 줄로 넘어간 경우(실제 문서로 확인, "18)「감사규정」..." 다음
