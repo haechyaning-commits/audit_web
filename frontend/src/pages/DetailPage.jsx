@@ -570,6 +570,16 @@ function splitIntoBlocks(text) {
     // footnoteNums에 있음, continuesHeadingList로 목록 연속은 여전히 걸러짐)이면
     // 인정함 — 일단 첫 각주 한 줄만 정상 인식되면 그 다음부터는 paraType이
     // "footnote"로 유지되므로 연쇄 자체가 더 이상 안 생김.
+    //
+    // 2026-08-21(신호② 표본 5건 실 DB 디버그로 확인): "자료: ○○ 제출자료
+    // 재구성"(caption) 바로 다음, 또는 "관계부서 의견"류 필드(field) 바로
+    // 다음에 각주 정의 줄이 곧장 이어지는 문서가 실제로 다수 있었음(한국가스공사
+    // 2025 등 5건 전부 이 패턴). caption/field 둘 다 effectivePrevType 허용
+    // 목록에 없어서 정작 각주 자신이 인식 안 되고 heading으로 샜고, 그 결과
+    // lastHeadingListNum이 오염돼 다음 각주 번호까지 continuesHeadingList에
+    // 걸려 연쇄로 실패함(한국농어촌공사 2024, a728ba6793fbd689에서 각주
+    // 1·2 둘 다 이 경로로 실패하는 것 확인). bullet/table/heading을 인정한
+    // 것과 같은 이유로 caption/field 직후도 인정함.
     if (
       footnoteMatch &&
       footnoteNums.has(footnoteMatch[1]) &&
@@ -577,7 +587,9 @@ function splitIntoBlocks(text) {
         effectivePrevType === "footnote" ||
         effectivePrevType === "bullet" ||
         effectivePrevType === "table" ||
-        effectivePrevType === "heading") &&
+        effectivePrevType === "heading" ||
+        effectivePrevType === "caption" ||
+        effectivePrevType === "field") &&
       !continuesHeadingList
     ) {
       // 2026-08-19: 예전엔 이 줄 하나만 blocks에 바로 push해서, PDF 페이지폭 때문에

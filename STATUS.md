@@ -2,6 +2,37 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-21 (4차) — caption/field 직후 각주 인식 실패 버그 수정(DetailPage.jsx)
+
+①(렌더링 버그 의심) 85건 중 표본 5건(`0f233db923222242`/`a728ba6793fbd689`/
+`311c70ac9b5bebb4`/`cae7766501a4fad0`/`49b74b6b3548c4a8`)을 Colab에서 디버그
+추적한 결과 — **5건 전부 같은 새 버그**로 확인됨.
+
+**원인**: 각주 판별 조건의 `effectivePrevType` 허용 목록(body/footnote/bullet/
+table/heading)에 `caption`("자료:"/"출처:" 표 출처 표기)과 `field`("관계부서
+의견" 같은 라벨+값 필드)가 없어서, 이 둘 바로 다음에 각주 정의 줄이 오면
+그 각주 자신이 인식 안 되고(짧으면) heading으로 새어버림 — 8/20~8/21에 고친
+bullet/table/heading 케이스와 완전히 같은 계열의 버그, 원인만 다른 두 타입.
+`a728ba6793fbd689`(한국농어촌공사 2024)에서는 각주 1이 caption 직후 실패하며
+`lastHeadingListNum`을 오염시켜 각주 2도 연쇄로 실패하는 것까지 확인(15/16과
+동일한 연쇄 패턴).
+
+**수정**: `effectivePrevType` 허용 목록에 `caption`/`field` 추가.
+`DetailPage.jsx`/`audit_render_anomalies.py` 양쪽 동일 반영.
+
+**검증**: 실 DB 표본 5건 패턴을 그대로 최소 재현(caption 단독/field 단독/
+caption+연쇄 2건/caption 뒤 진짜 번호목록 회귀 없음)해서 Node+Python 양쪽
+합성 테스트 전부 통과, 기존 회귀 테스트(15/16, bullet/table, 한국조폐공사 등)도
+전부 그대로 통과. `npm run build`/`npm run lint` 통과.
+
+**주의 — 아직 실 DB 재검증 못 함**: 이 세션은 DB 접근이 없어서 표본 5건 문서로
+실제 footnote 블록 수가 늘어나는지는 확인 못함. **다음에 반드시**: Colab에서
+`audit_render_anomalies.py` 재실행 → 전수 재스캔해서 신호②(661건)의 ①(85건)
+비율이 얼마나 줄었는지 확인, 그리고 남는 ① 후보가 있으면 또 새 패턴인지
+표본 재확인.
+
+## 📊 2026-08-21 (3차) — Colab 재스캔: 후보 3,147건, 신호②의 87%가 원본 데이터 유실
+
 ## 📊 2026-08-21 (3차) — Colab 재스캔: 후보 3,147건, 신호②의 87%가 원본 데이터 유실
 
 `(통보N)`/`(주의N)` 필터 + 신호② 3갈래 태깅을 넣은 `audit_render_anomalies.py`를 Colab에서

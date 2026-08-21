@@ -348,7 +348,20 @@ def classify_line(line: str) -> str:
 # 각주였던 그 줄이 인식 안 되고 heading으로 새어버렸음(그 뒤로 이어지는 각주도
 # 직전이 "heading"이라 연쇄로 계속 heading이 됨). bullet/table을 인정한 것과
 # 같은 이유로 heading 직후도 허용(DetailPage.jsx와 동일하게 반영).
-FOOTNOTE_ALLOWED_PREV_TYPES = frozenset({"body", "footnote", "bullet", "table", "heading"})
+#
+# 2026-08-21(2차, 신호② 표본 5건 실 DB 디버그로 확인): "자료: ○○ 제출자료
+# 재구성"(caption) 바로 다음, 또는 "관계부서 의견"류 필드(field) 바로 다음에
+# 각주 정의 줄이 곧장 이어지는 문서가 실제로 다수 있었음(한국가스공사 2025/
+# 한국에너지공단 2024/한국수자원공사 2025/한국석유공사 2020 — caption 케이스,
+# 한국수자원공사 2025 — field 케이스, 5건 표본 전부 이 패턴). caption/field
+# 둘 다 허용 목록에 없어서 정작 각주 자신이 인식 안 되고 heading으로 샜고,
+# 그 결과 last_heading_list_num이 오염돼 다음 각주 번호까지 continues_
+# heading_list에 걸려 연쇄로 실패함(한국농어촌공사 2024, a728ba6793fbd689에서
+# 각주 1·2 둘 다 이 경로로 실패하는 것 확인). bullet/table/heading을 인정한
+# 것과 같은 이유로 caption/field 직후도 인정함(DetailPage.jsx와 동일하게 반영).
+FOOTNOTE_ALLOWED_PREV_TYPES = frozenset(
+    {"body", "footnote", "bullet", "table", "heading", "caption", "field"}
+)
 
 
 def split_into_blocks(text: str) -> list[dict]:
@@ -671,6 +684,54 @@ def run_synthetic_self_tests():
         "연속 번호목록은 heading 뒤에 와도 여전히 heading 유지(회귀 없음)",
         any(t.startswith("1)") for t in heading_texts)
         and any(t.startswith("2)") for t in heading_texts),
+    )
+
+    # 2026-08-21(2차): caption("자료:") 직후 각주 정의 — 한국가스공사 2025 등
+    # 실 DB 표본 5건으로 확인한 최소 재현.
+    text = (
+        "그룹회계매뉴얼 상 유형자산군별 내용연수1)를 그대로 적용하고 있었다\n"
+        "자료: 제출자료 재구성\n"
+        "1) 생산기지와 공급 관리소 유형자산 관련 관리부서 인터뷰를 고려하여 해당 자산의 내용연수 설정"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "caption(자료:) 직후 각주 1 인식",
+        any(b["type"] == "footnote" and b["text"].startswith("1)") for b in blocks),
+    )
+
+    # field("관계부서 의견") 직후 각주 정의 — 한국수자원공사 2025 실 DB 표본 재현.
+    text = (
+        "산업안전보건법에 따라 교반기1)를 제조하거나 수입하는 자는 확인해야 한다\n"
+        "관계부서 의견 사업단은 감사의견을 수용하며 조속히 조치하겠다는 의견을 제시하였다\n"
+        "1) 서로 다른 물질이 잘 섞이도록 물리적인 힘을 가해 휘젓거나 유동을 일으키는 장치"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "field(관계부서 의견) 직후 각주 1 인식",
+        any(b["type"] == "footnote" and b["text"].startswith("1)") for b in blocks),
+    )
+
+    # caption 직후 연쇄 — 한국농어촌공사 2024(a728ba6793fbd689) 재현: 각주 1이
+    # caption 직후 실패하면 last_heading_list_num이 오염돼 각주 2도 연쇄로
+    # 실패하던 것까지 같이 고쳐지는지 확인.
+    text = (
+        "공사는 유형자산1)을 건설공사로 취득하게 될 때 건설중인자산2)으로 관리하고 있다\n"
+        "자료: 재무본부 제출자료 재구성\n"
+        "1) 판매를 목적으로 하지 않고 장기간에 걸쳐 영업활동에 사용하기 위하여 소유하고 있는 자산으로 토지 건물 등\n"
+        "2) 유형자산의 건설 등의 과정에서 지출한 금액으로 미완성을 임시적으로 처리하는 계정"
+    )
+    blocks = split_into_blocks(text)
+    footnote_texts = [b["text"] for b in blocks if b["type"] == "footnote"]
+    check("caption 직후 연쇄 각주 1 인식", any(t.startswith("1)") for t in footnote_texts))
+    check("caption 직후 연쇄 각주 2 인식(연쇄 실패 없음)", any(t.startswith("2)") for t in footnote_texts))
+
+    # 회귀 없음: caption 뒤에 오는 진짜(각주 아닌) 번호목록 헤딩은 여전히 heading
+    text = "표 데이터 요약\n자료: 각 부서 제출자료 재구성\n1) 첫 번째 개선 과제\n2) 두 번째 개선 과제"
+    blocks = split_into_blocks(text)
+    heading_texts = [b["text"] for b in blocks if b["type"] == "heading"]
+    check(
+        "caption 뒤 연속 번호목록은 여전히 heading 유지(회귀 없음)",
+        any(t.startswith("1)") for t in heading_texts) and any(t.startswith("2)") for t in heading_texts),
     )
 
     # 회귀 없음: 각주 아닌 일반 표/불릿은 여전히 하나로 흡수됨
