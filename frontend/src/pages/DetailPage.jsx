@@ -291,6 +291,25 @@ function isWatermarkNoise(trimmed) {
   return trimmed.includes("_") && WATERMARK_NOISE_RE.test(trimmed);
 }
 
+// 2026-08-21: "(cid:148)(cid:44)(cid:53)(cid:1)(cid:5)..."처럼 PDF 폰트 임베딩이
+// 깨져서 글자 코드가 그대로 텍스트로 뽑힌 줄을 실제 문서로 확인함(전수 스캔 "긴
+// 각주"/"긴 불릿문단"/"heading 0건" 표본 조사 중 발견 — 한국보훈복지의료공단/
+// 한국산업기술진흥원 등 소수 기관에 집중, DB 전체 기준 86건/0.13%). raw_text
+// 자체가 이미 이 상태라 원문 복구는 불가능(원본 PDF 재추출 필요, 이 저장소
+// 범위 밖) — 대신 지금처럼 이 쓰레기 코드를 본문 굵기로 그대로 노출하는 대신
+// WATERMARK_NOISE_RE와 같은 급의 반복 상용구로 보고 작게 표시함(지우지는 않음
+// — 원문 그대로 다 보여준다는 기존 방침 유지, 눈에만 덜 띄게). 실제 문서는
+// 이런 줄이 거의 전부 "(cid:숫자)" 토큰만으로 채워져 있어서, 그 토큰이 줄
+// 길이의 30% 넘게 차지하면 오염된 줄로 판단(정상 텍스트에 "(cid:"가 우연히
+// 이 정도 밀도로 반복될 일은 없음 — 이 말뭉치가 한국어 문서라 더더욱 없음).
+const CID_TOKEN_RE = /\(cid:\d+\)/g;
+function isCidCorruption(trimmed) {
+  const matches = trimmed.match(CID_TOKEN_RE);
+  if (!matches) return false;
+  const cidCharCount = matches.reduce((sum, m) => sum + m.length, 0);
+  return cidCharCount / trimmed.length > 0.3;
+}
+
 // 2026-08-14: 본문 중 붙어서 등장하는 각주 참조("87,818,181원1)", "위임2)")를 문서
 // 전체에서 미리 스캔해서 각주 번호 집합을 만들어둠 — 그 번호로 시작하는 줄이 나오면
 // 진짜 소제목("1) 태양광...")이 아니라 각주 본문("1) 권익위의 의결서 내에는...")일
@@ -442,7 +461,8 @@ function classifyLine(line) {
   if (
     SOURCE_NOTE_RE.test(trimmed) ||
     SECURITY_NOTICE_RE.test(trimmed) ||
-    isWatermarkNoise(trimmed)
+    isWatermarkNoise(trimmed) ||
+    isCidCorruption(trimmed)
   )
     return "caption";
   if (
@@ -452,6 +472,25 @@ function classifyLine(line) {
   )
     return "bullet";
   return "body";
+}
+
+// 2026-08-21: "[표 N]" 캡션 없이 표 데이터가 그대로 이어지는 문서를 실제로
+// 확인함(한국무역보험공사 2019/국립공원공단 2021 등 — "코드통합 기준코드
+// 701-363674로 701-363674 C 201922 701 - 부적정..."처럼 표의 각 행이 "-"
+// 같은 불릿 기호로 시작하는 셀을 포함한 채 그대로 이어붙어서, 캡션이 없으니
+// nextIsTable이 안 걸리고 그냥 "bullet" 문단으로 공백 이어붙여져 완전히 뜻
+// 없는 단어 나열이 됨(전수 스캔 "긴 불릿문단" 표본 조사, 885건 중 84건/9.5%
+// 확인). 진짜 긴 불릿 문단(문장 하나가 긴 경우)은 그 문단 시작 기호 말고 다른
+// 위치에 또 다른 불릿 기호가 앞뒤로 공백을 낀 채 반복 등장하는 일이 사실상
+// 없는 반면, 표가 흡수된 경우는 행마다 있던 "-"/"❍" 같은 셀 구분자가 문단
+// 중간에 계속 다시 나타남 — 이 재등장 횟수(5회 이상)로 표 데이터를 가려냄.
+// 짧은 불릿은 오탐 방지를 위해 애초에 검사 안 함(500자 미만은 원래 표 흡수가
+// 의심될 만큼 길지도 않음).
+const EMBEDDED_BULLET_RE = /\s[-–—□○◦▪‣·❍※•*①②③④⑤⑥⑦⑧⑨⑩]\s/g;
+function looksLikeFlattenedTable(text) {
+  if (text.length < 500) return false;
+  const embedded = text.match(EMBEDDED_BULLET_RE);
+  return Boolean(embedded && embedded.length >= 5);
 }
 
 /** 원문을 문단 단위 블록으로 나눔(렌더링 전 순수 데이터 단계) — renderRawText와
@@ -505,9 +544,16 @@ function splitIntoBlocks(text) {
     // 그대로 살리면 최소한 원래 줄 단위 구분은 남길 수 있음 — CSS(`raw-line-table > div`)
     // 는 이미 white-space: pre-wrap이라 애초에 줄바꿈을 살릴 걸 전제로 하고 있었음(JS가
     // 안 살리고 있었던 게 이 둘 사이 드리프트였음).
-    const text = paraType === "table" ? para.join("\n") : para.join(" ");
-    blocks.push({ type: paraType, text });
-    prevType = paraType;
+    // 2026-08-21: "[표 N]" 캡션이 없어서 bullet로 흘러들어온 문단이 사실 표
+    // 데이터였던 경우(looksLikeFlattenedTable 주석 참고) — flush 시점에 재분류해서
+    // table과 똑같이 줄바꿈 보존 + 접이식(<details>) 처리되게 함.
+    const type =
+      paraType === "bullet" && looksLikeFlattenedTable(para.join(" "))
+        ? "table"
+        : paraType;
+    const text = type === "table" ? para.join("\n") : para.join(" ");
+    blocks.push({ type, text });
+    prevType = type;
     para = [];
     paraType = "body";
   }

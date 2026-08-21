@@ -168,6 +168,32 @@ def is_watermark_noise(trimmed):
     return "_" in trimmed and bool(WATERMARK_NOISE_RE.match(trimmed))
 
 
+# 2026-08-21: "(cid:148)(cid:44)(cid:53)..."처럼 PDF 폰트 임베딩이 깨져서 글자
+# 코드가 그대로 텍스트로 뽑힌 줄 — DetailPage.jsx와 동일하게 반영(그 파일의
+# CID_TOKEN_RE/isCidCorruption 주석 참고). WATERMARK_NOISE_RE와 같은 급으로
+# caption 처리.
+CID_TOKEN_RE = re.compile(r"\(cid:\d+\)")
+
+
+def is_cid_corruption(trimmed):
+    matches = CID_TOKEN_RE.findall(trimmed)
+    if not matches:
+        return False
+    cid_char_count = sum(len(m) for m in matches)
+    return cid_char_count / len(trimmed) > 0.3
+
+
+# 2026-08-21: "[표 N]" 캡션 없이 표 데이터가 bullet 문단으로 흡수되는 경우 —
+# DetailPage.jsx와 동일하게 반영(그 파일의 looksLikeFlattenedTable 주석 참고).
+EMBEDDED_BULLET_RE = re.compile(r"\s[-–—□○◦▪‣·❍※•*①②③④⑤⑥⑦⑧⑨⑩]\s")
+
+
+def looks_like_flattened_table(text):
+    if len(text) < 500:
+        return False
+    return len(EMBEDDED_BULLET_RE.findall(text)) >= 5
+
+
 # 2026-08-20: 이 정규식(DetailPage.jsx 원본 그대로) 자체가 오탐이 많다는 걸 실제
 # 전수 스캔에서 발견함 — "공백/숫자가 아닌 아무 문자"가 너무 느슨해서 날짜 표기
 # ('24.06.24)"의 "."), 괄호 열거번호("(10) 그런데..."의 "("), 익명화 마스킹
@@ -351,7 +377,12 @@ def classify_line(line: str) -> str:
         return "heading"
     if match_field_label(trimmed):
         return "field"
-    if SOURCE_NOTE_RE.match(trimmed) or SECURITY_NOTICE_RE.match(trimmed) or is_watermark_noise(trimmed):
+    if (
+        SOURCE_NOTE_RE.match(trimmed)
+        or SECURITY_NOTICE_RE.match(trimmed)
+        or is_watermark_noise(trimmed)
+        or is_cid_corruption(trimmed)
+    ):
         return "caption"
     if BULLET_RE.match(trimmed) or GLYPH_BULLET_RE.match(trimmed) or PERSON_LIST_ITEM_RE.match(trimmed):
         return "bullet"
@@ -404,9 +435,16 @@ def split_into_blocks(text: str) -> list[dict]:
         nonlocal para, para_type, prev_type
         if not para:
             return
-        text_out = "\n".join(para) if para_type == "table" else " ".join(para)
-        blocks.append({"type": para_type, "text": text_out})
-        prev_type = para_type
+        # 2026-08-21: 캡션 없는 표 데이터가 bullet로 흘러들어온 경우 재분류
+        # (DetailPage.jsx와 동일하게 반영 — looks_like_flattened_table 주석 참고).
+        block_type = (
+            "table"
+            if para_type == "bullet" and looks_like_flattened_table(" ".join(para))
+            else para_type
+        )
+        text_out = "\n".join(para) if block_type == "table" else " ".join(para)
+        blocks.append({"type": block_type, "text": text_out})
+        prev_type = block_type
         para = []
         para_type = "body"
 
@@ -811,6 +849,61 @@ def run_synthetic_self_tests():
     check(
         "일반 불릿 문단은 여전히 정상 흡수됨(회귀 없음)",
         bullet_block is not None and "계속되는 설명 문장" in bullet_block["text"],
+    )
+
+    # 2026-08-21: cid 오염 감지 — "긴 각주"/"긴 불릿문단"/"heading 0건" 표본 조사
+    # 중 실제로 확인한 PDF 폰트 임베딩 깨짐(86건).
+    check(
+        "cid 토큰이 대부분인 줄은 오염으로 판단",
+        is_cid_corruption(
+            "7)(cid:148)(cid:44)(cid:53)(cid:1)(cid:5)(cid:259)(cid:48)(cid:125)(cid:1)(cid:160)(cid:81)(cid:79)(cid:249)(cid:71)"
+        ),
+    )
+    check(
+        "정상 한국어 문장은 cid 오염 아님",
+        not is_cid_corruption("이번 감사에서는 자재관리 및 예산집행 실태를 중점적으로 점검하였다."),
+    )
+    text = (
+        "정상적인 본문 문단입니다.\n"
+        "7)(cid:148)(cid:44)(cid:53)(cid:1)(cid:5)(cid:259)(cid:48)(cid:125)(cid:1)(cid:160)(cid:81)(cid:79)(cid:249)(cid:71)(cid:1)(cid:311)\n"
+        "다시 정상적인 본문이 이어집니다."
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "cid 오염 줄이 caption 타입으로 분리됨(회귀 없음, body에 안 섞임)",
+        any(b["type"] == "caption" and "(cid:" in b["text"] for b in blocks),
+    )
+    check(
+        "cid 오염 줄 앞뒤 정상 문단은 그대로 body 2개",
+        sum(1 for b in blocks if b["type"] == "body") == 2,
+    )
+
+    # 2026-08-21: 캡션 없는 표 데이터가 bullet로 흡수되던 문제(885건 중 84건 확인) —
+    # 한국무역보험공사 2019 스타일 최소 재현.
+    rows = [
+        f"코드{i} - 부적정 코드통합 {100 + i}-{200 + i} R {2019}{10 + i} 코드통합불필요" for i in range(1, 21)
+    ]
+    text = "- " + " ".join(rows)
+    blocks = split_into_blocks(text)
+    check(
+        "캡션 없는 표 데이터가 table로 재분류됨(불릿으로 안 남음)",
+        any(b["type"] == "table" for b in blocks) and not any(b["type"] == "bullet" for b in blocks),
+    )
+    # 회귀 없음: 짧은 불릿/정상적으로 긴 서술형 불릿 문단(불릿기호 재등장 없음)은
+    # 여전히 bullet로 남아야 함.
+    text = "- 짧은 불릿 항목 하나"
+    blocks = split_into_blocks(text)
+    check("짧은 불릿은 여전히 bullet 유지(회귀 없음)", any(b["type"] == "bullet" for b in blocks))
+    sentence = (
+        "관련 법령에 따라 해당 업무를 처리함에 있어 세부 기준을 명확히 하고 관계자에 대한 교육을 강화하며 "
+        "재발방지대책을 마련하여 향후 유사 사례가 발생하지 않도록 철저히 관리할 필요가 있다는 지적이 있었으며 "
+    )
+    text = "* " + sentence * 6
+    blocks = split_into_blocks(text)
+    check(
+        "정상적으로 긴 불릿 문단(불릿기호 재등장 없음)은 여전히 bullet 유지(회귀 없음)",
+        any(b["type"] == "bullet" and len(b["text"]) > 500 for b in blocks)
+        and not any(b["type"] == "table" for b in blocks),
     )
 
     if failures:
