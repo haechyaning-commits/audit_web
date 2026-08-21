@@ -112,6 +112,25 @@ function matchFieldLabel(trimmed) {
   return null;
 }
 
+// 2026-08-14 10차: "[통보] ○○팀장은..." "[관련자 의견] 관련자는..."처럼 대괄호
+// 라벨 뒤에 줄바꿈 없이 내용이 바로 이어지는 경우도 헤딩으로 인식시키려고 일부러
+// 줄 끝 고정($) 없이 만든 패턴 — HEADING_LABEL_PATTERNS 맨 끝에서 쓰고,
+// splitIntoBlocks의 splitBracketLabelHeading(아래 splitLawCitationHeading 옆)에서
+// 라벨/내용 분리에도 재사용하므로 그 두 곳보다 앞에 선언해둠(동작 변경 없음).
+const BRACKET_LABEL_WITH_TRAILING_RE =
+  /^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]/;
+
+// 2026-08-20: "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n2. 당시...개별면담 내용(...)"
+// 처럼 문서 끝 첨부목록을 여는 "붙임"이 인식되는 라벨이 아니라서 앞 문장(예: "...
+// (주의)")에 그대로 병합되고, 그 안 "2. ..." 항목은 우연히 번호 헤딩 휴리스틱에
+// 걸려 혼자만 볼드로 튀어 보이는 문제를 실제 스크린샷(9ddc6393057cc532)으로 확인함
+// (사용자 제보 — "1.은 작은 글씨인데 2.는 볼드체"). "붙임"을 문단 경계 라벨로
+// 인정해서 앞 문장과는 분리하고, 그 뒤 이어지는 번호 항목들은 splitIntoBlocks의
+// inAttachmentList 플래그로 heading 승격을 막아 하나의 이어지는 문단으로 흡수함.
+// HEADING_LABEL_PATTERNS(아래)와 splitIntoBlocks의 splitAttachmentLabel 둘 다에서
+// 써서 그 두 곳보다 앞에 선언해둠(BRACKET_LABEL_WITH_TRAILING_RE와 같은 이유).
+const ATTACHMENT_LABEL_RE = new RegExp(`^(붙\\s*임)\\s*${LABEL_SEP}`);
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
@@ -167,7 +186,11 @@ const HEADING_LABEL_PATTERNS = [
   // 괄호가 또 있는 복합 변형은 이번엔 제외(건수 적고 별도 검증 필요, 다음에 볼 것).
   // 겹치는 라벨(예: 개선요구/개선, 관련자의견/관련자)은 더 긴 쪽을 먼저 둬서 짧은 쪽이
   // 먼저 매칭돼 뒤에 남은 글자 때문에 전체 매칭이 실패하는 일이 없게 순서 조정.
-  /^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]/,
+  // 2026-08-20: 정규식 리터럴은 이 배열 안에 직접 뒀었는데, splitIntoBlocks에서
+  // 라벨/내용 분리(splitBracketLabelHeading)에도 같은 패턴이 필요해져서 상수로
+  // 분리(BRACKET_LABEL_WITH_TRAILING_RE, splitLawCitationHeading 옆) — 동작 변경 없음.
+  BRACKET_LABEL_WITH_TRAILING_RE,
+  ATTACHMENT_LABEL_RE, // "붙임 : ..." — ATTACHMENT_LABEL_RE 주석 참고
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
@@ -388,6 +411,37 @@ function splitLawCitationHeading(trimmed) {
   return [label, body];
 }
 
+// 2026-08-20: splitIntoBlocks가 BRACKET_LABEL_WITH_TRAILING_RE(위, HEADING_LABEL_PATTERNS
+// 앞에 선언)에 매칭되는 줄 "전체"(라벨+내용)를 통째로 heading(볼드)으로 만들어버려서,
+// 내용이 한 문장으로 다음 줄까지 이어지면 첫 줄만 볼드, 이어지는 줄(다음 줄)은 안
+// 볼드인 채로 뒤섞여 보이는 문제를 실제 스크린샷(한국자산관리공사 2021,
+// 9ddc6393057cc532 — "[관련자 의견] 관련자는 감사 결과에 이견을 제기하지 않았고,
+// 모범을 / 보여야 할 관리자의 위치에도...")으로 확인함(사용자 제보 — "1.은 작은
+// 글씨인데 2.는 볼드체" 류와 같은 계열의 "글씨 크기 뒤죽박죽" 문제).
+/** 위 라벨 패턴에 매칭되고 "]" 뒤에 실제 내용이 남아있으면 [라벨, 내용]으로 나눔
+ * (splitLawCitationHeading과 같은 목적·같은 방식) — 라벨 하나로 줄이 끝나면(내용
+ * 없음) null 반환(그 경우는 이미 위 "줄 전체가 라벨뿐" 패턴이 먼저 걸러서 실제로는
+ * 거의 안 옴). */
+function splitBracketLabelHeading(trimmed) {
+  const m = BRACKET_LABEL_WITH_TRAILING_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[0].trim();
+  const body = trimmed.slice(m[0].length).trim();
+  if (!label || !body) return null;
+  return [label, body];
+}
+
+/** ATTACHMENT_LABEL_RE에 매칭되면 [라벨, 나머지내용]으로 나눔(내용이 없으면 body를
+ * 빈 문자열로 반환 — "붙임" 혼자 나오고 다음 줄부터 목록이 시작하는 문서도 있을 수
+ * 있어서 splitLawCitationHeading/splitBracketLabelHeading과 달리 null을 반환 안 함). */
+function splitAttachmentLabel(trimmed) {
+  const m = ATTACHMENT_LABEL_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[1];
+  const body = trimmed.slice(m[0].length).trim();
+  return [label, body];
+}
+
 // 2026-08-19: 상위 개요 항목이 "1. 제목 / 2. 관계기관 / 3. ..."처럼 번호로 나열되는
 // 문서인데, 제목 줄 맨 앞의 "1. "만 DB 적재 시점부터 유실된 경우가 실제로 있음(Colab
 // 규모조사 — scripts/audit_title_number_and_wordbreak.py, 67,751건 전수 스캔 결과
@@ -428,22 +482,24 @@ function fixMissingTitleNumber(blocks) {
 // (스캔 스크립트에서 검증된 방식과 동일 — 지금까지 오탐 0건).
 const TABLE_INTERLEAVE_RE = /연번[\s\n]*지적사항[\s\n]*처분/;
 
-/** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
- * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
- * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
- * 직전 블록 종류)이 필요해서 여기가 아니라 splitIntoBlocks에서 별도로 먼저 검사함. */
-function classifyLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) return "blank";
+// 2026-08-20: classifyLine의 "가/나/다" 및 "1. 2. 3." 번호 헤딩 휴리스틱을 별도
+// 함수로 뽑아냄 — splitIntoBlocks에서 각주 문단 흡수 여부를 판단할 때도 "이 줄이
+// heading으로 분류된 이유가 이 번호 휴리스틱 때문인지"를 다시 물어야 해서
+// (아래 각주15/16 버그 수정, KOREAN_LETTER_HEADING_RE 부분 참고) classifyLine
+// 안에 인라인으로 있던 로직을 함수로 분리함(동작 변경 없음, 순수 리팩터링).
+const KOREAN_LETTER_HEADING_RE = /^[가나다라마바사아자차카타파하][.)]?\s+\S/;
+const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
+const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
 
+/** 가/나/다 또는 "1. 2. 3." 번호로 시작하는 줄이 classifyLine의 번호 헤딩
+ * 휴리스틱(길이 상한/법령인용 예외)에 걸리는지만 따로 판별. 아래 두 곳에서 씀:
+ * ①classifyLine 자체 ②splitIntoBlocks의 각주 문단 흡수 판단(번호헤딩처럼 보이는
+ * 줄이지만 실은 각주 정의문이 인용한 법조항 번호일 수 있어서, 각주 문단을 누적하는
+ * 중에는 이 휴리스틱으로 인한 heading 승격을 무시하고 그대로 흡수시키려는 목적). */
+function isGenericListHeading(trimmed) {
   // 가/나/다 단독 소제목은 원문에서 보통 그 줄 전체가 짧은 편(예: "가 업무개요") —
   // 본문 문장이 우연히 "나"로 시작하는 경우까지 오탐하지 않게 길이 상한을 둠
-  if (
-    /^[가나다라마바사아자차카타파하][.)]?\s+\S/.test(trimmed) &&
-    trimmed.length <= 24
-  ) {
-    return "heading";
-  }
+  if (KOREAN_LETTER_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
   // 2026-08-18: "1. 2. 3." 번호 항목도 같은 이유로 길이 상한을 둠 — 원문에서 "1. 관계
   // 법령 및 규정"처럼 짧은 소제목 뒤에 줄바꿈 없이 긴 본문이 바로 이어 붙는 경우(PDF
   // 원본부터 그렇게 한 줄이었음, 실제 문서 e6bae4491398a6b2로 확인)가 있어서, 길이
@@ -464,7 +520,6 @@ function classifyLine(line) {
   // 번호로 끝나는 게 보통이라, "문장 종결로 안 끝나면서 너무 길지는 않은(80자 이내)"
   // 조건으로 좁혀서 구분함(e6bae4491398a6b2처럼 실제로 문장 종결로 끝나는 긴 본문은
   // 여전히 안 걸림).
-  const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
   // 2026-08-20: 위 "80자 이내+문장종결없음" 조건이 예외 2가 노린 진짜 법령인용
   // 라벨("...제12조(...) 제3항")뿐 아니라, 마침표 없이 끝나는 흔한 한국어 나열식
   // 목록 항목("1. 법령, 관계규정 또는 감독기관 등의 지시·명령·처분 등을 위반한
@@ -473,18 +528,31 @@ function classifyLine(line) {
   // 독립된 헤딩으로 쪼개짐). 예외 2가 실제로 노리는 케이스는 항상 「법령명」 인용이나
   // "제N조/항/호" 조항 참조를 포함하므로, 그 힌트가 있을 때만 이 조건을 인정하도록
   // 좁힘 — 조항 참조가 전혀 없는 평범한 나열 항목은 body로 남아 이어지는 항목들과
-  // 자연스럽게 한 문단으로 합쳐짐.
+  // 자연스럽게 한 문단으로 합쳐짐. (SENTENCE_END_RE는 이 함수 밖 top-level에 이미
+  // 선언돼 있음 — isGenericListHeading 추출 리팩터링 때 같이 끌어올려짐.)
   const LAW_CITATION_HINT_RE = /「|제\s*\d+\s*(?:조|항|호)/;
   if (
-    /^\d{1,2}[.)]\s+\S/.test(trimmed) &&
+    NUMBERED_HEADING_RE.test(trimmed) &&
     (trimmed.length <= 24 ||
       splitLawCitationHeading(trimmed) ||
       (trimmed.length <= 80 &&
         !SENTENCE_END_RE.test(trimmed) &&
         LAW_CITATION_HINT_RE.test(trimmed)))
   ) {
-    return "heading";
+    return true;
   }
+  return false;
+}
+
+/** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
+ * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
+ * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
+ * 직전 블록 종류)이 필요해서 여기가 아니라 splitIntoBlocks에서 별도로 먼저 검사함. */
+function classifyLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return "blank";
+
+  if (isGenericListHeading(trimmed)) return "heading";
   if (HEADING_LABEL_PATTERNS.some((re) => re.test(trimmed))) return "heading";
   if (matchFieldLabel(trimmed)) return "field";
   if (
@@ -563,8 +631,14 @@ function splitIntoBlocks(text) {
   // 줄을 바로 blocks에 넣지 않고 보류해뒀다가, 바로 다음 줄과 합쳐서 하나의 줄처럼
   // 분류함("□ 점검 개요"로 합쳐지면 이후 로직 변경 없이도 자연스럽게 처리됨).
   let pendingGlyph = null;
+  // 2026-08-20: "붙임" 라벨 바로 뒤 첨부목록 문단을 누적하는 중인지 — splitAttachmentLabel
+  // 주석 참고. 이 문단이 계속 이어지는 동안(flushPara로 안 끊기는 동안)만 true로 유지되고,
+  // 어떤 이유로든 문단이 끊기면(빈 줄/다른 헤딩·불릿·필드·캡션 등) flushPara()에서
+  // 자동으로 false가 되므로 "같은 문단이 이어지는 동안만" 정확히 유지됨.
+  let inAttachmentList = false;
 
   function flushPara() {
+    inAttachmentList = false;
     if (para.length === 0) return;
     // 2026-08-18: 표/그림 조각 블록("table" 타입)은 다른 문단(body/bullet 등)과 달리
     // PDF 줄바꿈이 "문장이 길어서 끊긴 자리"가 아니라 "표의 서로 다른 셀/행"일 가능성이
@@ -708,6 +782,44 @@ function splitIntoBlocks(text) {
       para.push(trimmed);
       continue;
     }
+    // 2026-08-20: 각주 15/16 미인식 버그(STATUS.md에서 "다음 세션에서 이어서 진단"으로
+    // 미뤄뒀던 것) — 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 다시 추적해서
+    // 진짜 원인을 찾음. 각주 정의문이 "「인사규정」제44조(징계대상)\n5. 공사의 여러
+    // 규정, 서약사항 및 지시명령을 위반하여 공사 내의 질서를 문란케 한 직원"처럼 법조항
+    // 자체를 그대로 인용하면서 다음 줄이 "5. ..."로 시작하는 경우, 이 줄은 각주 14의
+    // 이어지는 설명일 뿐인데 isGenericListHeading(번호 헤딩 휴리스틱, 80자 이하+문장종결
+    // 없음)에 걸려 heading으로 잘못 승격됨 — 그 순간 flushPara()로 각주 14 문단이
+    // 끊기고 prevType이 "heading"이 되어, 바로 다음에 오는 진짜 각주 15/16이
+    // effectivePrevType 허용 목록(body/footnote/bullet/table)에 "heading"이 없어서
+    // 아예 각주로 인식되지 못하는 연쇄로 이어짐. 위 표 흡수(PAREN_LABEL_RE)와 같은
+    // 이유로, 각주 문단을 누적하는 중(paraType === "footnote")에 나온 번호/가나다 헤딩
+    // 휴리스틱 매칭 줄은 진짜 새 소제목이 아니라 각주가 인용한 법조항 번호일 가능성이
+    // 높다고 보고 그대로 흡수시킴 — 실제 문서로 검증: footnote 블록 17개 → 19개(15,16
+    // 정상 인식). splitLawCitationHeading으로 분리되는 진짜 법령인용 헤딩(라벨/인용문
+    // 분리)은 이 흡수에서 제외 — 그 경우는 여전히 명확한 구조 신호라 헤딩으로 분리하는
+    // 게 맞음.
+    if (
+      kind === "heading" &&
+      paraType === "footnote" &&
+      isGenericListHeading(trimmed) &&
+      !splitLawCitationHeading(trimmed)
+    ) {
+      para.push(trimmed);
+      continue;
+    }
+    // 2026-08-20: "붙임" 첨부목록 문단을 누적하는 중(inAttachmentList)에 나온 번호
+    // 헤딩 휴리스틱 매칭 줄("2. 당시...")은 새 목록 항목(원래 첨부 캡션 나열이지 새
+    // 섹션 헤딩이 아님)일 뿐인데 heading으로 잘못 승격되던 문제 — splitAttachmentLabel
+    // 주석 참고. 위 각주 흡수와 같은 패턴으로 heading 승격을 막고 그대로 흡수시킴.
+    if (
+      kind === "heading" &&
+      inAttachmentList &&
+      isGenericListHeading(trimmed) &&
+      !splitLawCitationHeading(trimmed)
+    ) {
+      para.push(trimmed);
+      continue;
+    }
     if (kind === "heading") {
       flushPara();
       // 2026-08-18: "1) 법령 「...」 제N조(...) '인용문..." 처럼 번호 라벨 뒤에 줄바꿈
@@ -725,6 +837,34 @@ function splitIntoBlocks(text) {
         nextIsTable = false;
         paraType = "body";
         para.push(body);
+        continue;
+      }
+      // 2026-08-20: "[통보] ○○팀장은..." 류(BRACKET_LABEL_WITH_TRAILING_RE) 라벨도
+      // 위 법령인용 라벨과 똑같은 문제(줄 전체가 통째로 볼드돼 다음 줄과 뒤죽박죽)라
+      // 같은 방식으로 라벨/내용 분리(splitBracketLabelHeading 주석 참고).
+      const bracketSplit = splitBracketLabelHeading(trimmed);
+      if (bracketSplit) {
+        const [label, body] = bracketSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label); // 항상 null(라벨이 "N)"로 안 시작함)
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
+      // 2026-08-20: "붙임 : 1. ..." 라벨도 같은 이유로 라벨/내용 분리(splitAttachmentLabel
+      // 주석 참고) — 뒤이은 번호 항목들은 위 inAttachmentList 흡수 분기가 계속 처리.
+      const attachmentSplit = splitAttachmentLabel(trimmed);
+      if (attachmentSplit) {
+        const [label, body] = attachmentSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = null;
+        nextIsTable = false;
+        paraType = "body";
+        if (body) para.push(body);
+        inAttachmentList = true;
         continue;
       }
       // isTitle은 여기(원본 trimmed 기준)서 한 번만 계산해 저장 — 아래
