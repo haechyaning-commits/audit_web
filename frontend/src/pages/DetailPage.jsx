@@ -411,6 +411,18 @@ function fixMissingTitleNumber(blocks) {
   }
 }
 
+// 2026-08-13: "감사결과 처분서(연번/지적사항/처분)" 3단 표 양식에서, 지적사항/처분 두
+// 컬럼의 텍스트가 PDF 추출 시 줄 단위로 서로 교차돼 섞여 들어가는 오염이 확인됨
+// (49건, 서울대학교치과병원에 86% 집중 — scripts/audit_table_column_interleave.py로
+// 규모 확인). 표 구조가 이미 사라진 뒤라 어느 줄이 어느 칸 것이었는지 표식이 안 남아서
+// 정규식으로 안전하게 복원할 방법이 없음(억지로 줄 길이로 갈라 붙이면 서로 다른 문장을
+// 섞어 만들어내는 위험이 있어 "그럴듯하게 틀린" 내용이 될 수 있음 — 눈에 띄게 이상한
+// 원문보다 더 나쁨). 그래서 텍스트를 고치는 대신, 이 양식임을 감지해서 뒤섞였을 수
+// 있다고 투명하게 알려주는 배너만 띄움. 오탐 위험 있는 통계적 방법(줄 길이 번갈아짐)
+// 대신, 실제 오염 문서에서만 나타나는 걸 확인한 정확한 헤더 문자열만 매칭
+// (스캔 스크립트에서 검증된 방식과 동일 — 지금까지 오탐 0건).
+const TABLE_INTERLEAVE_RE = /연번[\s\n]*지적사항[\s\n]*처분/;
+
 /** 줄 하나를 "heading"(굵게, 독립 블록) / "bullet"(새 문단 시작, 안 굵음) /
  * "caption"(작고 흐린 출처/상용구 표기, 독립 블록) / "body"(이어지는 일반 줄) /
  * "blank"(빈 줄, 문단 구분)로 분류. 각주("footnote")는 문서 전체 맥락(참조 번호,
@@ -875,6 +887,10 @@ export default function DetailPage() {
     [doc],
   );
   const tocItems = useMemo(() => buildToc(blocks), [blocks]);
+  const tableInterleaveSuspect = useMemo(
+    () => Boolean(doc && TABLE_INTERLEAVE_RE.test(doc.raw_text)),
+    [doc],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1068,6 +1084,16 @@ export default function DetailPage() {
                 </svg>
                 '<strong>{query}</strong>' 검색 결과와 유사한 사례입니다 — 아래
                 원문에서 일치하는 부분을 표시했습니다
+              </p>
+            )}
+
+            {/* 표(연번/지적사항/처분) 추출 오염 의심 문서 — 위 TABLE_INTERLEAVE_RE 주석
+                참고. 내용을 고치지 않고 사실만 투명하게 알림. */}
+            {tableInterleaveSuspect && (
+              <p className="data-quality-notice">
+                ⚠️ 이 문서는 표(연번·지적사항·처분) 추출 과정에서 지적사항과 처분
+                내용이 줄 단위로 뒤섞였을 수 있습니다. 정확한 내용은 원본 문서를
+                확인해주세요.
               </p>
             )}
 

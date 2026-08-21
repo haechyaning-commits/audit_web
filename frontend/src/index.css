@@ -1015,6 +1015,18 @@ body {
   margin-bottom: 4px;
 }
 
+/* 2026-08-13: 표(연번/지적사항/처분) 추출 오염 의심 문서 배너 — summary-failed-notice와
+   같은 warn 톤 재사용, 원문 박스 바로 위에 붙어야 하니 margin은 좀 더 좁게 */
+.data-quality-notice {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
 .summary-list {
   margin: 0;
   padding: 0;
