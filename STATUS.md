@@ -2,39 +2,6 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## ✅ 2026-08-21 — 애매한(unmerged diff 있는) 브랜치 7개 main에 전부 병합
-
-PR #35(오늘 14차까지의 각주/cid/표 수정) 병합 후, 남아있던 원격 브랜치 중
-main과 실제 코드 차이가 있던 7개를 전부 순차 병합:
-`chunking-function-reuse-ri8woi`, `daily-tasks-organization-um1utu`,
-`data-preprocessing-next-steps-wksl8h`, `organize-todays-schedule-d5qbb6`,
-`railway-cost-analysis-l2ksgo`, `status-md-daily-tasks-j7zaop`,
-`webpage-data-verification-w7o0qj`.
-
-**가장 눈에 띈 발견**: 같은 날(8/20) 세 개의 다른 세션이 서로 다른 각도로 각주
-15/16류 버그를 독립적으로 파고들었음 — ① 오늘 세션의 `effectivePrevType`
-허용 목록에 `heading` 추가(범용 안전망), ② `webpage-data-verification-w7o0qj`의
-`LAW_CITATION_HINT_RE`(나열식 목록이 법령인용 힌트 없이 헤딩으로 오탐되던 진짜
-근본 원인 수정), ③ `status-md-daily-tasks-j7zaop`의 각주/첨부목록 문단 흡수 중
-번호헤딩 휴리스틱 매칭 줄 통째 흡수(위 두 방어를 뚫는 마지막 케이스 방어). 세
-수정 다 서로 다른 각도라 전부 유지.
-
-그 외 병합된 새 기능/수정: `(통보N)`/`(주의N)` 조치유형 코드 각주 오탐 필터(2개
-브랜치에서 병렬 발견 — 일반 문자 클래스 버전을 채택, 명시적 키워드 목록 버전은
-상위호환이라 생략), 대괄호 라벨/붙임 라벨 분리(`splitBracketLabelHeading`/
-`splitAttachmentLabel`), `GZipMiddleware`(Railway egress 비용 절감), HWP/HWPX
-잘림·태그누출 복구 스크립트 5종 신규 추가, README 보강, 중복 문서 감사 스크립트.
-
-병합 중 발견한 위험: git 자동 병합이 `TITLE_BLOCK_LEADING_NUM_RE`/
-`fixMissingTitleNumber`를 충돌 표시 없이 조용히 중복 선언한 사례 1건 —
-빌드 전 수동 `git diff` 검토로 발견, 이후 모든 병합에 중복 선언 grep 체크를
-표준 절차로 추가. `webpage-data-verification-w7o0qj`의 `prevHeadingText`
-메커니즘은 더 넓은 `heading` 허용으로 완전히 대체돼 있어 중복 제거(회귀 테스트로
-동일 커버리지 확인 후 제거).
-
-**검증**: JS/Python 양쪽 최상위 중복 선언 0건, `npm run lint`/`npm run build`
-통과, Node 회귀 테스트 33건 전부 통과, Python 합성 자가 검증 63건 전부 통과.
-
 ## ✅ 2026-08-21 (14차) — cid 오염 + 표 흡수 수정 실 DB 확인: 후보 3,083→3,005건
 
 13차(cid 오염 캡션 처리 + 캡션 없는 표 데이터 재분류) 수정을 Colab에서 재실행해서 확인.
