@@ -63,8 +63,22 @@
 #   -> 총 1,765건 (2026-08-07 기준), 별도 재추출 워크스트림으로 분리.
 #      텍스트 치환으로 복구 불가능하므로 이 스크립트로는 처리 안 함.
 #
+# 6) HWP XML 누출 2차 (2026-08-13, 5)와 별개 병합 — 아래 실행 순서 위 5)와 겹치는
+#    부분 없이 공존, 각각 다른 누출 패턴을 잡음) — 1)의 hp:run류 수정 이후에도 표가 복잡한 문서에서
+#    hc:(도형/차트 속성: transMatrix/scaMatrix/rotMatrix/fillBrush/winBrush/pt0~3 등)
+#    계열과 linkListNextIDRef=/textpos=/vertpos=/outlineS가 별도로 새고 있는 걸
+#    audit_hwp_tag_leak.py로 확인(97건, 전체의 0.14%, 한국토지주택공사 2025에 집중).
+#    hc: 태그명은 hp:처럼 단독 토큰으로 떠다니고, 속성 형태(linkListNextIDRef= 등)는
+#    "=" 뒤에 줄바꿈이 끼어 기존 TAG_ATTR_RE가 못 잡던 경우가 있어서 정규식을 확장.
+#    남은 한계: "fff"/"head"/"cha"/"vert"/"col"/"borderFill"/"rowSpan" 같은 영문 조각도
+#    같은 문서들에 섞여 나오지만, 정상 영문 약어와 구분이 애매해 이번엔 손대지 않음
+#    (오탐 위험 > 실익 판단 — 필요해지면 각 조각의 등장 문맥을 더 모아서 별도 검토).
+#
 # 실행 순서:
-#   1) documents_backup_<날짜>, chunks_backup_<날짜> 테이블로 백업
+#   1) scripts/backup_before_fix.py로 documents.raw_text/chunks.text만 Drive에
+#      jsonl로 백업 (2026-08-13: 원래 `CREATE TABLE ... AS SELECT *`로 테이블째
+#      복사했다가 chunks의 벡터 컬럼까지 같이 복사되면서 Postgres 볼륨이 꽉 차
+#      DiskFull 에러가 실제로 났음 — DB 안에 새 테이블 만드는 방식은 쓰지 말 것)
 #   2) 이 스크립트로 documents.raw_text, chunks.text 수정
 #   3) 라이브 DB에서 재검증 (CHAIN_RE / HWP_LEAK_MARKER 둘 다 0건이어야 함)
 #   4) 바뀐 chunk만 골라 BGE-m3로 재임베딩 (Colab, GPU 필요) 후
@@ -93,18 +107,34 @@ TAG_ATTR_SPLIT_RE = re.compile(r'\b[\w:]+=\s*"[^"]*"')
 ORPHAN_TAG_VALUE_RE = re.compile(r'(?<![\w:])="[^"]*"')
 # 2026-08-18: hp: 접두어만 잡던 걸 hc:(도형/차트 속성 태그, 2026-08-13 조사로 발견)까지
 # 넓힘 — 아래 HWP_LEAK_MARKER도 같이 넓혀야 이 태그만 있는 문서에서 가드가 열림.
-TAG_NAME_RE = re.compile(r"/?\b(?:hp|hc):[A-Za-z]+\b")
+# 2026-08-13(daily-tasks-organization-um1utu 병합): 태그명에 숫자가 섞인 경우(예:
+# "hp:tbl2")도 실제로 있어서 [A-Za-z]+ -> [A-Za-z0-9]+로 넓힘.
+TAG_NAME_RE = re.compile(r"/?\b(?:hp|hc):[A-Za-z0-9]+\b")
 # 2026-08-18: hp:/hc: 네임스페이스 접두어조차 없는 "맨 속성명" 누출을 실제 문서로
 # 확인함(대구경북첨단의료산업진흥재단 2025 "array"/"bList"/"hasN", 한국임업진흥원 2026
 # "hasT"/"linkLi"/"styleIDRef" 등 — 사용자 제보로 발견). 하나하나 정확한 단어로 나열하는
 # 대신, 이 말뭉치(한글 전용 감사보고서, 드물게 대문자 약어만 섞임 — TFT/KOVIS/BSC처럼)에는
 # 자연 발생할 수 없는 "소문자로 시작해서 중간에 대문자가 나오는" 카멜케이스 형태를 전부
 # 잡음 — hasNumRef/linkListIDRef/isList/bList/outlineS뿐 아니라 줄바꿈 등으로 중간에
-# 잘린 조각(hasN/hasT/linkLi 등)까지 한 번에 커버됨. 실제 문서 3건(위 2건 + 기존 정상
-# 문서 3건)으로 오탐 0건 확인(스크래치패드 검증, DB 미반영). "array"/"para"처럼 카멜케이스가
-# 아닌 순수 소문자 토큰은 별도로 정확한 단어만 나열(오탐 위험 있어서 좁게 유지).
+# 잘린 조각(hasN/hasT/linkLi 등)까지 한 번에 커버됨(outlineS 자체도 이 패턴에 걸리므로
+# daily-tasks-organization-um1utu가 별도로 추가하려던 BARE_LEAK_TOKEN_RE는 중복이라
+# 병합 시 생략함). 실제 문서 3건(위 2건 + 기존 정상 문서 3건)으로 오탐 0건 확인
+# (스크래치패드 검증, DB 미반영). "array"/"para"처럼 카멜케이스가 아닌 순수 소문자
+# 토큰은 별도로 정확한 단어만 나열(오탐 위험 있어서 좁게 유지).
 CAMEL_CASE_TOKEN_RE = re.compile(r"\b[a-z]{1,10}[A-Z][A-Za-z0-9]*\b")
 BARE_LOWER_TOKEN_RE = re.compile(r"\b(?:array|para)\b")
+# 2026-08-13(daily-tasks-organization-um1utu 병합): chunks.text는 documents.raw_text를
+# 잘라 만든 조각이라, 속성 태그가 청크 경계에서 반으로 잘리는 경우가 있음(실제 사례로
+# 확인 — 한 청크는 "vertpos="로 끝나고 닫는 따옴표+값("145" 등)은 다음 청크 맨 앞으로
+# 넘어가 있음). 이러면 TAG_ATTR_SPLIT_RE가 요구하는 닫는 따옴표가 같은 청크 문자열
+# 안에 없어서 못 잡힘(documents.raw_text는 문서 전체라 이 경계 문제 자체가 없어서
+# 0건, chunks만 29건 남았던 이유). 청크 맨 끝에 매달린(닫는 따옴표 없는) 속성명=값조각
+# 만 별도로 제거 — 길이를 40자로 제한해서 혹시 모를 정상 텍스트 과잉 삭제 위험을 줄임.
+# 속성명은 [A-Za-z]로 시작하게 제한 — Python 정규식의 \w는 한글도 포함해서,
+# [\w:]+= 로 두면 "목표는 완료=100%입니다"처럼 우연히 "="가 낀 정상 한글 문장의
+# "완료="까지 속성명으로 착각해 지울 위험이 있었음(실제 HWP 속성명은 항상 영문이므로
+# 이 제약이 안전함).
+DANGLING_ATTR_RE = re.compile(r'\b[A-Za-z][A-Za-z0-9:]*=\s*"?[^"\n]{0,40}$')
 HWP_LEAK_MARKER = re.compile(
     r"hp:run|hp:lineseg|hp:sz|hp:pos"
     r"|hc:\w+|textpos=|vertpos=|linkListNextIDRef=|outlineS"  # 2026-08-13 조사로 발견
@@ -212,6 +242,10 @@ def strip_hwpml_leak(text: str) -> str:
     text = TAG_NAME_RE.sub(" ", text)
     text = CAMEL_CASE_TOKEN_RE.sub(" ", text)
     text = BARE_LOWER_TOKEN_RE.sub(" ", text)
+    # 2026-08-13(daily-tasks-organization-um1utu 병합): chunks.text 청크 경계에서
+    # 반으로 잘린 속성 잔여분 제거(DANGLING_ATTR_RE 주석 참고) — documents.raw_text
+    # 에는 이 경계 문제 자체가 없어서 영향 없음.
+    text = DANGLING_ATTR_RE.sub("", text)
     text = re.sub(r"\s*/\s*(?=\s|$)", " ", text)
     text = re.sub(r"[ \t]+", " ", text)           # 개행은 보존, 스페이스/탭만 압축
     text = re.sub(r" *\n *", "\n", text).strip()  # 개행 주변 공백만 정리

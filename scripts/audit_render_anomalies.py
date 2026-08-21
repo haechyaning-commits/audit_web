@@ -27,17 +27,27 @@
 # (로직이 갈라졌다는 신호이므로 전수 스캔을 신뢰할 수 없음).
 #
 # **알려진 버그(2026-08-20 발견, 2026-08-21 수정 — 실 DB로 최종 확인 완료)**:
-# SELF_TEST_DOCS의 9ddc6393057cc532 문서는 실제로는 각주가 19개(6/7/8도 존재)인데
-# **포팅 문제가 아니라 DetailPage.jsx 자체의 실제 렌더링 버그**(Node로 실제 파일과
-# 대조 확인함) 때문에 일부가 body/heading에 흡수됨 — Colab 디버그 추적으로 원인
-# 3가지(불릿/표 문단 흡수, 그로 인한 헤딩 오분류 연쇄)를 실제로 특정해서
-# effectivePrevType 허용 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건,
-# 실제 DB로 확인 완료). 남은 15/16(짧은 숫자 헤딩 직후 각주가 막히는 문제)도
-# 같은 방식으로 effectivePrevType 허용 목록에 "heading" 추가해서 수정 —
-# **2026-08-21 Colab 재실행으로 9ddc6393057cc532가 정확히 기대치 19건으로
-# 나오는 것 확인 완료**(전수 재스캔 결과 후보 4,137건→4,083건으로 추가 감소,
-# STATUS.md 참고). 이 클래스의 버그(각주 참조는 있는데 일부만 인식)는 아래
-# 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고 후보 목록을 볼 것.
+# SELF_TEST_DOCS의 9ddc6393057cc532 문서는 실제로는 각주가 19개(6/7/8/15/16도
+# 존재)인데 **포팅 문제가 아니라 DetailPage.jsx 자체의 실제 렌더링 버그**(Node로
+# 실제 파일과 대조 확인함) 때문에 일부가 body/heading에 흡수됐었음 — Colab 디버그
+# 추적으로 원인 3가지(불릿/표 문단 흡수, 그로 인한 헤딩 오분류 연쇄)를 특정해서
+# effectivePrevType 허용 목록에 "bullet"/"table" 추가로 6~10을 고침(12→17건).
+# 남은 15/16(짧은 숫자 헤딩 직후 각주가 막히는 문제)은 그날 세 가지 방식으로
+# 독립적으로 접근함 — ①effectivePrevType 허용 목록에 "heading" 추가(범용 안전망,
+# 17→19건 확인) ②별도 세션(webpage-data-verification-w7o0qj)이 "진짜" 근본
+# 원인을 발견 — 다른 문서(한국자산관리공사 2019, 65fc6662db4c8570)의 「인사규정」
+# 열거항목 오분류를 조사하다가, classifyLine의 "80자 이내+문장종결없음" 헤딩
+# 예외가 법령인용 힌트 없이도 발동해서 각주 14 문단이 중간의 마침표 나열 항목
+# ("5. 공사의...")에서 끊기고 그 여파로 15/16까지 막히는 것임을 발견 —
+# LAW_CITATION_HINT_RE로 그 예외를 좁혀서 근본 해결(이 문서 밖의 다른 나열식
+# 목록 오탐까지 같이 고침) ③또 다른 세션(status-md-daily-tasks-j7zaop)이 같은
+# 증상을 다른 각도로 접근 — 각주 문단을 누적하는 중(paraType==="footnote")에
+# isGenericListHeading에 걸리는 줄(splitLawCitationHeading으로 분리되는 진짜
+# 법령인용 헤딩은 제외)은 진짜 새 소제목이 아니라 각주가 인용한 법조항 번호일
+# 가능성이 높다고 보고 그대로 흡수시킴 — LAW_CITATION_HINT_RE가 못 잡는(법령인용
+# 힌트가 있어서 여전히 heading으로 분류되는) 경우까지 방어. 세 수정 다 서로 다른
+# 각도의 방어층이라 전부 반영돼 있음. 이 클래스의 버그(각주 참조는 있는데 일부만
+# 인식)는 아래 4개 탐지 신호로 못 잡을 수 있다는 점을 감안하고 후보 목록을 볼 것.
 #
 # **탐지하는 "구조 이상" 신호** (전부 휴리스틱 — 확정 버그가 아니라 "사람이
 # 확인해볼 가치가 있는 후보"를 걸러내는 용도):
@@ -121,6 +131,27 @@ def match_field_label(trimmed):
     return None
 
 
+# 2026-08-14 10차: "[통보] ○○팀장은..." "[관련자 의견] 관련자는..."처럼 대괄호
+# 라벨 뒤에 줄바꿈 없이 내용이 바로 이어지는 경우도 헤딩으로 인식시키려고 일부러
+# 줄 끝 고정($) 없이 만든 패턴 — HEADING_LABEL_PATTERNS 맨 끝에서 쓰고,
+# split_into_blocks의 split_bracket_label_heading에서 라벨/내용 분리에도 재사용
+# 하므로 그 두 곳보다 앞에 선언해둠(DetailPage.jsx와 동일 반영, 동작 변경 없음).
+BRACKET_LABEL_WITH_TRAILING_RE = re.compile(
+    r"^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|"
+    r"모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|"
+    r"현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|"
+    r"덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|"
+    r"관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]"
+)
+
+# 2026-08-20: "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n2. 당시...개별면담 내용(...)"
+# 처럼 문서 끝 첨부목록을 여는 "붙임"이 인식되는 라벨이 아니라서 앞 문장에 그대로
+# 병합되고, 그 안 "2. ..." 항목은 번호 헤딩 휴리스틱에 걸려 혼자만 heading으로
+# 튀는 문제(9ddc6393057cc532 실제 발췌) — HEADING_LABEL_PATTERNS와
+# split_into_blocks의 split_attachment_label 둘 다에서 써서 그 두 곳보다 앞에
+# 선언(DetailPage.jsx와 동일 반영).
+ATTACHMENT_LABEL_RE = re.compile(rf"^(붙\s*임)\s*{LABEL_SEP}")
+
 HEADING_LABEL_PATTERNS = [
     TITLE_RE,
     re.compile(r"^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)"),
@@ -132,16 +163,14 @@ HEADING_LABEL_PATTERNS = [
     re.compile(r"^<.+>$"),
     PAREN_LABEL_RE,
     re.compile(r"^\[[^\[\]]{1,20}\]$"),
-    re.compile(
-        r"^\[(소\s*관\s*부\s*점\s*의\s*견|통\s*보|관\s*련\s*자\s*의\s*견|관\s*련\s*자|"
-        r"모\s*범\s*사\s*례|권\s*고|개\s*선\s*요\s*구|개\s*선|조\s*치\s*할\s*사\s*항|"
-        r"현\s*지\s*조\s*치|행\s*정\s*상\s*조\s*치|부\s*서\s*주\s*의|부\s*서\s*명|"
-        r"덧\s*붙\s*임|첨\s*부|신\s*분\s*상\s*조\s*치|관\s*련\s*부\s*서\s*의\s*견|"
-        r"관\s*련\s*부\s*서|시\s*정\s*요\s*구|현\s*지\s*시\s*정|시\s*정)\s*\]"
-    ),
+    BRACKET_LABEL_WITH_TRAILING_RE,
+    ATTACHMENT_LABEL_RE,
 ]
 
-BULLET_RE = re.compile(r"^(?:[-–—□○◦▪‣·❍※•*]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)")
+# 2026-08-20: "ㅇ"(한글 자음 '이응', U+3147)를 불릿으로 쓰는 문서 발견(한국자산관리공사
+# 2019, 65fc6662db4c8570) — "○"(원 기호, U+25CB)와 다른 코드포인트라 못 걸리고 있었음.
+# DetailPage.jsx와 동일하게 반영.
+BULLET_RE = re.compile(r"^(?:[-–—□○◦▪‣·❍※•*ㅇ]\s*\S|[①②③④⑤⑥⑦⑧⑨⑩]\s+\S)")
 LONE_BULLET_GLYPH_RE = re.compile(r"^[-–—□○◦▪‣·❍※•]$")
 PERSON_LIST_ITEM_RE = re.compile(r"^[A-Z]{1,3}\s*[-–—]\s+\S")  # "C - .../D - ..." 인물목록
 GLYPH_BULLET_RE = re.compile(r"^([qm])\s+(?=[^a-z\s])")
@@ -221,6 +250,15 @@ FOOTNOTE_REF_STRICT_RE = re.compile(r"[가-힣](\d{1,2})\)")
 # 통째로 괄호 하나에 들어있음 — 그 괄호 전체 스팬을 먼저 찾아서, 그 안에
 # 들어가는 FOOTNOTE_REF_STRICT_RE 매치는 제외함(단일 글자 lookbehind로는
 # 여러 글자 라벨을 못 걸러서 스팬 비교 방식으로 함).
+#
+# 2026-08-20(별도 세션, status-md-daily-tasks-j7zaop 병합): 같은 문제를 독립적으로
+# 발견해서 명시적 조치유형 키워드 목록(통보/주의/시정/개선/권고/문책/징계/고발/훈계/
+# 경고/변상)으로 좁혀 잡는 버전으로도 고쳤었음 — 병합하면서 비교해보니 위 일반
+# 문자 클래스 버전이 이 키워드 목록에 없는 다른 조치유형("해임"/"파면"/"강등"/
+# "정직"/"감봉" 등, scripts/fix_text_corruption.py의 DISPOSITION_END_WORDS에서
+# 이미 실제 존재가 확인된 종류들)까지 목록 유지 없이 자동으로 잡는 상위 호환이라
+# 이 버전을 유지하고 키워드 목록 버전은 생략함(두 세션이 같은 버그를 독립적으로
+# 찾아냈다는 사실 자체가 이 오탐이 실제로 흔했다는 교차 확인이 됨).
 ACTION_TYPE_CODE_RE = re.compile(r"\([가-힣]{1,4}\d{1,2}\)")
 
 
@@ -234,8 +272,6 @@ def strict_footnote_nums(raw_text):
             continue
         nums.add(m.group(1))
     return nums
-
-
 FOOTNOTE_DEF_RE = re.compile(r"^(\d{1,2})\)\s*\S")  # 2026-08-19: \s* 완화된 버전
 # 2026-08-20: 원래 "[.)]"로 마침표/괄호 둘 다 받았는데, 이 번호가 각주 오판별
 # 방지(continuesHeadingList)에 쓰이면서 실제 문서(한국조폐공사 2016,
@@ -330,6 +366,35 @@ def split_law_citation_heading(trimmed):
     return (label, body)
 
 
+def split_bracket_label_heading(trimmed):
+    """BRACKET_LABEL_WITH_TRAILING_RE("[통보]"/"[관련자 의견]" 등)에 매칭되고
+    "]" 뒤에 실제 내용이 남아있으면 (라벨, 내용)으로 나눔(split_law_citation_heading과
+    같은 목적·같은 방식) — DetailPage.jsx의 splitBracketLabelHeading과 동일 반영.
+    라벨 하나로 줄이 끝나면(내용 없음) None(그 경우는 이미 위 "줄 전체가 라벨뿐"
+    패턴이 먼저 걸러서 실제로는 거의 안 옴)."""
+    m = BRACKET_LABEL_WITH_TRAILING_RE.match(trimmed)
+    if not m:
+        return None
+    label = m.group(0).strip()
+    body = trimmed[len(m.group(0)):].strip()
+    if not label or not body:
+        return None
+    return (label, body)
+
+
+def split_attachment_label(trimmed):
+    """ATTACHMENT_LABEL_RE에 매칭되면 (라벨, 나머지내용)으로 나눔(내용이 없으면
+    빈 문자열 — "붙임" 혼자 나오고 다음 줄부터 목록이 시작하는 문서도 있을 수
+    있어서 위 두 split_*_heading과 달리 None을 반환 안 함). DetailPage.jsx의
+    splitAttachmentLabel과 동일 반영."""
+    m = ATTACHMENT_LABEL_RE.match(trimmed)
+    if not m:
+        return None
+    label = m.group(1)
+    body = trimmed[len(m.group(0)):].strip()
+    return (label, body)
+
+
 TITLE_BLOCK_LEADING_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s")
 
 
@@ -356,6 +421,35 @@ def fix_missing_title_number(blocks):
 GANADA_HEADING_RE = re.compile(r"^[가나다라마바사아자차카타파하][.)]?\s+\S")
 NUMBERED_HEADING_RE = re.compile(r"^\d{1,2}[.)]\s+\S")
 SENTENCE_END_RE = re.compile(r"[가-힣][.!?](?:\s|$)")
+# 2026-08-20: "80자 이내+문장종결없음" 예외가 마침표 없이 끝나는 흔한 나열식 목록
+# 항목("1. 법령, 관계규정 또는 감독기관 등의 지시·명령·처분 등을 위반한 사람")까지
+# 헤딩으로 오탐하던 문제를 실제 문서로 확인함(한국자산관리공사 2019,
+# 65fc6662db4c8570). 이 예외가 실제로 노리는 케이스는 항상 「법령명」 인용이나
+# "제N조/항/호" 조항 참조를 포함하므로, 그 힌트가 있을 때만 인정하도록 좁힘
+# (DetailPage.jsx와 동일하게 반영).
+LAW_CITATION_HINT_RE = re.compile(r"「|제\s*\d+\s*(?:조|항|호)")
+
+
+# 2026-08-20: classify_line의 "가/나/다" 및 "1. 2. 3." 번호 헤딩 휴리스틱을 별도
+# 함수로 뽑아냄(DetailPage.jsx의 isGenericListHeading과 동일한 이유·동일한 분리) —
+# split_into_blocks에서 각주 문단 흡수 여부를 판단할 때도 재사용(아래 각주15/16 버그
+# 수정 참고). 동작 변경 없는 순수 리팩터링.
+def is_generic_list_heading(trimmed: str) -> bool:
+    if GANADA_HEADING_RE.match(trimmed) and len(trimmed) <= 24:
+        return True
+    # 2026-08-18: "1. 2. 3." 번호 항목 — 24자 상한 + 두 가지 예외(법령인용 분리
+    # 가능하거나, 80자 이내+문장종결없음+법령인용 힌트가 있는 경우)는 헤딩으로 인정.
+    if NUMBERED_HEADING_RE.match(trimmed) and (
+        len(trimmed) <= 24
+        or split_law_citation_heading(trimmed)
+        or (
+            len(trimmed) <= 80
+            and not SENTENCE_END_RE.search(trimmed)
+            and LAW_CITATION_HINT_RE.search(trimmed)
+        )
+    ):
+        return True
+    return False
 
 
 def classify_line(line: str) -> str:
@@ -363,15 +457,7 @@ def classify_line(line: str) -> str:
     if not trimmed:
         return "blank"
 
-    if GANADA_HEADING_RE.match(trimmed) and len(trimmed) <= 24:
-        return "heading"
-    # 2026-08-18: "1. 2. 3." 번호 항목 — 24자 상한 + 두 가지 예외(법령인용 분리
-    # 가능하거나, 80자 이내면서 문장 종결로 안 끝나는 경우)는 헤딩으로 인정.
-    if NUMBERED_HEADING_RE.match(trimmed) and (
-        len(trimmed) <= 24
-        or split_law_citation_heading(trimmed)
-        or (len(trimmed) <= 80 and not SENTENCE_END_RE.search(trimmed))
-    ):
+    if is_generic_list_heading(trimmed):
         return "heading"
     if any(p.match(trimmed) for p in HEADING_LABEL_PATTERNS):
         return "heading"
@@ -430,9 +516,14 @@ def split_into_blocks(text: str) -> list[dict]:
     prev_type = None
     last_heading_list_num = None
     pending_glyph = None
+    # 2026-08-20: "붙임" 라벨 바로 뒤 첨부목록 문단을 누적하는 중인지 — split_attachment_label
+    # 주석 참고. DetailPage.jsx의 inAttachmentList와 동일 반영 — flush_para()에서 매번
+    # False로 리셋되므로 "같은 문단이 이어지는 동안만" true로 유지됨.
+    in_attachment_list = False
 
     def flush_para():
-        nonlocal para, para_type, prev_type
+        nonlocal para, para_type, prev_type, in_attachment_list
+        in_attachment_list = False
         if not para:
             return
         # 2026-08-21: 캡션 없는 표 데이터가 bullet로 흘러들어온 경우 재분류
@@ -488,6 +579,35 @@ def split_into_blocks(text: str) -> list[dict]:
         if kind == "heading" and para_type == "table" and PAREN_LABEL_RE.match(trimmed):
             para.append(trimmed)
             continue
+        # 2026-08-20: 각주 15/16 미인식 버그 수정(DetailPage.jsx와 동일 반영) — 각주
+        # 정의문이 법조항을 그대로 인용하면서 다음 줄이 "5. ..."처럼 번호로 시작하면
+        # is_generic_list_heading(번호 헤딩 휴리스틱)에 걸려 heading으로 잘못 승격되고,
+        # 그 순간 flush_para()로 각주 문단이 끊겨 prev_type이 "heading"이 됨 — 바로
+        # 다음에 오는 진짜 각주가 FOOTNOTE_ALLOWED_PREV_TYPES에 "heading"이 없어서
+        # 아예 인식 실패로 이어지던 연쇄(실제 문서 9ddc6393057cc532, 각주 17개→19개로
+        # 검증 — 위 PAREN_LABEL_RE 표 흡수와 같은 이유). split_law_citation_heading으로
+        # 분리되는 진짜 법령인용 헤딩은 명확한 구조 신호라 이 흡수에서 제외.
+        if (
+            kind == "heading"
+            and para_type == "footnote"
+            and is_generic_list_heading(trimmed)
+            and not split_law_citation_heading(trimmed)
+        ):
+            para.append(trimmed)
+            continue
+        # 2026-08-20: "붙임" 첨부목록 문단을 누적하는 중(in_attachment_list)에 나온
+        # 번호 헤딩 휴리스틱 매칭 줄("2. 당시...")은 새 목록 항목(원래 첨부 캡션
+        # 나열이지 새 섹션 헤딩이 아님)일 뿐인데 heading으로 잘못 승격되던 문제 —
+        # split_attachment_label 주석 참고. 위 각주 흡수와 같은 패턴으로 heading
+        # 승격을 막고 그대로 흡수시킴.
+        if (
+            kind == "heading"
+            and in_attachment_list
+            and is_generic_list_heading(trimmed)
+            and not split_law_citation_heading(trimmed)
+        ):
+            para.append(trimmed)
+            continue
         if kind == "heading":
             flush_para()
             citation_split = split_law_citation_heading(trimmed)
@@ -499,6 +619,34 @@ def split_into_blocks(text: str) -> list[dict]:
                 next_is_table = False
                 para_type = "body"
                 para.append(body)
+                continue
+            # 2026-08-20: "[통보] ○○팀장은..." 류(BRACKET_LABEL_WITH_TRAILING_RE) 라벨도
+            # 위 법령인용 라벨과 똑같은 문제(줄 전체가 통째로 볼드돼 다음 줄과 뒤죽박죽)라
+            # 같은 방식으로 라벨/내용 분리(split_bracket_label_heading, DetailPage.jsx 동일).
+            bracket_split = split_bracket_label_heading(trimmed)
+            if bracket_split:
+                label, body = bracket_split
+                blocks.append({"type": "heading", "text": label, "isTitle": False})
+                prev_type = "heading"
+                last_heading_list_num = extract_list_num(label)  # 항상 None
+                next_is_table = False
+                para_type = "body"
+                para.append(body)
+                continue
+            # 2026-08-20: "붙임 : 1. ..." 라벨도 같은 이유로 라벨/내용 분리
+            # (split_attachment_label 주석 참고) — 뒤이은 번호 항목들은 위
+            # in_attachment_list 흡수 분기가 계속 처리.
+            attachment_split = split_attachment_label(trimmed)
+            if attachment_split:
+                label, body = attachment_split
+                blocks.append({"type": "heading", "text": label, "isTitle": False})
+                prev_type = "heading"
+                last_heading_list_num = None
+                next_is_table = False
+                para_type = "body"
+                if body:
+                    para.append(body)
+                in_attachment_list = True
                 continue
             blocks.append({"type": "heading", "text": trimmed, "isTitle": bool(TITLE_RE.match(trimmed))})
             prev_type = "heading"
@@ -693,6 +841,25 @@ def run_synthetic_self_tests():
         "번호목록 헤딩 통합 재현: classify_footnote_zero_signal이 ②로 판정(스캐너 오탐, 버그 아님)",
         classify_footnote_zero_signal(text, {"2", "3"}, blocks)
         == "② 번호목록 헤딩 오탐 의심(정의 줄이 실제로는 heading으로 정상 렌더링됨)",
+    )
+
+    # ACTION_TYPE_CODE_RE — 2026-08-20 신호② 표본 재조사(18b48a4726dad247)에서
+    # 발견한 조치유형 분류 코드("(통보1)"/"(주의1)") 오탐 필터.
+    check(
+        "조치유형 코드('(통보1)')는 strict_footnote_nums에서 제외됨",
+        "1" not in strict_footnote_nums("처분요구 사항\n(통보1) ㅇ 그런데 예산집행이"),
+    )
+    check(
+        "조치유형 코드('(주의1)')는 strict_footnote_nums에서 제외됨",
+        "1" not in strict_footnote_nums("(주의1) ㅇ 관련자에게 주의를 촉구"),
+    )
+    check(
+        "괄호 없는 진짜 각주 참조('통보18)')는 여전히 strict_footnote_nums에 잡힘",
+        "18" in strict_footnote_nums("감사원에 통보18)하였다"),
+    )
+    check(
+        "한글 뒤 일반 각주 참조('금액18)')는 strict_footnote_nums에도 여전히 잡힘",
+        "18" in strict_footnote_nums("지적된 금액18)은 환수"),
     )
 
     # 2026-08-20: 헤딩/각주 번호 충돌 버그 수정(LIST_HEADING_NUM_RE 괄호 전용화 +
@@ -906,6 +1073,143 @@ def run_synthetic_self_tests():
         and not any(b["type"] == "table" for b in blocks),
     )
 
+    # 2026-08-20: 아래 3건 — 한국자산관리공사 2019(65fc6662db4c8570) 실제 발췌로
+    # 재현한 버그 3종.
+
+    # ①"ㅇ"(한글 자음)을 불릿으로 인식하는지 — "○"(원 기호)만 걸리던 문제.
+    text = "CMS 전용통신망으로 연결하여 처리하는 방식\nㅇ 또한, 「기록물관리세칙」에 따르면 인장을 관리하게 되어 있음"
+    blocks = split_into_blocks(text)
+    check(
+        "한글 자음 'ㅇ'도 불릿으로 인식됨(원 기호 '○'와 별개 코드포인트)",
+        any(b["type"] == "bullet" and b["text"].startswith("ㅇ") for b in blocks),
+    )
+
+    # ②"(징계)" 같은 괄호 라벨 바로 다음의 진짜 각주가 인식되는지. footnote_nums는
+    # 문서 전체에서 "한글 뒤 숫자)" 참조를 스캔해서 채워지므로, 정의 줄만으로는
+    # 재현이 안 되고 실제 문서처럼 앞쪽에 참조("횡령하였고9)"/"있음10)")가 있어야 함.
+    text = (
+        "위 사람은 대출금을 횡령하였고9) 이를 은폐하고자 회계사고를 발생시킨 사실이 있음10)\n"
+        "ㅇ 「인사규정」 제52조에 따라 중징계(면직) 처분하시기 바람.\n"
+        "(징계)\n"
+        "9) 또한, 2018. 10. 25. 당일 지급하여야 할 위탁개발 필요자금 지급을 위한 대출금 455백만 원 중"
+        " 100백만 원을 횡령하여 회계사고를 은폐하고자 한 사실이 있음\n"
+        "10) 제44조(징계대상) 다음 각 호의 어느 하나에 해당하는 직원을 징계대상으로 한다."
+    )
+    blocks = split_into_blocks(text)
+    footnote_blocks = [b for b in blocks if b["type"] == "footnote"]
+    check(
+        "괄호 라벨('(징계)') 바로 다음 각주 9)/10) 둘 다 인식됨(수정 전엔 헤딩으로 오분류)",
+        any(b["text"].startswith("9)") for b in footnote_blocks)
+        and any(b["text"].startswith("10)") for b in footnote_blocks),
+    )
+
+    # ③마침표로 끝나는 법령인용 없는 나열식 목록 항목("1. 법령... 위반한 사람")이
+    # 더 이상 개별 헤딩으로 안 쪼개지는지.
+    text = (
+        "10) 제44조(징계대상) 다음 각 호의 어느 하나에 해당하는 직원을 징계대상으로 한다.\n"
+        "1. 법령, 관계규정 또는 감독기관 등의 지시ㆍ명령ㆍ처분 등을 위반한 사람\n"
+        "2. 배임, 횡령, 수뢰, 그 밖에 업무와 관련하여 금품을 수수한 사람"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "법령인용 힌트 없는 나열식 목록 항목은 더 이상 헤딩으로 안 쪼개짐(수정 전엔 오분류)",
+        not any(b["type"] == "heading" and b["text"].startswith("1.") for b in blocks),
+    )
+    # 회귀 없음: 진짜 법령인용 라벨("제12조...제3항" 포함)은 여전히 헤딩으로 인정됨.
+    text = "1) 공사 「행동강령」 제12조(알선ㆍ청탁 등의 금지) 제3항"
+    blocks = split_into_blocks(text)
+    check(
+        "「법령명」/제N조 힌트가 있는 진짜 법령인용 라벨은 여전히 헤딩으로 인정됨(회귀 없음)",
+        any(b["type"] == "heading" and b["text"] == text for b in blocks),
+    )
+
+    # 2026-08-20: 각주 15/16 미인식 버그 수정 — 한국자산관리공사 2021
+    # (9ddc6393057cc532)을 실제 API로 다시 확인해서 진짜 원인을 찾은 최소 재현.
+    # 각주 14 정의문이 인용한 법조항 번호("5. 공사의...")가 번호 헤딩 휴리스틱에
+    # 걸려 heading으로 잘못 승격되면서 그 다음 각주(15)가 막히던 연쇄.
+    text = (
+        "관련 규정14)을 위반한 직원15)에 대해 조치함\n"
+        "14)「인사규정」제44조(징계대상)\n"
+        "5. 공사의 여러 규정, 서약사항 및 지시명령을 위반하여 공사 내의 질서를 문란케 한 직원\n"
+        "15) 과잉금지의 원칙 또는 비례의 원칙을 고려"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "각주 정의문이 인용한 법조항 번호('5. ...')는 헤딩으로 안 끊김(수정 전엔 실패)",
+        any(
+            b["type"] == "footnote" and b["text"].startswith("14)") and "5. 공사의" in b["text"]
+            for b in blocks
+        ),
+    )
+    check(
+        "그 뒤 진짜 각주 15는 여전히 인식됨(수정 전엔 각주14가 heading으로 끊겨서 막혔음)",
+        any(b["type"] == "footnote" and b["text"].startswith("15)") for b in blocks),
+    )
+
+    # 2026-08-20: "[관련자 의견] 관련자는..." 류 대괄호 라벨이 뒤에 오는 긴 문장까지
+    # 통째로 heading(볼드)이 되던 버그 수정 — 한국자산관리공사 2021(9ddc6393057cc532)
+    # 실제 발췌로 재현.
+    text = (
+        "[관련자 의견] 관련자는 감사 결과에 이견을 제기하지 않았고, 모범을\n"
+        "보여야 할 관리자의 위치에도 불구하고 감정에 치우친 행동을 하였다."
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "'[관련자 의견]' 라벨만 heading으로 분리됨(수정 전엔 첫 줄 전체가 heading)",
+        any(b["type"] == "heading" and b["text"] == "[관련자 의견]" for b in blocks),
+    )
+    check(
+        "라벨 뒤 문장은 다음 줄과 하나의 body 문단으로 합쳐짐(수정 전엔 뒤죽박죽)",
+        any(
+            b["type"] == "body"
+            and "관련자는 감사 결과에" in b["text"]
+            and "보여야 할 관리자의 위치" in b["text"]
+            for b in blocks
+        ),
+    )
+    # 회귀 없음: 줄 전체가 라벨뿐(내용 없음)이면 여전히 그 라벨만 heading으로 남음
+    blocks = split_into_blocks("[통보]")
+    check(
+        "내용 없는 '[통보]' 단독 줄은 여전히 그대로 heading(회귀 없음)",
+        any(b["type"] == "heading" and b["text"] == "[통보]" for b in blocks),
+    )
+
+    # 2026-08-20: "붙임" 첨부목록 라벨 뒤 "1./2." 번호 항목이 뒤죽박죽 볼드되던 버그
+    # 수정 — 한국자산관리공사 2021(9ddc6393057cc532) 실제 발췌로 재현.
+    text = (
+        "엄중 주의 촉구하시기 바랍니다. (주의)\n"
+        "붙임 : 1. 관련자 문답서(2021. 3. 10.)\n"
+        "2. 당시 직원(XX명) 개별면담 내용(2021. 3. 10.~16.)"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "'붙임'이 앞 문장과 분리돼 별도 heading 라벨이 됨(수정 전엔 앞 문장에 병합)",
+        any(b["type"] == "heading" and b["text"] == "붙임" for b in blocks),
+    )
+    check(
+        "'(주의)' 문장은 '붙임' 이하와 분리된 별도 body 문단(수정 전엔 붙임까지 한 문단)",
+        any(b["type"] == "body" and b["text"].endswith("(주의)") for b in blocks),
+    )
+    check(
+        "'1./2.' 첨부 항목은 하나의 body 문단으로 합쳐지고 heading으로 안 승격됨"
+        "(수정 전엔 '2.'만 heading으로 튐)",
+        any(
+            b["type"] == "body"
+            and "1. 관련자 문답서" in b["text"]
+            and "2. 당시 직원" in b["text"]
+            for b in blocks
+        )
+        and not any(b["type"] == "heading" and b["text"].startswith("2.") for b in blocks),
+    )
+    # 회귀 없음: 빈 줄로 문단이 끊기면 그 뒤엔 in_attachment_list 흡수가 더 이상
+    # 적용되지 않고(일반 번호 헤딩 휴리스틱이 정상 동작) 다음 섹션이 정상 인식됨
+    text = "붙임 : 1. 결과보고서\n\n2. 새로운 섹션"
+    blocks = split_into_blocks(text)
+    check(
+        "빈 줄 뒤엔 attachment 흡수가 안 걸리고 새 heading이 정상 인식됨(회귀 없음)",
+        any(b["type"] == "heading" and b["text"] == "2. 새로운 섹션" for b in blocks),
+    )
+
     if failures:
         raise SystemExit(
             f"\n합성 자가 검증 실패({len(failures)}건): {failures}\n"
@@ -937,6 +1241,19 @@ SELF_TEST_DOCS = {
     # 2026-08-21에 같은 방식(effectivePrevType 허용 목록에 "heading" 추가)으로
     # 수정 — 실제 문서 총 각주 19개 중 남은 2개라 17→19로 기대치를 갱신했고,
     # **같은 날 Colab에서 실제로 19건 나오는 것 확인 완료**(자가 검증 2단계 통과).
+    # 2026-08-20(별도 세션, webpage-data-verification-w7o0qj 병합): "진짜" 근본
+    # 원인은 따로 있었음 — 각주 14 문단 안에 인용된 "5. 공사의 여러 규정, 서약사항
+    # 및 지시명령을 위반하여"(마침표 나열식 목록, 법령인용 힌트 없음)가 classifyLine의
+    # "80자 이내+문장종결없음" 헤딩 예외에 걸려 각주 14 문단을 중간에 끊어버렸던 것
+    # (한국자산관리공사 2019, 65fc6662db4c8570의 「인사규정」 제44조 열거항목 오분류를
+    # 조사하다가 발견). LAW_CITATION_HINT_RE로 그 예외를 좁혀서 각주 14가 안 끊기고
+    # 15/16까지 정상 인식됨을 별도로 확인. 또 다른 세션(status-md-daily-tasks-j7zaop
+    # 병합)은 같은 증상을 세 번째 각도로 접근 — 각주 문단을 누적하는 중에 나온 번호
+    # 헤딩 휴리스틱 매칭 줄을 통째로 흡수하도록 수정(LAW_CITATION_HINT_RE가 못 잡는,
+    # 법령인용 힌트가 있어서 여전히 heading으로 분류되는 경우까지 방어). heading 허용
+    # (위)은 범용 안전망, LAW_CITATION_HINT_RE는 이 문서 밖 다른 나열식 목록 오탐까지
+    # 같이 잡는 근본 수정, 각주 문단 흡수는 그 둘을 뚫는 경우의 마지막 방어층 — 세
+    # 원인 다 실제로 존재했으므로 방어적으로 전부 유지함(각각만으로도 17→19가 됨).
     "9ddc6393057cc532": {"footnote_blocks": 19},
     # 한국부동산원 2024 — 각주 1~11 전부 분리돼야 함(오늘 세 번째로 고친 "각주 중 불릿
     # 흡수" 버그의 실제 재현 문서).
