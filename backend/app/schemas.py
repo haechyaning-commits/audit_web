@@ -23,11 +23,12 @@ class SearchResponse(BaseModel):
 
 
 class FilterOptions(BaseModel):
-    """검색 필터 드롭다운(기관/연도)을 채우는 값 목록 — 2026-08-24, FR5(v1.1로
-    미뤄뒀던 기관/연도 필터). 검색 응답과 분리된 별도 엔드포인트(GET /filters)로
+    """검색 필터 사이드바(기관/연도/감사유형)를 채우는 값 목록 — 2026-08-24, FR5
+    (v1.1로 미뤄뒀던 필터). 검색 응답과 분리된 별도 엔드포인트(GET /filters)로
     캐싱하기 쉽게 함(값 목록 자체는 새 데이터가 들어오기 전까진 안 바뀜)."""
     institutions: list[str]
     years: list[int]
+    audit_types: list[str]
 
 
 class DocumentDetail(BaseModel):

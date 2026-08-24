@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getFilterOptions } from "../api.js";
-import InstitutionFilter from "../components/InstitutionFilter.jsx";
+import FilterSidebar from "../components/FilterSidebar.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import YearChart from "../components/YearChart.jsx";
 
@@ -40,27 +39,18 @@ const PAGE_SIZE = 10; // 2열 x 5줄
  * 이 상태를 같이 씀 — 어느 쪽에서 검색해도 같은 results가 반영됨.
  */
 export default function SearchPage({ search }) {
-  const { results, searchedQuery, loading, error, recentSearches, runSearch } = search;
+  const { results, baseResults, searchedQuery, loading, error, recentSearches, runSearch } =
+    search;
   const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
   // 2026-08-24(FR5): 필터도 URL이 진실의 원천 — 새로고침/공유 링크로 들어와도
   // 같은 필터 상태가 재현됨(page 파라미터와 같은 방침).
   const filterInstitution = searchParams.get("institution") || "";
   const filterYear = searchParams.get("year") || "";
+  const filterAuditType = searchParams.get("audit_type") || "";
 
   const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef(null);
-  // 필터 드롭다운 값 목록 — 페이지 로드 시 한 번만 불러옴(검색과 무관한 정적 값)
-  const [filterOptions, setFilterOptions] = useState({ institutions: [], years: [] });
-  useEffect(() => {
-    getFilterOptions()
-      .then(setFilterOptions)
-      .catch(() => {
-        // 필터 목록을 못 불러와도 검색 자체는 정상 동작해야 하므로 조용히 무시
-        // (드롭다운이 그냥 빈 채로 남음 — 필수 기능이 아니라 편의 기능이라 에러
-        // 배너까지 띄울 정도는 아니라고 판단).
-      });
-  }, []);
 
   // 페이지네이션 — URL의 page 파라미터가 진실의 원천 (새로고침해도 보던 페이지 유지,
   // 새 검색(q 변경) 시엔 setSearchParams({q})가 page를 같이 지워버려서 자동으로 1페이지로 리셋됨)
@@ -84,7 +74,11 @@ export default function SearchPage({ search }) {
   // 이 이펙트가 뒤따라와도 loading=true인 걸 보고 조용히 넘어감).
   useEffect(() => {
     if (urlQuery && urlQuery !== searchedQuery && !loading) {
-      runSearch(urlQuery, { institution: filterInstitution, year: filterYear });
+      runSearch(urlQuery, {
+        institution: filterInstitution,
+        year: filterYear,
+        audit_type: filterAuditType,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQuery]);
@@ -112,8 +106,13 @@ export default function SearchPage({ search }) {
     const params = { q: text };
     if (filterInstitution) params.institution = filterInstitution;
     if (filterYear) params.year = filterYear;
+    if (filterAuditType) params.audit_type = filterAuditType;
     setSearchParams(params);
-    runSearch(text, { institution: filterInstitution, year: filterYear });
+    runSearch(text, {
+      institution: filterInstitution,
+      year: filterYear,
+      audit_type: filterAuditType,
+    });
   }
 
   function handleSubmit(event) {
@@ -142,7 +141,12 @@ export default function SearchPage({ search }) {
     if (searchedQuery) {
       const nextInstitution = field === "institution" ? value : filterInstitution;
       const nextYear = field === "year" ? value : filterYear;
-      runSearch(searchedQuery, { institution: nextInstitution, year: nextYear });
+      const nextAuditType = field === "audit_type" ? value : filterAuditType;
+      runSearch(searchedQuery, {
+        institution: nextInstitution,
+        year: nextYear,
+        audit_type: nextAuditType,
+      });
     }
   }
 
@@ -230,100 +234,90 @@ export default function SearchPage({ search }) {
       <div className="app-main">
         {error && <p className="error-message">{error}</p>}
 
-        {/* 2026-08-24(FR5): 기관/연도 필터 — 검색이 한 번이라도 실행된 뒤에만 보여줌
-            (히어로 단계에선 아직 결과가 없어서 필터를 걸 대상 자체가 없음). 값을
-            /filters에서 못 불러왔으면(드묾) 옵션이 비어있어 셀렉트가 사실상
-            비활성처럼 보이지만 페이지 자체는 정상 동작함. */}
+        {/* 2026-08-24(FR5 2차): 기관/연도/감사유형 필터 — 검색이 한 번이라도 실행된
+            뒤에만 사이드바를 보여줌(히어로 단계에선 아직 결과가 없어서 필터를 걸
+            대상 자체가 없음). baseResults가 아직 없으면(첫 로딩 등) 사이드바는
+            빈 채로 렌더링됨 — FilterSidebar 내부에서 안전하게 처리. */}
         {(results !== null || loading) && (
-          <div className="filter-bar">
-            <label>
-              기관
-              <InstitutionFilter
-                institutions={filterOptions.institutions}
-                value={filterInstitution}
-                onChange={(inst) => handleFilterChange("institution", inst)}
-              />
-            </label>
-            <label>
-              연도
-              <select
-                value={filterYear}
-                onChange={(e) => handleFilterChange("year", e.target.value)}
-              >
-                <option value="">전체</option>
-                {filterOptions.years.map((y) => (
-                  <option key={y} value={y}>
-                    {y}년
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
+          <div className="search-layout">
+            <FilterSidebar
+              baseResults={baseResults}
+              results={results || []}
+              filters={{
+                institution: filterInstitution,
+                year: filterYear,
+                audit_type: filterAuditType,
+              }}
+              onChange={handleFilterChange}
+            />
 
-        {loading && (
-          <>
-            <p className="section-label">검색 중…</p>
-            <div className="skeleton-list">
-              {[0, 1, 2, 3].map((i) => (
-                <div className="skeleton-card" key={i}>
-                  <div className="skel-line skel-title" />
-                  <div className="skel-line skel-text" />
-                  <div className="skel-line skel-text short" />
+            <div className="search-main">
+              {loading && (
+                <>
+                  <p className="section-label">검색 중…</p>
+                  <div className="skeleton-list">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div className="skeleton-card" key={i}>
+                        <div className="skel-line skel-title" />
+                        <div className="skel-line skel-text" />
+                        <div className="skel-line skel-text short" />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {!loading && !error && results !== null && results.length === 0 && (
+                <div className="empty-state">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    <path d="M4 4l16 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                  <h3>일치하는 사례를 찾지 못했습니다</h3>
+                  <p>다른 문장으로 다시 시도하거나 아래 예시를 눌러보세요.</p>
+                  <div className="example-chips">
+                    {EXAMPLE_QUERIES.map((text) => (
+                      <button key={text} type="button" className="chip" onClick={() => handleChipClick(text)}>
+                        {text}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+              )}
 
-        {!loading && !error && results !== null && results.length === 0 && (
-          <div className="empty-state">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.6" />
-              <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M4 4l16 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-            <h3>일치하는 사례를 찾지 못했습니다</h3>
-            <p>다른 문장으로 다시 시도하거나 아래 예시를 눌러보세요.</p>
-            <div className="example-chips">
-              {EXAMPLE_QUERIES.map((text) => (
-                <button key={text} type="button" className="chip" onClick={() => handleChipClick(text)}>
-                  {text}
-                </button>
-              ))}
+              {!loading && results !== null && results.length > 0 && (
+                <>
+                  <p className="section-label">
+                    검색 결과 <span className="count">{results.length}건</span>
+                  </p>
+                  <ul className="result-list">
+                    {pagedResults.map((result, i) => (
+                      <li key={result.document_id}>
+                        <ResultCard result={result} rank={(page - 1) * PAGE_SIZE + i + 1} query={searchedQuery} />
+                      </li>
+                    ))}
+                  </ul>
+
+                  {totalPages > 1 && (
+                    <nav className="pagination" aria-label="검색 결과 페이지">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          className={`page-btn ${p === page ? "active" : ""}`}
+                          onClick={() => goToPage(p)}
+                          aria-current={p === page ? "page" : undefined}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </nav>
+                  )}
+                </>
+              )}
             </div>
           </div>
-        )}
-
-        {!loading && results !== null && results.length > 0 && (
-          <>
-            <p className="section-label">
-              검색 결과 <span className="count">{results.length}건</span>
-            </p>
-            <ul className="result-list">
-              {pagedResults.map((result, i) => (
-                <li key={result.document_id}>
-                  <ResultCard result={result} rank={(page - 1) * PAGE_SIZE + i + 1} query={searchedQuery} />
-                </li>
-              ))}
-            </ul>
-
-            {totalPages > 1 && (
-              <nav className="pagination" aria-label="검색 결과 페이지">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className={`page-btn ${p === page ? "active" : ""}`}
-                    onClick={() => goToPage(p)}
-                    aria-current={p === page ? "page" : undefined}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </nav>
-            )}
-          </>
         )}
       </div>
     </>

@@ -28,13 +28,16 @@ import asyncpg
 # 매기게 함. 필터를 "다 뽑은 뒤에" 걸면(WHERE를 최종 SELECT에만 두면) 상위 100건
 # 후보가 필터에 안 걸리는 문서들로 이미 채워진 경우 필터링 후 결과가 몇 건 안
 # 남을 수 있어서(예: 특정 기관으로 좁혔는데 그 기관 문서가 벡터 유사도 상위 100위
-# 안에 하나도 없으면 0건) — 반드시 랭킹 전에 걸러야 함. 필터 없을 땐($4/$5 둘 다
+# 안에 하나도 없으면 0건) — 반드시 랭킹 전에 걸러야 함. 필터 없을 땐($4/$5/$6 전부
 # NULL) 이 서브쿼리가 documents 테이블 id를 전부 반환해서 기존 동작과 동일함.
+# 2026-08-24(2차): 감사유형(audit_type) 필터도 같은 방식으로 추가 — 고정 사이드바
+# 필터 UI(기관/연도/감사유형 3종)를 위해 institution/year와 동일하게 확장.
 _SEARCH_SQL = """
 WITH filtered_docs AS (
     SELECT id FROM documents
     WHERE ($4::text IS NULL OR institution = $4)
       AND ($5::int IS NULL OR year = $5)
+      AND ($6::text IS NULL OR audit_type = $6)
 ),
 vector_search AS (
     SELECT id AS chunk_id, document_id,
@@ -104,10 +107,11 @@ async def search_candidates(
     limit: int = 40,
     institution: str | None = None,
     year: int | None = None,
+    audit_type: str | None = None,
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         return await conn.fetch(
-            _SEARCH_SQL, query_vector, query_text, limit, institution, year
+            _SEARCH_SQL, query_vector, query_text, limit, institution, year, audit_type
         )
 
 
@@ -116,7 +120,9 @@ SELECT
     ARRAY(SELECT DISTINCT institution FROM documents
           WHERE institution IS NOT NULL ORDER BY institution) AS institutions,
     ARRAY(SELECT DISTINCT year FROM documents
-          WHERE year IS NOT NULL ORDER BY year) AS years;
+          WHERE year IS NOT NULL ORDER BY year) AS years,
+    ARRAY(SELECT DISTINCT audit_type FROM documents
+          WHERE audit_type IS NOT NULL ORDER BY audit_type) AS audit_types;
 """
 
 

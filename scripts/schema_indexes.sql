@@ -23,3 +23,6 @@ CREATE INDEX IF NOT EXISTS documents_institution_idx
     ON documents (institution);
 CREATE INDEX IF NOT EXISTS documents_year_idx
     ON documents (year);
+-- 2026-08-24(2차): 감사유형(audit_type) 필터 추가 — 위 institution/year와 동일한 이유.
+CREATE INDEX IF NOT EXISTS documents_audit_type_idx
+    ON documents (audit_type);

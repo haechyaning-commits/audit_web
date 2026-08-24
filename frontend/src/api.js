@@ -37,12 +37,13 @@ async function request(path, { method = "GET" } = {}) {
 }
 
 /** 자연어 검색 → 유사 사례 카드 목록 (GET /search?q=...).
- * filters(선택): { institution, year } — 둘 다 없으면 기존과 동일한 URL(GET
- * /search?q=...)이라 백엔드 쿼리 캐시/로그 등에 영향 없음(FR5, 2026-08-24). */
+ * filters(선택): { institution, year, audit_type } — 다 없으면 기존과 동일한
+ * URL(GET /search?q=...)이라 백엔드 쿼리 캐시/로그 등에 영향 없음(FR5, 2026-08-24). */
 export function searchCases(query, filters = {}) {
   const params = new URLSearchParams({ q: query });
   if (filters.institution) params.set("institution", filters.institution);
   if (filters.year) params.set("year", filters.year);
+  if (filters.audit_type) params.set("audit_type", filters.audit_type);
   return request(`/search?${params.toString()}`);
 }
 

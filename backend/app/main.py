@@ -81,11 +81,12 @@ async def search(
     q: str,
     institution: str | None = None,
     year: int | None = None,
+    audit_type: str | None = None,
     debug_score: bool = False,
 ) -> SearchResponse:
-    """institution/year: 검색 결과 필터(FR5, 2026-08-24) — 둘 다 선택값이라 안 주면
-    기존과 동일하게 전체 문서 대상으로 검색됨. 값이 실제 DB에 없는 조합이어도 그냥
-    결과 0건으로 응답(별도 검증 안 함 — /filters가 내려준 값만 프론트가 쓰므로
+    """institution/year/audit_type: 검색 결과 필터(FR5, 2026-08-24) — 전부 선택값이라
+    안 주면 기존과 동일하게 전체 문서 대상으로 검색됨. 값이 실제 DB에 없는 조합이어도
+    그냥 결과 0건으로 응답(별도 검증 안 함 — /filters가 내려준 값만 프론트가 쓰므로
     잘못된 값이 들어올 일이 원래 없음).
     debug_score=1: 고정 개수 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
     실측하려고 임시로 추가한 파라미터. 기본값 False면 기존 응답과 완전히 동일함
@@ -98,7 +99,13 @@ async def search(
     # debug_score일 땐 컷오프 지점을 보려고 후보 풀 끝(100건)까지 넉넉히 봄
     search_limit = 100 if debug_score else 40
     candidates = await repository.search_candidates(
-        pool, query_vector, q, limit=search_limit, institution=institution, year=year
+        pool,
+        query_vector,
+        q,
+        limit=search_limit,
+        institution=institution,
+        year=year,
+        audit_type=audit_type,
     )
     candidates = repository.rerank(candidates, q)  # 지금은 no-op, 스트레치 목표(§3.4) 자리
 
@@ -125,7 +132,9 @@ async def get_filter_options() -> FilterOptions:
     필터 UI를 구성함."""
     pool = db.get_pool()
     row = await repository.get_filter_options(pool)
-    return FilterOptions(institutions=row["institutions"], years=row["years"])
+    return FilterOptions(
+        institutions=row["institutions"], years=row["years"], audit_types=row["audit_types"]
+    )
 
 
 @app.get("/documents/{document_id}", response_model=DocumentDetail)

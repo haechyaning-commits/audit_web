@@ -531,101 +531,149 @@ body {
   color: var(--primary-dark);
 }
 
-/* 2026-08-24(FR5): 기관/연도 검색 필터 — 결과 목록 위, section-label과 같은 폭에 걸침 */
-.filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: 0 0 16px;
+/* 2026-08-24(FR5 2차): 기관/연도/감사유형 필터 — 고정 사이드바형(체크박스 목록).
+   시행착오: ①<select> 드롭다운(기관 수십~백여 개라 스크롤 불편) → ②입력하면
+   걸러지는 자동완성(그래도 후보가 여전히 많음, 결과 없는 기관까지 다 보임) →
+   ③지금 이 형태 — 검색 결과에 실제로 있는 값만, 개수와 함께, 고정된 자리에
+   체크박스로 보여줌(AI허브류 정부 데이터 포털 필터 참고, 사용자 요청).
+   FilterSidebar.jsx가 렌더링. */
+.search-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 24px;
+  align-items: start;
 }
-.filter-bar label {
+.search-main {
+  min-width: 0; /* 그리드 자식이 내용 때문에 폭을 넘치지 않게 */
+}
+.filter-sidebar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 0;
+  position: sticky;
+  top: 20px;
+}
+.filter-group {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.filter-group:last-child {
+  border-bottom: none;
+}
+.filter-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin: 0 0 10px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-muted);
+  justify-content: space-between;
 }
-.filter-bar select {
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text-heading);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 8px;
-  max-width: 220px;
-}
-/* 2026-08-24: 기관 목록이 수십~백여 개라 <select>는 스크롤하며 찾기 불편하다는
-   피드백 — 입력하면 걸러지는 자동완성으로 교체(InstitutionFilter.jsx). */
-.institution-filter {
-  position: relative;
-  display: inline-block;
-}
-.institution-filter-input {
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text-heading);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 24px 5px 8px; /* 오른쪽은 지우기(×) 버튼 자리 */
-  width: 220px;
-  max-width: 100%;
-}
-.institution-filter-clear {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  border: none;
-  background: none;
-  color: var(--text-muted);
+.filter-reset {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary-dark);
   cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 2px 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
 }
-.institution-filter-clear:hover {
-  color: var(--text);
-}
-.institution-filter-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 220px;
-  max-width: 320px;
-  max-height: 260px;
-  overflow-y: auto;
-  background: var(--surface);
+.filter-search {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text-heading);
+  background: var(--gray-5);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-hero);
+  border-radius: 6px;
+  padding: 6px 9px;
+  margin-bottom: 8px;
+}
+
+/* 체크박스형 필터 행 — 자리가 고정되고 옆 숫자만 갱신됨(재배치로 인한 산만함 방지가
+   이 디자인의 핵심 — v1의 "누를 때마다 목록이 흔들린다"는 피드백으로 도달) */
+.filter-list {
   list-style: none;
   margin: 0;
-  padding: 4px;
-  z-index: 20;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
 }
-.institution-filter-dropdown li button {
-  display: block;
+.filter-row {
+  display: flex;
+  align-items: center;
   width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border: none;
-  background: none;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text);
-  border-radius: 4px;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 5px 2px;
   cursor: pointer;
+  border-radius: 5px;
 }
-.institution-filter-dropdown li button:hover {
+.filter-row:hover {
   background: var(--gray-5);
 }
-.institution-filter-more,
-.institution-filter-empty {
-  padding: 6px 8px;
-  font-size: 12px;
+.filter-row .box {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 1.4px solid var(--gray-40);
+  border-radius: 3px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.filter-row.checked .box {
+  background: var(--primary);
+  border-color: var(--primary);
+  position: relative;
+}
+.filter-row.checked .box::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  width: 4px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+.filter-row .name {
+  flex: 1;
+}
+.filter-row.checked .name {
+  color: var(--text-heading);
+  font-weight: 600;
+}
+.filter-row .n {
+  font-size: 11px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 0건이어도 목록에서 없애지 않고 흐리게만 — 위치가 고정되는 게 핵심 */
+.filter-row.zero {
+  opacity: 0.38;
+  cursor: default;
+}
+.filter-row.zero:hover {
+  background: none;
+}
+
+@media (max-width: 720px) {
+  .search-layout {
+    grid-template-columns: 1fr;
+  }
+  .filter-sidebar {
+    position: static;
+  }
 }
 
 /* 2026-08-12: law.go.kr류 목록형으로 재구성 — 카드 그리드 대신 헤어라인으로 구분되는
