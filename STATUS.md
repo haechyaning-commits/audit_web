@@ -2,6 +2,23 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-24 (10차) — 기관/연도 필터용 인덱스 추가
+
+`documents(institution)`/`documents(year)` B-tree 인덱스를 `schema_indexes.sql`에
+추가 — repository.py의 `filtered_docs` CTE가 매 검색마다 도는 쿼리라 안전하게
+붙여둠. 로컬 pgvector 테스트 DB에 실제로 생성해서 문법 확인 + 기존 15건 검증
+재실행(전부 통과, 회귀 없음). 다른 인덱스(HNSW/GIN)와 달리 가벼운 B-tree라
+데이터 적재 순서와 무관하게 아무 때나 실행 가능 — **운영 DB(Railway)에도 바로
+적용 가능**.
+
+**운영 DB에 적용하려면**: Railway Postgres 대시보드의 Query 탭(또는 psql)에서
+아래 두 줄만 실행하면 됨(몇 초면 끝남, 데이터 백업/DRY_RUN 불필요 — 인덱스
+추가는 기존 데이터를 안 건드리는 안전한 DDL):
+```sql
+CREATE INDEX IF NOT EXISTS documents_institution_idx ON documents (institution);
+CREATE INDEX IF NOT EXISTS documents_year_idx ON documents (year);
+```
+
 ## ✅ 2026-08-24 (9차) — 기관/연도 필터(FR5) 실 SQL 검증 완료, main 머지
 
 8차에서 "실 Postgres 접근이 없어서 SQL을 못 돌려봄"이라고 남겨둔 걸, 이 세션

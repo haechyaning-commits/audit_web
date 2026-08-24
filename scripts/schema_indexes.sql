@@ -12,3 +12,14 @@ CREATE INDEX IF NOT EXISTS chunks_tsv_gin_idx
     ON chunks USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS chunks_document_id_idx
     ON chunks (document_id);
+
+-- 2026-08-24: 기관/연도 검색 필터(FR5) 추가 — repository.py의 filtered_docs CTE가
+-- 매 검색마다 documents.institution/year로 걸러서 vector_search/text_search의
+-- document_id IN 서브쿼리 조건으로 씀. 문서 수(6.8만 건 규모)면 인덱스 없어도
+-- 정확성엔 문제없지만(로컬 pgvector 테스트로 이미 검증됨), 매 검색마다 도는
+-- 쿼리라 인덱스가 있는 게 안전 — 가볍고 즉시 끝나는 B-tree라 다른 인덱스들처럼
+-- 데이터 적재 후에 만들 필요 없이 아무 때나 실행해도 됨(기존 운영 DB에도 바로 적용 가능).
+CREATE INDEX IF NOT EXISTS documents_institution_idx
+    ON documents (institution);
+CREATE INDEX IF NOT EXISTS documents_year_idx
+    ON documents (year);
