@@ -171,6 +171,36 @@ async def get_document_detail(document_id: str) -> DocumentDetail:
     )
 
 
+@app.get("/documents/{document_id}/similar", response_model=list[SearchResultCard])
+async def get_similar_cases(document_id: str, limit: int = 5) -> list[SearchResultCard]:
+    """2026-08-24(피드백 반영): 상세페이지 "유사 사례" 섹션. /search와 같은 벡터검색
+    로직을 재사용하되, 쿼리 임베딩을 사용자 입력 대신 이 문서 자체(청크 임베딩 평균)로
+    만듦(repository.get_similar_documents 참고). LLM 호출이 아니라 순수 벡터검색이라
+    원문 로딩과 같이 자동으로 보여줘도 지연 걱정이 없음(요약보기처럼 버튼 뒤로 미룰
+    필요 없음).
+    문서가 존재하지 않아도(또는 청크가 없어도) 404 대신 빈 배열 반환 — 이 섹션은
+    상세페이지의 부가 정보라, 있으면 좋고 없어도 원문 조회 자체는 막지 않아야 함."""
+    pool = db.get_pool()
+    rows = await repository.get_similar_documents(pool, document_id, limit=limit)
+    return [
+        SearchResultCard(
+            document_id=r["document_id"],
+            title=extract_title(r["title_buffer"]),
+            institution=r["institution"],
+            year=r["year"],
+            audit_type=r["audit_type"],
+            confidence=_confidence_label(r["parsing_quality"]),
+            preview_text=build_preview(r["preview_buffer"]),
+            # pgvector cosine distance(<=>)는 0(동일)~2(반대) 범위라, "높을수록 유사"로
+            # 방향을 맞추기 위해 1-distance로 뒤집음 — /search의 RRF score와 스케일은
+            # 다르지만 "숫자가 클수록 더 관련 있다"는 의미는 같아서, 프론트의 상대
+            # 관련도 막대(ResultCard.jsx)가 그대로 재사용 가능함.
+            score=1 - r["distance"],
+        )
+        for r in rows
+    ]
+
+
 @app.post("/documents/{document_id}/summary", response_model=SummaryResponse)
 async def get_document_summary(document_id: str) -> SummaryResponse:
     """프론트의 '4줄 요약보기' 버튼을 눌렀을 때만 호출됨 (온디맨드, §4.5).

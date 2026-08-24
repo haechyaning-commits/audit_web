@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildCasePath } from "../caseUrl.js";
-import { getCaseDetail, getCaseSummary } from "../api.js";
+import { getCaseDetail, getCaseSummary, getSimilarCases } from "../api.js";
 import useDocumentTitle from "../useDocumentTitle.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
+import ResultCard from "../components/ResultCard.jsx";
 import highlightMatches from "../highlight.jsx";
 
 const SUMMARY_FIELDS = [
@@ -1116,6 +1117,11 @@ export default function DetailPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
 
+  // 2026-08-24(피드백 반영): "유사 사례" 섹션 — 요약과 달리 LLM 호출이 아니라 순수
+  // 벡터검색이라 버튼 뒤로 안 미루고 원문과 같이 자동으로 불러옴(아래 useEffect 참고).
+  // null = 아직 로딩 중, []는 "이 문서 기준으로 유사 사례를 못 찾음"(정상적인 결과).
+  const [similarCases, setSimilarCases] = useState(null);
+
   const backLink = query ? `/?q=${encodeURIComponent(query)}` : "/";
 
   // 탭 타이틀 — 제목 파싱 실패한 소수 문서는 기관명으로, 그것도 없으면 그냥 기본 타이틀
@@ -1148,6 +1154,7 @@ export default function DetailPage() {
     setSummary(null);
     setSummaryLoading(false);
     setSummaryError(null);
+    setSimilarCases(null);
 
     getCaseDetail(id)
       .then((data) => {
@@ -1159,6 +1166,17 @@ export default function DetailPage() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+
+    // 원문 로딩과 별도 요청으로 병렬 호출 — 하나가 실패/지연돼도 서로 안 막음(원문이
+    // 이 페이지의 핵심이라 유사 사례 쪽 에러 때문에 원문까지 못 보여주면 안 됨). 실패하면
+    // 그냥 빈 배열로 둬서 섹션 자체가 조용히 생략되게 함(에러 배너 없음 — 부가 정보라).
+    getSimilarCases(id)
+      .then((data) => {
+        if (!cancelled) setSimilarCases(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSimilarCases([]);
       });
 
     return () => {
@@ -1493,6 +1511,23 @@ export default function DetailPage() {
           </div>
         </div>
       </div>
+
+      {/* 2026-08-24(피드백 반영): 유사 사례 — detail-layout(목차+본문 2단) 밖에 둬서
+          전체 폭을 씀. similarCases가 null이면(아직 로딩 중) 아무것도 안 보여주고,
+          빈 배열이면(실패 또는 진짜로 유사 사례가 없음) 섹션 자체를 생략함 — "0건"
+          같은 빈 상태 UI를 굳이 안 만듦(부가 정보라 없으면 조용히 없는 게 나음). */}
+      {similarCases && similarCases.length > 0 && (
+        <section className="similar-cases">
+          <p className="section-label">유사 사례</p>
+          <ul className="result-list">
+            {similarCases.map((result, i) => (
+              <li key={result.document_id}>
+                <ResultCard result={result} rank={i + 1} topScore={similarCases[0].score} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <Link to={backLink} className="back-link bottom-back-link">
         ← 검색 결과 전체 보기

@@ -1083,6 +1083,15 @@ body {
    없는 문서(본문 폭 1080px)의 읽는 폭이 문서마다 달라져 일관성이 없어 보인다는 피드백
    → max-width를 목차+gap을 뺀 본문 폭(860px)으로 맞추고 가운데 정렬해서, 목차 유무와
    상관없이 본문이 읽히는 폭은 항상 동일하게 유지(목차 사이드바 칸만 안 보일 뿐). */
+/* 2026-08-24(피드백 반영): 상세페이지 "유사 사례" — detail-layout(목차+본문) 밖이라
+   .detail-page의 max-width(1080px)를 그대로 물려받음. 검색결과 목록과 같은 컴포넌트
+   (.result-list/.section-label)를 재사용하므로 스타일은 따로 안 만들고 간격만 지정. */
+.similar-cases {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
 .detail-content:only-child {
   grid-column: 1 / -1;
   max-width: 860px;
