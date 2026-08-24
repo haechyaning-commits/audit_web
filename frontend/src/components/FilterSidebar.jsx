@@ -86,7 +86,7 @@ function FilterGroup({
   );
 }
 
-export default function FilterSidebar({ baseResults, results, filters, onChange }) {
+export default function FilterSidebar({ baseResults, results, filters, onChange, className = "" }) {
   const [instQuery, setInstQuery] = useState("");
 
   // 순서는 baseResults가 바뀔 때만(=검색어가 바뀔 때만) 다시 계산 — 필터 조작 중엔
@@ -108,7 +108,7 @@ export default function FilterSidebar({ baseResults, results, filters, onChange 
     : instOrder;
 
   return (
-    <aside className="filter-sidebar">
+    <aside className={`filter-sidebar ${className}`}>
       <FilterGroup
         title="감사유형"
         order={typeOrder}

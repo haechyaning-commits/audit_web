@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://audit-web-phi.vercel.app/sitemap.xml
