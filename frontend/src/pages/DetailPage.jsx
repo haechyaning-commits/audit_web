@@ -622,6 +622,22 @@ function looksLikePipeTable(text) {
   return Boolean(matches && matches.length >= 2);
 }
 
+// 2026-08-24: "table" 블록이 전부 파이프 그리드는 아님(캡션 뒤에 붙는 표/그림
+// 조각, looksLikeFlattenedTable의 불릿 반복 문단도 같은 "table" 타입으로 옴) —
+// 그런 것들은 셀 경계가 없어서 실제 열로 못 나눔. 그래서 렌더링 시점에 "이 텍스트가
+// 행마다 같은 개수로 ' | ' 나뉘는 깔끔한 그리드인가"를 별도로 확인해서, 맞을 때만
+// 진짜 `<table>`로 그리고(모노스페이스 텍스트보다 훨씬 읽기 쉬움), 아니면 기존처럼
+// 원문 그대로 보여줌(안전장치 — 셀 개수 안 맞는 행 하나라도 있으면 통째로 포기).
+function parsePipeTableRows(text) {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length === 0) return null;
+  const rows = lines.map((l) => l.split(/\s*\|\s*/).map((c) => c.trim()));
+  const colCount = rows[0].length;
+  if (colCount < 2) return null; // 열이 1개뿐이면 표 그리드가 아님
+  if (!rows.every((r) => r.length === colCount)) return null;
+  return rows;
+}
+
 /** 원문을 문단 단위 블록으로 나눔(렌더링 전 순수 데이터 단계) — renderRawText와
  * buildToc가 같은 블록 목록을 같이 써서 목차 항목과 실제 앵커가 항상 일치하게 함
  * (law.go.kr류 조문 목차 참고 요청, 2026-08-12).
@@ -984,10 +1000,25 @@ function renderRawText(blocks, query) {
   let headingIdx = 0;
   return blocks.map((b, i) => {
     if (b.type === "table") {
+      const rows = parsePipeTableRows(b.text);
       return (
         <details key={i} className="raw-line-table">
           <summary>표/그림 데이터 (펼쳐보기)</summary>
-          <div>{query ? highlightMatches(b.text, query) : b.text}</div>
+          {rows ? (
+            <table className="raw-table-grid">
+              <tbody>
+                {rows.map((cells, ri) => (
+                  <tr key={ri} className={ri === 0 ? "raw-table-header-row" : undefined}>
+                    {cells.map((cell, ci) => (
+                      <td key={ci}>{query ? highlightMatches(cell, query) : cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div>{query ? highlightMatches(b.text, query) : b.text}</div>
+          )}
         </details>
       );
     }

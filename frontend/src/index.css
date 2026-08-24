@@ -1225,6 +1225,28 @@ body {
   color: var(--text-muted);
   white-space: pre-wrap;
 }
+/* 2026-08-24: "셀 | 셀" 형태로 저장된 표(HWP 표 손실 복구가 되살린 것 등, 위
+   parsePipeTableRows 참고)는 행마다 열 개수가 같으면 모노스페이스 텍스트 대신
+   진짜 표로 그림 — 열이 맞춰져서 훨씬 읽기 쉬움. 좁은 화면/열 많은 표 대비
+   overflow-x만 표 자체에 둠(페이지 전체가 가로 스크롤되지 않게). */
+.raw-table-grid {
+  display: block;
+  overflow-x: auto;
+  margin: 0 12px 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.raw-table-grid td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.raw-table-grid .raw-table-header-row td {
+  font-weight: 700;
+  color: var(--text-heading);
+  background: var(--gray-10);
+}
 /* 2026-08-19: 검색어("직장 내 괴롭힘" 등)가 감사보고서 특성상 본문에 수십 번씩
    반복 등장하는데, 예전엔 소제목(.raw-line-heading)과 똑같은 font-weight:700이라
    실제 구조(헤딩)와 검색어 강조가 시각적으로 뒤섞여 페이지 전체가 산만해 보인다는
