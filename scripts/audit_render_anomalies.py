@@ -563,11 +563,17 @@ def split_into_blocks(text: str) -> list[dict]:
             and footnote_match is not None
             and int(footnote_match.group(1)) == last_heading_list_num + 1
         )
+        # 2026-08-21(코드 리뷰로 발견, DetailPage.jsx와 동일 반영): "붙임" 첨부목록을
+        # 누적하는 중(in_attachment_list)에 나온 목록 번호가 본문 어딘가의 실제 각주
+        # 참조와 우연히 같은 숫자라 아래 조건에 걸려 각주로 오분류되던 문제 —
+        # continues_heading_list가 목록(헤딩) 연속만 방어하고 첨부목록 연속은 방어하지
+        # 못해서 생긴 틈. in_attachment_list도 같은 이유로 제외.
         if (
             footnote_match
             and footnote_match.group(1) in footnote_nums
             and effective_prev_type in FOOTNOTE_ALLOWED_PREV_TYPES
             and not continues_heading_list
+            and not in_attachment_list
         ):
             flush_para()
             para_type = "footnote"
@@ -1208,6 +1214,29 @@ def run_synthetic_self_tests():
     check(
         "빈 줄 뒤엔 attachment 흡수가 안 걸리고 새 heading이 정상 인식됨(회귀 없음)",
         any(b["type"] == "heading" and b["text"] == "2. 새로운 섹션" for b in blocks),
+    )
+
+    # 2026-08-21(코드 리뷰로 발견): 괄호 번호("1)/2)") 붙임목록의 항목 번호가 본문
+    # 어딘가의 실제 각주 참조("...하였고2)")와 우연히 같아서 각주로 오분류되던 문제 —
+    # 위 마침표("1./2.") 붙임목록 테스트는 애초에 FOOTNOTE_DEF_RE(괄호 전용)에 안 걸려서
+    # 이 틈을 못 잡았음. DetailPage.jsx와 동일 반영.
+    text = (
+        "위 사람은 대출금을 횡령하였고2) 이를 은폐하였음\n"
+        "엄중 주의 촉구하시기 바랍니다. (주의)\n"
+        "붙임 : 1) 관련자 문답서(2021. 3. 10.)\n"
+        "2) 당시 직원(XX명) 개별면담 내용(2021. 3. 10.~16.)"
+    )
+    blocks = split_into_blocks(text)
+    check(
+        "괄호번호 붙임목록 2번 항목이 각주로 안 새고 1번과 한 body 문단으로 합쳐짐"
+        "(수정 전엔 각주로 분리)",
+        any(
+            b["type"] == "body"
+            and "1) 관련자 문답서" in b["text"]
+            and "2) 당시 직원" in b["text"]
+            for b in blocks
+        )
+        and not any(b["type"] == "footnote" and b["text"].startswith("2)") for b in blocks),
     )
 
     if failures:
