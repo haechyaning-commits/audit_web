@@ -79,9 +79,17 @@ _adapter = requests.adapters.HTTPAdapter(
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
-CANDIDATE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_checkpoint.jsonl"
-REVIEW_QUEUE_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_manual_review.jsonl"
-EMBED_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_embed_checkpoint.jsonl"
+# 2026-08-24: 8/18 표본(3,426건)은 8/19에 이미 반영 완료(STATUS.md 참고) —
+# 이제부터 이 스크립트를 다시 돌릴 때는 표본 밖 나머지 모집단을 전수조사한
+# audit_hwp_table_loss_full_population.py의 체크포인트를 기본값으로 씀.
+CANDIDATE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_full_checkpoint.jsonl"
+REVIEW_QUEUE_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_manual_review_full.jsonl"
+EMBED_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_embed_checkpoint_full.jsonl"
+# 2026-08-24: 위 경로들의 부모 폴더가 이번 Colab 런타임엔 아직 없을 수 있어서
+# (Drive 새로 마운트된 세션 등) — 파일을 열기 전에 미리 만들어둠. 이 폴더가 없으면
+# 첫 open()에서 FileNotFoundError로 죽는 걸 실제로 겪음(audit_hwp_table_loss*.py와
+# 동일한 문제).
+os.makedirs(os.path.dirname(CANDIDATE_CHECKPOINT_PATH), exist_ok=True)
 BATCH_SIZE = 64
 MAX_LENGTH = 1024  # embed_chunks.py / rechunk_reembed_hwp_fix.py / *_pdf_column_fix*.py와 동일 값
 

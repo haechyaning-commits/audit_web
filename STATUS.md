@@ -2,6 +2,22 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-24 (7차) — HWP 표 손실 스크립트들의 체크포인트 폴더 누락 버그 일괄 수정
+
+사용자가 `audit_hwp_table_loss_full_population.py` 전수조사(33,089건)를 Colab에서
+실행하다가 `FileNotFoundError: /content/drive/MyDrive/audit_project/...` —
+새 Colab 런타임이라 그 폴더가 아직 없어서(5차에서 `audit_hwpx_leak_fix_extract.py`
+에 났던 것과 동일한 종류의 버그). 이번 기회에 관련 스크립트 전부 점검·수정:
+
+- `audit_hwp_table_loss.py`/`audit_hwp_table_loss_full_population.py` — 체크포인트
+  파일 열기 전 `os.makedirs(exist_ok=True)` 추가
+- `rechunk_reembed_hwp_table_fix.py` — 같은 가드 추가 + 기본 체크포인트/검토큐/임베딩
+  체크포인트 경로를 이번 전수조사용(`*_full*`)으로 갱신(8/18 표본 실행분과 파일이
+  안 겹치게 분리 — 8/18 결과물은 그대로 보존됨)
+
+전수조사(33,089건, 예상 5~6시간)는 재실행 대기 중 — 결과 나오면 이어서
+`rechunk_reembed_hwp_table_fix.py`(경로 갱신됨, DRY_RUN=True 먼저) 실행.
+
 ## ✅ 2026-08-24 (6차) — 파이프 셀 표를 진짜 HTML `<table>`로 렌더링
 
 바로 앞(5차)에서 고친 "파이프 셀 데이터를 table 블록으로 인식"에 이어, 화면

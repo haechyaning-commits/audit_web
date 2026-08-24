@@ -184,6 +184,7 @@ print(f"남은 {len(todo)}건을 {DOWNLOAD_WORKERS}개 동시 처리로 진행")
 
 import json as _json
 
+os.makedirs(os.path.dirname(CHECKPOINT_PATH), exist_ok=True)
 checkpoint_f = open(CHECKPOINT_PATH, "a", encoding="utf-8")
 print_lock = threading.Lock()
 n_done = 0
