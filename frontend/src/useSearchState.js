@@ -33,6 +33,13 @@ export default function useSearchState() {
   // baseResults가 어느 검색어 기준으로 계산된 것인지 — 검색어 자체가 바뀌면(필터만
   // 바뀐 게 아니라) baseResults도 새로 받아와야 하므로 추적.
   const baseQueryRef = useRef("");
+  // 2026-08-24(피드백 반영): 필터를 빠르게 연달아 클릭하면(예: 응답 오기 전에 다른 필터
+  // 또 클릭) runSearch가 겹쳐서 여러 번 실행되는데, 지금까지는 "먼저 도착한 응답"이 아니라
+  // "나중에 도착한 응답"이 항상 상태를 덮어썼음 — 네트워크 지연 때문에 나중에 누른 필터의
+  // 응답이 먼저 오고, 먼저 눌렀던(이미 낡은) 필터 응답이 뒤늦게 도착하면 화면의 필터 체크
+  // 상태와 실제 결과 목록이 어긋나는 경합 조건(race condition)이 됨. 요청마다 순번을 매겨서,
+  // 응답이 왔을 때 그게 여전히 "가장 최근에 보낸 요청"일 때만 상태를 반영하도록 함.
+  const requestIdRef = useRef(0);
 
   // 헤더 로고/타이틀 클릭 시 진짜 첫 화면(히어로)으로 되돌아가기 위한 초기화.
   // Link to="/"만으로는 URL만 바뀌고 이 훅의 results가 안 지워져서, 검색 결과 화면이
@@ -50,6 +57,11 @@ export default function useSearchState() {
     const trimmed = q.trim();
     if (!trimmed) return;
     const hasFilters = Boolean(filters.institution || filters.year || filters.audit_type);
+    const requestId = ++requestIdRef.current;
+    // 이 호출이 여전히 "가장 최근에 보낸 요청"인지 — 응답을 반영하기 직전마다 다시 확인.
+    // 응답이 왔을 시점엔 이미 그 뒤에 다른 필터 클릭으로 새 요청이 나갔을 수 있어서, await
+    // 직후 한 번만 확인하면 안 되고 각 setXxx 지점마다(특히 finally) 다시 체크해야 함.
+    const isStale = () => requestIdRef.current !== requestId;
 
     setLoading(true);
     setError(null);
@@ -62,6 +74,10 @@ export default function useSearchState() {
         searchCases(trimmed, filters),
         needFreshBase ? searchCases(trimmed, {}) : Promise.resolve(null),
       ]);
+      // 기다리는 동안 더 최신 요청이 나갔으면(사용자가 그 사이 필터를 또 눌렀으면), 이
+      // 응답은 이미 낡은 것 — 화면 상태를 덮어쓰지 않고 조용히 버림(최신 요청의 응답이
+      // 알아서 뒤이어 반영됨).
+      if (isStale()) return;
       setResults(data.results);
       setSearchedQuery(trimmed);
       setAppliedFilters(filters);
@@ -74,10 +90,13 @@ export default function useSearchState() {
         baseQueryRef.current = trimmed;
       }
     } catch (err) {
+      if (isStale()) return;
       setError(err.message || "검색 중 오류가 발생했습니다.");
       setResults(null);
     } finally {
-      setLoading(false);
+      // 낡은 요청이 뒤늦게 끝났다고 loading을 false로 내리면, 그 사이 시작된 최신 요청이
+      // 아직 진행 중인데도 로딩 스피너가 사라지는 깜빡임이 생김 — 최신 요청일 때만 내림.
+      if (!isStale()) setLoading(false);
     }
   }, []);
 
