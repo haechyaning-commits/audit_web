@@ -45,9 +45,9 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
       안전장치 필요 판단(아래 참고)
 - [x] `fix_symbol_font_bullet_leak_digit_check.py` Colab 실행 완료 — **진짜 오탐
       1건 발견**("2.0m" 단위 표기), 정규식 수정함(아래 참고)
-- [ ] 수정된 `fix_symbol_font_bullet_leak.py`로 DRY_RUN 재확인 필요 — 통계/샘플이
-      전과 거의 같되 그 1건만 빠졌는지 확인
-- [ ] 이상 없으면 DRY_RUN=False로 반영 → 바뀐 chunk 재임베딩(embed_chunks.py 계열)
+- [x] 수정된 `fix_symbol_font_bullet_leak.py` DRY_RUN 재확인 완료 — documents
+      249→248(정확히 그 1건만 빠짐), chunks 446→444, 나머지 전부 동일. 사용자
+      최종 승인("네, 진행") — 다음 세션에서 DRY_RUN=False 실행 + 재임베딩
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
 - [ ] 확인 전까지는 DB에 아무것도 반영하지 않음
