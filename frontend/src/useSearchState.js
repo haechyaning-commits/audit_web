@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { searchCases } from "./api.js";
-import { addRecentSearch, getRecentSearches } from "./recentSearches.js";
+import { addRecentSearch, clearRecentSearches, getRecentSearches } from "./recentSearches.js";
 
 /**
  * 검색 상태를 App 레벨로 끌어올린 훅.
@@ -81,6 +81,11 @@ export default function useSearchState() {
     }
   }, []);
 
+  // 2026-08-24(피드백 반영): "최근 검색" 칩 옆 지우기 버튼용 — localStorage도 같이 비움.
+  const clearRecent = useCallback(() => {
+    setRecentSearches(clearRecentSearches());
+  }, []);
+
   return {
     results,
     baseResults,
@@ -91,5 +96,6 @@ export default function useSearchState() {
     appliedFilters,
     runSearch,
     resetSearch,
+    clearRecent,
   };
 }

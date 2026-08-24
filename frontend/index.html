@@ -6,6 +6,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="자연어로 질문하면 유사한 공공감사 사례를 찾아주는 검색 서비스" />
     <meta name="color-scheme" content="light dark" />
+
+    <!-- 2026-08-24(피드백 반영): 링크 공유 시 미리보기(og) 태그 — 카카오톡/슬랙/디스코드 등
+         공유 봇은 JS를 실행하지 않고 이 정적 HTML만 읽으므로, 사례 상세페이지별로 다른
+         제목/발췌문을 보여주는 건 지금 구조(SSR 없는 SPA)로는 불가능함 — 모든 페이지가
+         이 정적 태그 하나를 공유함(전혀 없는 것보다는 훨씬 나음). 사례별 미리보기가
+         필요해지면 프리렌더링/서버리스 함수로 og 태그만 주입하는 별도 작업이 필요함. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="공공감사데이터 검색" />
+    <meta property="og:title" content="공공감사데이터 검색" />
+    <meta property="og:description" content="자연어로 질문하면 유사한 공공감사 사례를 찾아주는 검색 서비스" />
+    <meta property="og:url" content="https://audit-web-phi.vercel.app" />
+    <meta property="og:image" content="https://audit-web-phi.vercel.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="공공감사데이터 검색" />
+    <meta name="twitter:description" content="자연어로 질문하면 유사한 공공감사 사례를 찾아주는 검색 서비스" />
+    <meta name="twitter:image" content="https://audit-web-phi.vercel.app/og-image.png" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="stylesheet"

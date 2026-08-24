@@ -11,10 +11,12 @@ class SearchResultCard(BaseModel):
     audit_type: str | None  # 감사종류(복무감사/회계감사 등) — source_file명에서 파싱, 2026-08-12
     confidence: str  # "신뢰도 높음" | "일부 참고" (parsing_quality를 사람이 읽을 말로 변환)
     preview_text: str  # raw_text 발췌 (§8.3 v12: AI 요약 아님, 검색 1회당 LLM 호출 방지)
-    # 2026-08-12 임시: 동적 결과 개수(점수 컷오프) 캘리브레이션용으로만 잠깐 노출.
-    # ?debug_score=1 없으면 항상 None이라 기존 프론트/응답 크기엔 영향 없음.
-    # 컷오프 비율 정하고 나면 이 필드+쿼리파라미터 정리 예정.
-    score: float | None = None
+    # RRF 점수(순위 기반 융합 스코어) — 카드 순서를 매기는 데 쓰는 그 값 그대로.
+    # 2026-08-12: 원래 ?debug_score=1(동적 결과 개수 컷오프 캘리브레이션용) 없이는
+    # 항상 None으로 감춰뒀었는데, 2026-08-24(피드백 반영)부터는 항상 채워서 내려줌 —
+    # 프론트가 결과 카드에 상대 관련도(1위 대비 %) 막대로 보여주는 데 씀
+    # (ResultCard.jsx). debug_score는 이제 후보 풀 크기(40건 vs 100건) 조절만 담당함.
+    score: float
 
 
 class SearchResponse(BaseModel):

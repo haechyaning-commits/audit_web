@@ -88,9 +88,15 @@ async def search(
     안 주면 기존과 동일하게 전체 문서 대상으로 검색됨. 값이 실제 DB에 없는 조합이어도
     그냥 결과 0건으로 응답(별도 검증 안 함 — /filters가 내려준 값만 프론트가 쓰므로
     잘못된 값이 들어올 일이 원래 없음).
-    debug_score=1: 고정 개수 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
-    실측하려고 임시로 추가한 파라미터. 기본값 False면 기존 응답과 완전히 동일함
-    (score 필드가 항상 None) — 컷오프 비율 정하고 나면 이 파라미터+로직 정리 예정."""
+    debug_score=1: 고정 개수(40) 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
+    실측하려고 임시로 추가한 파라미터 — 켜면 컷오프 지점을 보려고 후보 풀을 100건까지
+    넉넉히 가져옴(응답에 노출되는 건수 자체가 늘어남). 컷오프 비율 정하고 나면 이
+    파라미터+search_limit 분기는 정리 예정.
+    2026-08-24(피드백 반영): score 필드 자체는 이제 debug_score와 무관하게 항상 채워서
+    내려줌 — 프론트 결과 카드에 상대 관련도(막대) 표시용(ResultCard.jsx 참고). 원래
+    이 파라미터가 하던 "후보 풀 100건까지 확장" 역할만 남기고, "score를 감춘다"는
+    부수효과는 분리함(스코어 노출과 컷오프 실험은 서로 다른 관심사라 같이 묶여있을
+    이유가 없었음)."""
     if not q.strip():
         raise HTTPException(status_code=400, detail="검색어를 입력해주세요")
 
@@ -118,7 +124,7 @@ async def search(
             audit_type=r["audit_type"],
             confidence=_confidence_label(r["parsing_quality"]),
             preview_text=build_preview(r["preview_buffer"]),
-            score=float(r["score"]) if debug_score else None,
+            score=float(r["score"]),
         )
         for r in candidates
     ]

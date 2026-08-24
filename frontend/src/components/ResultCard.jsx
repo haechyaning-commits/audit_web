@@ -9,11 +9,20 @@ import highlightMatches from "../highlight.jsx";
  * @param {object} result - 검색 결과 카드 데이터
  * @param {number} [rank] - 표시할 순위(왼쪽 번호열, 예: 01). 없으면 번호열 생략
  * @param {string} [query] - 미리보기 텍스트에서 하이라이트할 검색어
+ * @param {number} [topScore] - 이 검색의 1위 결과 스코어(상대 관련도 막대 기준값,
+ *   없으면 막대 생략) — SearchPage.jsx가 results[0].score를 넘겨줌
  * @param {string} [className]
  */
-export default function ResultCard({ result, rank, query, className = "" }) {
-  const { institution, year, audit_type, preview_text } = result;
+export default function ResultCard({ result, rank, query, topScore, className = "" }) {
+  const { institution, year, audit_type, preview_text, score } = result;
   const to = buildCaseUrl(result, query);
+  // 2026-08-24(피드백 반영): score 자체(예: 0.031)는 사용자가 봐도 의미를 알기 어려워서,
+  // 1위 대비 상대값(%)으로 정규화해서 막대로만 보여줌 — 정확한 스코어 수치를 노출하지
+  // 않는 이유는 RRF 점수가 "이 검색어 안에서의 상대적 순위"일 뿐 절대적인 신뢰도가
+  // 아니라서, 숫자를 그대로 보여주면 오히려 오해를 살 수 있음. 최소 6%는 항상 채워서
+  // 40위 결과도 막대가 아예 안 보이진 않게 함(있다는 것 자체는 알 수 있게).
+  const relevancePct =
+    topScore && score != null ? Math.max(6, Math.round((score / topScore) * 100)) : null;
 
   return (
     <Link to={to} className={`result-card ${className}`}>
@@ -35,6 +44,14 @@ export default function ResultCard({ result, rank, query, className = "" }) {
           2026-08-12) — 없으면 조용히 생략 */}
       <div className="result-card-side">
         {audit_type && <span className="result-card-audit-type">{audit_type}</span>}
+        {relevancePct != null && (
+          <span
+            className="result-card-relevance"
+            title={`1위 결과 대비 상대 관련도 ${relevancePct}%`}
+          >
+            <span className="result-card-relevance-fill" style={{ width: `${relevancePct}%` }} />
+          </span>
+        )}
       </div>
     </Link>
   );
