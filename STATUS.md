@@ -2,6 +2,37 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔴 2026-08-24 (16차) — HWP 표 손실 전수조사, "0건"은 오탐 — hwp5txt 런타임 실패로 판단, 재실행 필요
+
+`audit_hwp_table_loss_full_population.py`(33,089건 전수) 결과가 "영향받음 0건
+(0.0%), 에러 337건"으로 나왔는데, 8/18 표본조사(3,426건)가 같은 로직으로 50.5%를
+잡아냈던 것과 정면으로 모순됨 — 사용자에게 진단 스크립트를 요청해서 받은 결과:
+
+- `n_table_markers` 분포: `[(0, 32752)]` — 성공 처리된 32,752건 **전부**가 표 마커 0개
+- 명시적 에러 337건은 전부 jsdelivr `403 Forbidden`(레이트리밋) — 결과에 무관한 소수
+- `db_has_table_trace`: `{False: 24441, True: 8311}` — 이건 정상 범위(기존 반영분)
+
+두 스크립트(8/18 표본용 vs 8/24 전수용)의 `_check_one` 로직을 대조해보니 완전히
+동일함 → 로직 버그가 아니라 **이번 Colab 런타임에서 `hwp5txt`가 사실상 100%
+실패**하고 있었다는 뜻(8/18엔 같은 코드로 정상 동작했으므로). 원인 후보: 8/19에
+이미 한 번 겪은 `pkgutil.ImpImporter` AttributeError(Python 3.12 + setuptools
+버전 문제, `pip install "setuptools<60" pyhwp` → `pip install -U "setuptools<82"`
+순서로 고쳤던 그 버그) — 이번 런타임에서 그 픽스를 다시 안 걸었을 가능성이 높음.
+
+맹점: `_check_one`이 `subprocess.run(["hwp5txt", ...])`의 `returncode`를 확인 안
+하고 `proc.stdout`을 그대로 씀 → hwp5txt가 내부에서 죽어도 stdout이 빈 문자열일
+뿐 예외가 안 뜨고 조용히 "표 0개"로 기록됨. `audit_hwp_table_loss.py`와
+`audit_hwp_table_loss_full_population.py` 둘 다 `returncode != 0`이면 stderr를
+담아 에러로 raise하도록 수정 — 앞으로는 이런 전면 실패가 "표 0개"가 아니라
+에러 337,000건처럼 명확하게 드러남.
+
+**현재 전수조사 체크포인트(`hwp_table_loss_full_checkpoint.jsonl`)는 통째로
+무효** — `rechunk_reembed_hwp_table_fix.py`에 절대 그대로 넘기면 안 됨. 사용자
+조치 필요: (1) 새 Colab 셀에서 `hwp5txt` 단일 파일 테스트로 실패 모드 확인
+(returncode/stderr 직접 출력), (2) `pip install "setuptools<60" pyhwp` →
+`pip install -U "setuptools<82"` 순서로 재설치(런타임 재시작 포함), (3) 기존
+`hwp_table_loss_full_checkpoint.jsonl` 삭제 후 전수조사 재실행.
+
 ## ✅ 2026-08-24 (15차) — 연도 필터 정렬 수정(빈도순 → 최신순)
 
 사용자 제보: "연도가 뒤죽박죽" — `buildOrder`가 감사유형/기관과 똑같이 개수(빈도)

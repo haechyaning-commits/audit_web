@@ -116,6 +116,17 @@ def _check_one(doc_id, institution, year, source_file, raw_text):
             proc = subprocess.run(
                 ["hwp5txt", tmp_path], capture_output=True, text=True, timeout=60
             )
+            # 2026-08-24: returncode를 체크 안 하면 hwp5txt가 내부에서 죽어도(예:
+            # pkgutil.ImpImporter AttributeError — setuptools/Python 3.12 버전
+            # 문제, STATUS.md 8/19 참고) stdout이 그냥 빈 문자열이라 예외 없이
+            # "표 0개"로 조용히 기록됨. 실제로 이번 전수조사(8/24)에서 32,752건
+            # 전부가 n_table_markers=0으로 나와서 발견 — 8/18 표본에선 같은
+            # 로직으로 50.5%가 잡혔었으니 로직 버그가 아니라 이번 런타임에서
+            # hwp5txt 자체가 매번 실패했던 것. 이제 실패 시 바로 에러로 잡히게 함.
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"hwp5txt exit={proc.returncode}: {(proc.stderr or '').strip()[:300]}"
+                )
             fresh_text = proc.stdout
         finally:
             os.unlink(tmp_path)
