@@ -2,6 +2,22 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-24 (3차) — HWPX 태그 누출 재확인: 0건, 완전히 해결됨 확인
+
+`scripts/audit_hwpx_leak_fix_extract.py`를 실 DB로 재실행(사용자가 Colab에서
+실행). 대상 조회 쿼리(`source_file ILIKE '%.hwpx' AND raw_text LIKE '%<hp:%'`)
+결과 처리 대상 0건 — 2026-08-14에 반영한 hp: 태그 누출 수정(5,389건 복구분 중
+2,616건 대상)이 전체 DB 기준으로도 완전히 반영돼 있음을 재확인함. README의
+"최근 규모조사 결과가 기록에 안 남아있어 재확인 필요"는 이걸로 해소됨 —
+추가 작업 불필요.
+
+**부수 발견(스크립트 버그, 별도 수정)**: 이 스크립트가 ①`DATABASE_PUBLIC_URL`
+secret만 찾고 `DATABASE_URL`은 안 찾아서 사용자 환경에서 접속 실패(로컬 소켓
+에러) → 다른 스크립트들과 동일한 탐색 순서로 수정. ②처리 대상이 0건이어도
+체크포인트 파일을 무조건 열려고 시도해서 `/content/drive/MyDrive/audit_project/`
+폴더가 없으면 `FileNotFoundError` 발생 → `os.makedirs(..., exist_ok=True)` 추가.
+둘 다 실제 작업 결과(0건)와는 무관한 스크립트 자체의 자잘한 버그.
+
 ## ✅ 2026-08-24 (2차) — 제목 번호 유실은 이미 해결 확인 / 단어 중간 줄바꿈은 조사만, 자동수정 보류
 
 `scripts/audit_title_number_and_wordbreak.py` 실 DB 실행 결과(67,751건 전수):

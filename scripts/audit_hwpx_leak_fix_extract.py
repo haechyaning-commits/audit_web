@@ -149,6 +149,7 @@ def process_one(doc_id, source_file, current_db_text):
 
 
 n_done, n_ok, n_err = 0, 0, 0
+os.makedirs(os.path.dirname(CHECKPOINT_PATH), exist_ok=True)
 with open(CHECKPOINT_PATH, "a", encoding="utf-8") as ckpt:
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(process_one, *args): args[0] for args in todo}
