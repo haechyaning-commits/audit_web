@@ -53,12 +53,11 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
       수정 전 구버전이 반영에 쓰인 것으로 추정**. `eb702631521fc699`
       (한국수자원조사기술원, "약 2.0m에 위치" 오탐 건)가 실제로 잘못
       지워졌을 가능성 높음(아래 사고 기록 참고)
-- [ ] `repair_bullet_leak_digit_regression.py` 실행 필요(아래 참고) — 방금
-      뜬 백업으로 그 문서 1건만 정확히 원상복구, 재임베딩 목록도 재작성
-- [ ] 복구 후 `SELECT raw_text FROM documents WHERE id = 'eb702631521fc699'`로
-      "약 2.0m에 위치" m이 살아있는지 육안 재확인
-- [ ] 재임베딩은 `reembed_input_bullet_fix_v2.jsonl`(복구 스크립트가 새로 만든
-      파일) 기준으로 진행 — 기존 `reembed_input_bullet_fix.jsonl`은 쓰지 말 것
+- [x] `repair_bullet_leak_digit_regression.py` Colab 실행 완료 — **복구 성공,
+      사고 종결**(아래 참고)
+- [ ] 재임베딩 진행 — `reembed_input_bullet_fix_v2.jsonl`(444건) 기준으로
+      embed_chunks.py 계열 실행 후 chunks.embedding UPDATE (기존
+      `reembed_input_bullet_fix.jsonl`은 이제 안 씀)
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
 - [ ] 확인 전까지는 DB에 아무것도 반영하지 않음
@@ -207,7 +206,15 @@ URL에 `?t=$(date +%s)` 같은 캐시버스터 쿼리스트링을 붙이는 습�
 결과)에서 이 문서와 그에 속한 chunk들의 원본 텍스트를 찾아 정확히 되돌리고,
 재임베딩 대상 목록(`reembed_input_bullet_fix.jsonl`)에서도 이 chunk들을 제외한
 새 파일(`reembed_input_bullet_fix_v2.jsonl`)을 만듦(텍스트가 원본으로
-되돌아갔으니 기존 임베딩이 여전히 유효해서 재임베딩 불필요). 아직 미실행.
+되돌아갔으니 기존 임베딩이 여전히 유효해서 재임베딩 불필요).
+
+**실행 결과(2026-08-24) — 복구 성공, 사고 종결**: 백업(13,190자) vs 반영후
+(13,189자) 길이 차이가 **정확히 1자** — 딱 그 `m` 하나만 지워졌고 이 문서의
+다른 부분은 전혀 안 건드려졌다는 게 확인됨(가설과 정확히 일치). chunk
+11건 중 2건 복구, 재임베딩 목록도 444건으로 재작성 완료(DRY_RUN 재확인
+때 기대했던 최종 숫자와 정확히 일치 — documents 248/chunks 444). 최종 상태:
+documents.raw_text 248건 반영(원래 249건 중 오탐 1건은 애초에 안 건드려진
+것과 동일한 최종 상태), chunks.text도 444건. 다음은 재임베딩만 남음.
 
 ### fix_symbol_font_bullet_leak_digit_check 실행 결과 (2026-08-24) — **오탐 1건 확인, 정규식 수정**
 
