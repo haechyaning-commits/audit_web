@@ -340,6 +340,9 @@ body {
    과 동일하게 :focus-within으로 테두리 강조를 줌 */
 .search-form:focus-within {
   border-color: var(--primary);
+  /* 2026-08-24(D안): 포커스 시 그림자를 한 단계 더 진하게 — "눌러볼 곳"이라는
+     인터랙티브한 느낌을 포커스 상태에서 강조 */
+  box-shadow: 0 4px 20px rgba(26, 77, 143, 0.16);
 }
 .search-form svg {
   flex-shrink: 0;
@@ -424,6 +427,9 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
+  /* 2026-08-24(D안 — 미세한 입체감): 지금까지 히어로 안 요소 중 유일하게 그림자가
+     하나도 없었던 게 이 카드들 — 옅은 그림자만 얹어서 배경(--bg)에서 살짝 떠 보이게 함 */
+  box-shadow: var(--shadow-card);
 }
 .stat-card-icon {
   width: clamp(30px, 1.5vw + 24px, 38px);
@@ -489,10 +495,12 @@ body {
   width: 100%;
   max-width: 30px;
   border-radius: 4px 4px 0 0;
-  background: var(--primary-10);
+  /* 2026-08-24(D안 — 미세한 입체감): 단색 대신 세로 그라데이션으로 막대에 입체감
+     부여. 새 색상 값을 만들지 않고 기존 토큰(--primary-5/--primary-10)만 재사용 */
+  background: linear-gradient(180deg, var(--primary-5) 0%, var(--primary-10) 100%);
 }
 .year-chart-bar.is-latest {
-  background: var(--primary);
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
 }
 .year-chart-labels {
   display: flex;
@@ -732,10 +740,18 @@ body {
   border-bottom: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
-  transition: background-color 0.12s ease;
+  position: relative;
+  transition: background-color 0.12s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 .result-card:hover {
   background: var(--primary-5);
+  /* 2026-08-24: "미세한 입체감" 방향(D안) — 헤어라인 목록 특유의 밋밋함에 hover 시에만
+     살짝 뜨는 느낌을 더함. 목록 흐름을 안 깨려고 lift 폭은 1px로 아주 작게, z-index로
+     다음 행 위에 자연스럽게 겹치게만 함(카드 그리드로 되돌리는 게 아니라 이 목록형
+     안에서 표현). */
+  box-shadow: 0 3px 12px rgba(16, 24, 40, 0.08);
+  transform: translateY(-1px);
+  z-index: 1;
 }
 @media (max-width: 640px) {
   .result-card {
