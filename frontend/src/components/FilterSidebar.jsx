@@ -29,7 +29,16 @@ function buildOrder(baseResults, key) {
   return [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
 }
 
-function FilterGroup({ title, order, activeValue, counts, formatLabel, onToggle, extra }) {
+function FilterGroup({
+  title,
+  order,
+  activeValue,
+  counts,
+  formatLabel,
+  onToggle,
+  extra,
+  fixedHeight,
+}) {
   return (
     <div className="filter-group">
       <p className="filter-group-title">
@@ -41,7 +50,11 @@ function FilterGroup({ title, order, activeValue, counts, formatLabel, onToggle,
         ) : null}
       </p>
       {extra}
-      <ul className="filter-list">
+      {/* 2026-08-24(3차): 기관 검색창에 타이핑하면 후보가 줄어드는데, 목록 박스가
+          내용 높이만큼 줄어들면서 그 아래 "연도" 칸이 따라 올라오는 문제(틀이
+          흔들린다는 피드백) — 검색 가능한 목록(fixedHeight)은 내용이 몇 개든
+          박스 높이를 고정해서, 타이핑해도 사이드바 전체 레이아웃이 안 움직이게 함. */}
+      <ul className={`filter-list ${fixedHeight ? "filter-list-fixed" : ""}`}>
         {order.map((value) => {
           const n = counts.get(value) || 0;
           const checked = String(activeValue) === String(value);
@@ -101,6 +114,7 @@ export default function FilterSidebar({ baseResults, results, filters, onChange 
         counts={instCounts}
         formatLabel={(v) => v}
         onToggle={(v) => onChange("institution", filters.institution === v ? "" : v)}
+        fixedHeight={instOrder.length > 8}
         extra={
           instOrder.length > 8 && (
             <input

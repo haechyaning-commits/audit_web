@@ -602,6 +602,12 @@ body {
   max-height: 260px;
   overflow-y: auto;
 }
+/* 2026-08-24(3차): 검색창이 있는 목록(기관)은 max-height 대신 height 고정 —
+   타이핑으로 후보가 줄어도 박스 자체가 쪼그라들지 않아서, 아래 다른 필터 그룹이
+   따라 움직이는 일이 없음("검색해도 틀이 안 바뀌게" 피드백). */
+.filter-list-fixed {
+  height: 260px;
+}
 .filter-row {
   display: flex;
   align-items: center;
