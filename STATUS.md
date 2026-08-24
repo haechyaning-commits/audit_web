@@ -54,10 +54,16 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
       (한국수자원조사기술원, "약 2.0m에 위치" 오탐 건)가 실제로 잘못
       지워졌을 가능성 높음(아래 사고 기록 참고)
 - [x] `repair_bullet_leak_digit_regression.py` Colab 실행 완료 — **복구 성공,
-      사고 종결**(아래 참고)
-- [ ] 재임베딩 진행 — `reembed_input_bullet_fix_v2.jsonl`(444건) 기준으로
-      embed_chunks.py 계열 실행 후 chunks.embedding UPDATE (기존
-      `reembed_input_bullet_fix.jsonl`은 이제 안 씀)
+      사고 종결**(아래 참고). 직접 쿼리로 재확인도 완료(`'2.0m에 위치' in
+      raw_text` → `True`, 길이 13190 — 정상)
+- [x] `reembed_changed_chunks.py` 기반 재임베딩 시도 — **실패**: 새 Colab
+      세션에서 `reembed_input_bullet_fix_v2.jsonl`을 못 찾음(Drive는 마운트
+      됐고 프로젝트의 다른 과거 파일들은 다 있는데 이번에 만든 두 파일만
+      없음 — 원인 불명, 다른 세션/계정의 Drive 마운트였을 가능성). 중간 파일에
+      의존하지 않고 DB에서 바로 뽑는 `reembed_bullet_fix_from_db.py`로 우회
+      작성(아래 참고)
+- [ ] `reembed_bullet_fix_from_db.py` 실행 필요 — 대상 5개 기관 chunk 전체
+      (1,758건, 안 바뀐 것도 포함해서 전부 재임베딩 — 안전한 초과 계산)
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
 - [ ] 확인 전까지는 DB에 아무것도 반영하지 않음
