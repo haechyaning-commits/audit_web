@@ -555,6 +555,78 @@ body {
   padding: 5px 8px;
   max-width: 220px;
 }
+/* 2026-08-24: 기관 목록이 수십~백여 개라 <select>는 스크롤하며 찾기 불편하다는
+   피드백 — 입력하면 걸러지는 자동완성으로 교체(InstitutionFilter.jsx). */
+.institution-filter {
+  position: relative;
+  display: inline-block;
+}
+.institution-filter-input {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-heading);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 24px 5px 8px; /* 오른쪽은 지우기(×) 버튼 자리 */
+  width: 220px;
+  max-width: 100%;
+}
+.institution-filter-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.institution-filter-clear:hover {
+  color: var(--text);
+}
+.institution-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-hero);
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  z-index: 20;
+}
+.institution-filter-dropdown li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.institution-filter-dropdown li button:hover {
+  background: var(--gray-5);
+}
+.institution-filter-more,
+.institution-filter-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 /* 2026-08-12: law.go.kr류 목록형으로 재구성 — 카드 그리드 대신 헤어라인으로 구분되는
    촘촘한 행 목록. 상단 굵은 선(법령 목록 특유의 구획선)으로 시작 */

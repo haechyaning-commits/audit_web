@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getFilterOptions } from "../api.js";
+import InstitutionFilter from "../components/InstitutionFilter.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import YearChart from "../components/YearChart.jsx";
 
@@ -237,17 +238,11 @@ export default function SearchPage({ search }) {
           <div className="filter-bar">
             <label>
               기관
-              <select
+              <InstitutionFilter
+                institutions={filterOptions.institutions}
                 value={filterInstitution}
-                onChange={(e) => handleFilterChange("institution", e.target.value)}
-              >
-                <option value="">전체</option>
-                {filterOptions.institutions.map((inst) => (
-                  <option key={inst} value={inst}>
-                    {inst}
-                  </option>
-                ))}
-              </select>
+                onChange={(inst) => handleFilterChange("institution", inst)}
+              />
             </label>
             <label>
               연도
