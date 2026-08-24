@@ -605,6 +605,23 @@ function looksLikeCoverBlock(lines) {
   return !SENTENCE_END_RE.test(lines[lines.length - 1]);
 }
 
+// 2026-08-24: 구버전 HWP 표 손실 복구(2026-08-19,
+// scripts/rechunk_reembed_hwp_table_fix.py)가 되살린 표는 "직급 | 성명 | 징계양정"
+// 처럼 셀을 " | "로 이어붙여 행마다 한 줄로 저장함(그 스크립트의 _flatten_table) —
+// 8/19 STATUS.md에 "이 파이프 구분자를 프론트가 표답게 렌더링하는지 아직 미확인"
+// 이라고 남겨둔 리스크였는데, 실제로 재현해보니 이 형태를 표로 인식하는 로직이
+// 없어서 그냥 body 문단으로 공백 이어붙어 "직급 | 성명 | 징계양정 과장 | 홍길동 |
+// 경고..."처럼 뜻 없는 단어 나열이 됨(looksLikeFlattenedTable의 불릿 반복 신호와는
+// 별개 — 이 데이터는 불릿 기호가 아니라 파이프로 셀을 구분함). 이 말뭉치(한국어
+// 감사보고서 산문)에 "|" 문자가 정상적으로 등장하는 일은 사실상 없어서, 한 문단
+// 안에 " | " 구분자가 2번 이상만 있어도 표로 봐도 안전함(looksLikeFlattenedTable의
+// 500자+반복 5회 같은 엄격한 길이 기준 불필요).
+const PIPE_CELL_RE = /\s\|\s/g;
+function looksLikePipeTable(text) {
+  const matches = text.match(PIPE_CELL_RE);
+  return Boolean(matches && matches.length >= 2);
+}
+
 /** 원문을 문단 단위 블록으로 나눔(렌더링 전 순수 데이터 단계) — renderRawText와
  * buildToc가 같은 블록 목록을 같이 써서 목차 항목과 실제 앵커가 항상 일치하게 함
  * (law.go.kr류 조문 목차 참고 요청, 2026-08-12).
@@ -668,16 +685,20 @@ function splitIntoBlocks(text) {
     // 2026-08-24: 문서 맨 첫 블록이 표지(looksLikeCoverBlock 참고)면 "cover" 타입으로
     // 재분류 — table과 마찬가지로 줄바꿈을 보존해서 뱃지/제목/날짜/기관명이 원본처럼
     // 각자 줄로 보이게 함(CSS는 raw-line-cover, renderRawText는 일반 분기 그대로 재사용).
+    // 2026-08-24: HWP 표 손실 복구가 되살린 "셀 | 셀" 형태(looksLikePipeTable 참고)도
+    // table로 재분류 — 캡션("[표 N]") 없이 body/bullet 어느 쪽으로 흘러들어왔든 상관없이
+    // 이 신호만으로 판정(파이프 문자는 이 말뭉치 산문에 정상적으로 나올 일이 없어 안전).
     const isLeadingCover =
       blocks.length === 0 && paraType === "body" && looksLikeCoverBlock(para);
+    const paraJoined = para.join(" ");
     const type =
-      paraType === "bullet" && looksLikeFlattenedTable(para.join(" "))
+      (paraType === "bullet" && looksLikeFlattenedTable(paraJoined)) ||
+      looksLikePipeTable(paraJoined)
         ? "table"
         : isLeadingCover
           ? "cover"
           : paraType;
-    const text =
-      type === "table" || type === "cover" ? para.join("\n") : para.join(" ");
+    const text = type === "table" || type === "cover" ? para.join("\n") : paraJoined;
     blocks.push({ type, text });
     prevType = type;
     para = [];
