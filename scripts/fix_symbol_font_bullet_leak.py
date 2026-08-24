@@ -57,7 +57,12 @@ def _bullet_re_for(letter: str) -> re.Pattern:
     # 양옆 모두 라틴 알파벳이 아닐 때만 매칭(더 긴 영단어의 일부는 제외) —
     # 불릿 뒤에 붙는 공백 한 칸까지 같이 제거(문맥 샘플 전부 "m 감사..."
     # 처럼 글자+공백 형태였음).
-    return re.compile(r"(?<![A-Za-z])" + re.escape(letter) + r"(?![A-Za-z]) ?")
+    # 2026-08-24: 숫자 바로 뒤도 제외 — digit_check.py로 전수조사한 결과
+    # 한국수자원조사기술원 문서 하나에서 "약 2.0m에 위치"(실제 미터 단위 표기)가
+    # 오탐으로 잡히는 걸 확인함(869건 중 1건). m=미터/v=볼트처럼 진짜 단위
+    # 표기가 숫자 바로 뒤에 오는 경우와, 불릿 누출(항상 줄바꿈/항목기호 뒤,
+    # 숫자 뒤인 사례는 0건)을 구분하는 안전한 경계.
+    return re.compile(r"(?<![A-Za-z0-9])" + re.escape(letter) + r"(?![A-Za-z]) ?")
 
 
 _BULLET_RES = {letter: _bullet_re_for(letter) for _, letter in CONFIRMED_BULLET_RULES}
