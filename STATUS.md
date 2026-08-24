@@ -40,8 +40,11 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
       경보로 최종 판명, 범위조사 종료**(아래 참고)
 - [x] `fix_symbol_font_bullet_leak.py` DRY_RUN=True Colab 실행 완료 — documents
       249건/chunks 446건, 5개 기관, 샘플 5건 전부 깔끔(아래 참고)
-- [ ] `fix_symbol_font_bullet_leak_preview.py` 실행 필요(아래 참고) — (기관,글자)
-      조합별로 골고루 샘플 더 확인 (m/q 쪽도)
+- [x] `fix_symbol_font_bullet_leak_preview.py` Colab 실행 완료 — (기관,글자)
+      조합별 샘플 전부 깔끔했으나, 문서당 최대 83회 매칭되는 경우가 있어 추가
+      안전장치 필요 판단(아래 참고)
+- [ ] `fix_symbol_font_bullet_leak_digit_check.py` 실행 필요(아래 참고) — 숫자
+      바로 뒤에 오는 매칭만 별도 확인(m=미터/v=볼트 같은 단위 표기 오탐 위험)
 - [ ] 이상 없으면 DRY_RUN=False로 반영 → 바뀐 chunk 재임베딩(embed_chunks.py 계열)
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
@@ -149,6 +152,20 @@ documents 대상 기관 5곳 1,010건 중 249건 수정 대상(한국수력원�
 해서 (기관,글자) 조합별로 골고루 여러 건 찍는
 `fix_symbol_font_bullet_leak_preview.py` 작성(fix_symbol_font_bullet_leak.py의
 규칙/정규식을 그대로 import해서 재사용, 읽기 전용). 아직 미실행.
+
+### fix_symbol_font_bullet_leak_preview 실행 결과 (2026-08-24)
+
+5개 조합 전부 샘플(각 최대 4문서 x 3문맥) 확인 — 전부 정상적인 줄바꿈/항목기호
+직후 불릿이었고 부작용 없음. 다만 한국수자원조사기술원 문서 하나는 이 글자
+`m`이 **83회**(다른 문서도 77/47/12회) 나옴 — 표본 3개만으론 안심할 수 없는
+수준. 현재 정규식 `(?<![A-Za-z])X(?![A-Za-z])`는 "앞뒤가 알파벳만 아니면"
+매칭이라 상당히 느슨함 — 특히 `m`(미터)/`v`(볼트) 같은 실제 단위 표기가
+**숫자 바로 뒤**에 오는 경우(예: "폭 3m", "220v")까지 오탐으로 지워질 위험이
+있음(지금까지 확인된 진짜 불릿은 전부 줄바꿈 직후 또는 항목기호 바로 뒤였고
+숫자 바로 뒤인 사례는 없었지만, 전수 확인은 아직 안 함). 전체 매칭 중 직전
+문자가 숫자인 것만 골라 문맥과 함께 보여주는
+`fix_symbol_font_bullet_leak_digit_check.py` 작성. 읽기 전용, 아직 미실행 —
+이 목록이 비어있어야 안심하고 DRY_RUN=False로 진행 가능.
 
 ### v_bullet_font_check 실행 결과 (2026-08-24) — 가설 확정: Wingdings 심볼폰트 체크마크 불릿 누출
 
