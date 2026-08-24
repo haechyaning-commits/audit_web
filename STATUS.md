@@ -32,8 +32,10 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
 - [x] `audit_symbol_font_leak_scope.py` Colab 실행 완료 — 아래 참고
 - [x] `audit_symbol_font_leak_font_check2.py` Colab 실행 완료 — m/q는
       Wingdings-Regular로 확정, y/r은 표본 0건(기관명 매칭 실패 추정)
-- [ ] `audit_symbol_font_leak_font_check3.py` 실행 필요(아래 참고) — y/r을
-      scope 스크립트가 찾은 문서 ID로 직접 재확인
+- [x] `audit_symbol_font_leak_font_check3.py` Colab 실행 완료 — 문서 6/6 조회는
+      됐지만 스팬 단위로 "정확히 그 글자 하나"가 안 잡힘(아래 참고)
+- [ ] `audit_symbol_font_leak_font_check4.py` 실행 필요(아래 참고) — 단어 단위
+      위치로 먼저 찾고 겹치는 스팬 폰트 역추적
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
 - [ ] 확인 전까지는 DB에 아무것도 반영하지 않음
@@ -71,6 +73,17 @@ boilerplate 앵커 문구 9종 직전의 알파벳 단독 1글자를 전수조�
 집계할 때는 분명 해당 기관으로 잡혔는데 재조회 시 안 잡힘). 원인 규명 대신 scope
 스크립트가 이미 찾아둔 실제 문서 ID를 그대로 써서 우회하는
 `audit_symbol_font_leak_font_check3.py` 작성. 읽기 전용, 아직 미실행.
+
+### symbol_font_leak_font_check3 실행 결과 (2026-08-24)
+
+문서 6/6 정상 조회·다운로드됐지만(ID 우회 자체는 성공), "스팬 텍스트가 정확히
+그 글자 하나"라는 조건으로는 y/r 둘 다 6건 전부 못 찾음. m/q/v는 그 글자가
+Wingdings 폰트라 앞뒤 본문(다른 폰트)과 pymupdf가 자동으로 스팬을 쪼갰지만,
+y/r은 앞뒤 글자와 같은 스팬으로 병합돼 있을 가능성 — 원인 불명 상태에서 성급히
+"y/r은 진짜 텍스트"로 결론 내지 않고, "words"(공백 기준, 폰트 무관하게 항상
+쪼개짐) 단위로 먼저 위치를 찾고 그 좌표와 겹치는 "dict" 스팬을 역추적해서
+폰트를 확인하는 `audit_symbol_font_leak_font_check4.py` 작성. 읽기 전용,
+아직 미실행.
 
 ### v_bullet_font_check 실행 결과 (2026-08-24) — 가설 확정: Wingdings 심볼폰트 체크마크 불릿 누출
 
