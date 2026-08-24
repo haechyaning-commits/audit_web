@@ -24,9 +24,16 @@ function countBy(list, key) {
   return m;
 }
 
-function buildOrder(baseResults, key) {
+// 감사유형/기관은 개수 많은 순(빈도)이 자연스럽지만, 연도는 그 자체로 순서가 있는
+// 값이라 빈도순으로 두면 뒤죽박죽으로 보임(2026-08-24, 사용자 제보) — sortMode로
+// "year"일 땐 최신순(내림차순)으로, 나머지는 기존처럼 빈도순으로 정렬.
+function buildOrder(baseResults, key, sortMode = "frequency") {
   const counts = countBy(baseResults || [], key);
-  return [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+  const values = [...counts.keys()];
+  if (sortMode === "chronological") {
+    return values.sort((a, b) => b - a);
+  }
+  return values.sort((a, b) => counts.get(b) - counts.get(a));
 }
 
 function FilterGroup({
@@ -85,7 +92,10 @@ export default function FilterSidebar({ baseResults, results, filters, onChange 
   // 순서는 baseResults가 바뀔 때만(=검색어가 바뀔 때만) 다시 계산 — 필터 조작 중엔
   // 재계산 안 됨(자리 고정의 핵심).
   const instOrder = useMemo(() => buildOrder(baseResults, "institution"), [baseResults]);
-  const yearOrder = useMemo(() => buildOrder(baseResults, "year"), [baseResults]);
+  const yearOrder = useMemo(
+    () => buildOrder(baseResults, "year", "chronological"),
+    [baseResults],
+  );
   const typeOrder = useMemo(() => buildOrder(baseResults, "audit_type"), [baseResults]);
 
   const list = results || [];
