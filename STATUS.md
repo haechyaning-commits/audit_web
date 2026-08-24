@@ -85,6 +85,18 @@ y/r은 앞뒤 글자와 같은 스팬으로 병합돼 있을 가능성 — 원�
 폰트를 확인하는 `audit_symbol_font_leak_font_check4.py` 작성. 읽기 전용,
 아직 미실행.
 
+### symbol_font_leak_font_check4 실행 결과 (2026-08-24)
+
+"words" 단위(공백 기준, 폰트 무관하게 항상 쪼개짐)로도 y/r 6건 전부 문서 전체
+어디서도 못 찾음 — span 단위 병합 문제가 아니라, **pymupdf 자체의 텍스트 추출
+결과가 DB raw_text와 다르다**는 훨씬 강한 신호로 재해석. pymupdf가 이 폰트의
+ToUnicode CMap을 제대로 읽어서 'y'/'r'이 아닌 실제 글리프(진짜 불릿 기호 등)로
+정확히 보여주고 있고, raw_text를 만든 원래 추출 파이프라인이 그 매핑을 놓치고
+코드값을 그대로 'y'/'r'로 뽑았을 가능성. DB raw_text 문맥과 pymupdf
+`page.get_text()` 원문을 나란히 출력해서 사람이 직접 대조하는
+`audit_symbol_font_leak_font_check5.py` 작성(앞 2페이지 원문 그대로 덤프 — m/q
+사례가 전부 page 0~1이었던 것 참고). 읽기 전용, 아직 미실행.
+
 ### v_bullet_font_check 실행 결과 (2026-08-24) — 가설 확정: Wingdings 심볼폰트 체크마크 불릿 누출
 
 표본 5건(한수원 PDF) 전부 `font='Wingdings-Regular'`로 확인. 문맥도 전부 일치
