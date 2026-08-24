@@ -1120,6 +1120,18 @@ body {
 .raw-line-heading:first-child {
   margin-top: 0;
 }
+/* 2026-08-24: 문서 맨 앞 표지 블록(뱃지/큰 제목/날짜/기관명이 줄바꿈으로만 나열된
+   경우, DetailPage.jsx의 looksLikeCoverBlock 참고) — 일반 본문처럼 공백으로 이어
+   붙이면 원본과 달리 한 줄로 뭉쳐 보여서, 줄바꿈을 그대로 보존(pre-line) + 가운데
+   정렬 + 아래 .raw-line-title에 준하는 굵기로 표지 느낌을 살림. */
+.raw-line-cover {
+  white-space: pre-line;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text-heading);
+  line-height: 1.7;
+  margin: 4px 0 20px;
+}
 /* 문서 제목 줄 — 다른 헤딩(가/나/다, 1/2/3 등)보다 한 단계 위 크기 + 세리프로,
    공식 문서 표지 느낌을 냄(law.go.kr류 요청, 2026-08-12) */
 .raw-line-title {

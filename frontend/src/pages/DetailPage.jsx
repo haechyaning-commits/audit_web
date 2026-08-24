@@ -590,6 +590,21 @@ function looksLikeFlattenedTable(text) {
   return Boolean(embedded && embedded.length >= 5);
 }
 
+// 2026-08-24: 표지 페이지(뱃지/큰 제목/날짜/기관명이 줄바꿈으로만 나열된 문서 맨 앞
+// 블록)가 실제 문서(한국철도공사 2020 복무감사, dec56dc84bfe3a6c)로 확인됨 — "복무감사"
+// / "2020. 10월 복무감사결과 보고서" / "2020. 10." / "한국철도공사" / "감사실"처럼
+// 각 줄이 독립된 표지 요소인데, 지금까지는 그냥 body 문단으로 취급돼 공백으로 다
+// 이어붙어서 원본(뱃지+큰 제목+날짜가 세로로 떨어진 레이아웃)과 달리 한 줄로 뭉쳐
+// 보였음(사용자가 원본 PDF ↔ 웹페이지 스크린샷으로 제보 — "상단에 제목이 안 보인다").
+// 문서의 맨 첫 블록에서만 적용(그 뒤로는 일반 body 문단 병합 방침 그대로 유지) —
+// 진짜 서술형 도입 문단(예: "이 감사는 ~함.")과 구분하려고, 마지막 줄이 한국어
+// 문장종결(다/함/음/됨 + 마침표류, 위 SENTENCE_END_RE와 동일 기준)로 안 끝날 때만
+// 표지로 봄. 일반 도입 문단은 거의 항상 마침표로 끝나 이 조건에 안 걸림.
+function looksLikeCoverBlock(lines) {
+  if (lines.length < 2) return false;
+  return !SENTENCE_END_RE.test(lines[lines.length - 1]);
+}
+
 /** 원문을 문단 단위 블록으로 나눔(렌더링 전 순수 데이터 단계) — renderRawText와
  * buildToc가 같은 블록 목록을 같이 써서 목차 항목과 실제 앵커가 항상 일치하게 함
  * (law.go.kr류 조문 목차 참고 요청, 2026-08-12).
@@ -650,11 +665,19 @@ function splitIntoBlocks(text) {
     // 2026-08-21: "[표 N]" 캡션이 없어서 bullet로 흘러들어온 문단이 사실 표
     // 데이터였던 경우(looksLikeFlattenedTable 주석 참고) — flush 시점에 재분류해서
     // table과 똑같이 줄바꿈 보존 + 접이식(<details>) 처리되게 함.
+    // 2026-08-24: 문서 맨 첫 블록이 표지(looksLikeCoverBlock 참고)면 "cover" 타입으로
+    // 재분류 — table과 마찬가지로 줄바꿈을 보존해서 뱃지/제목/날짜/기관명이 원본처럼
+    // 각자 줄로 보이게 함(CSS는 raw-line-cover, renderRawText는 일반 분기 그대로 재사용).
+    const isLeadingCover =
+      blocks.length === 0 && paraType === "body" && looksLikeCoverBlock(para);
     const type =
       paraType === "bullet" && looksLikeFlattenedTable(para.join(" "))
         ? "table"
-        : paraType;
-    const text = type === "table" ? para.join("\n") : para.join(" ");
+        : isLeadingCover
+          ? "cover"
+          : paraType;
+    const text =
+      type === "table" || type === "cover" ? para.join("\n") : para.join(" ");
     blocks.push({ type, text });
     prevType = type;
     para = [];
