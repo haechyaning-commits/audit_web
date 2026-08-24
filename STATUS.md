@@ -38,8 +38,10 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
       y/r을 문서 전체에서 못 찾음(아래 참고)
 - [x] `audit_symbol_font_leak_font_check5.py` Colab 실행 완료 — **y/r은 가짜
       경보로 최종 판명, 범위조사 종료**(아래 참고)
-- [ ] `scripts/backup_before_fix.py` 실행(안 했다면) → `fix_symbol_font_bullet_leak.py`
-      DRY_RUN=True로 실행 — 영향 문서/청크 수, 전후 샘플 확인
+- [x] `fix_symbol_font_bullet_leak.py` DRY_RUN=True Colab 실행 완료 — documents
+      249건/chunks 446건, 5개 기관, 샘플 5건 전부 깔끔(아래 참고)
+- [ ] `fix_symbol_font_bullet_leak_preview.py` 실행 필요(아래 참고) — (기관,글자)
+      조합별로 골고루 샘플 더 확인 (m/q 쪽도)
 - [ ] 이상 없으면 DRY_RUN=False로 반영 → 바뀐 chunk 재임베딩(embed_chunks.py 계열)
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
@@ -135,6 +137,18 @@ chunks.text 둘 다 처리, 재임베딩 대상 jsonl export까지). **폰트로
 검증에 쓴 것과 동일한 엄격한 경계 조건(양옆 비-알파벳)이라 "Advisory"류
 오탐 재현 안 됨. 아직 실행 전(DRY_RUN 결과도 미확인) — 이 세션은 DB
 자격증명이 없어 실행 못 함.
+
+### fix_symbol_font_bullet_leak DRY_RUN 실행 결과 (2026-08-24)
+
+documents 대상 기관 5곳 1,010건 중 249건 수정 대상(한국수력원자력 202/서울대학교
+병원 15/국립부산과학관 13/한국원자력통제기술원 10/한국수자원조사기술원 9 —
+앞서 diagnose 단계 문서수(v=202)와 정확히 일치). chunks는 1,758건 중 446건.
+샘플 5건 전부 깔끔 — 글자+공백만 정확히 사라지고 이중공백/단어 일부 삭제 같은
+부작용 없음(예: `v(고효율에너지물품)`처럼 공백 없이 붙은 경우도 `v`만 제거,
+`(고효율에너지물품)`은 그대로). 사용자가 반영 전 m/q 쪽 샘플을 더 보고 싶다고
+해서 (기관,글자) 조합별로 골고루 여러 건 찍는
+`fix_symbol_font_bullet_leak_preview.py` 작성(fix_symbol_font_bullet_leak.py의
+규칙/정규식을 그대로 import해서 재사용, 읽기 전용). 아직 미실행.
 
 ### v_bullet_font_check 실행 결과 (2026-08-24) — 가설 확정: Wingdings 심볼폰트 체크마크 불릿 누출
 
