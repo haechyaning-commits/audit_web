@@ -40,14 +40,24 @@ PUA_RE = re.compile(
     "[\U0000E000-\U0000F8FF\U000F0000-\U000FFFFD\U00100000-\U0010FFFD]+"
 )
 
-DATABASE_URL = None
-try:
-    from google.colab import userdata
-    DATABASE_URL = userdata.get("DATABASE_PUBLIC_URL")
-except Exception:
-    pass
+DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    DATABASE_URL = os.environ.get("DATABASE_URL")
+    try:
+        from google.colab import userdata
+        DATABASE_URL = userdata.get("DATABASE_URL")
+    except Exception:
+        pass
+if not DATABASE_URL:
+    try:
+        from google.colab import userdata
+        DATABASE_URL = userdata.get("DATABASE_PUBLIC_URL")
+    except Exception:
+        pass
+if not DATABASE_URL:
+    raise SystemExit(
+        "\nDATABASE_URL을 찾을 수 없습니다. Colab 좌측 열쇠(Secrets) 아이콘에서 "
+        "\"DATABASE_URL\" Secret이 등록돼 있는지 확인하세요."
+    )
 
 
 def download(source_file: str) -> bytes:
