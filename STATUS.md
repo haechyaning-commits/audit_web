@@ -30,8 +30,10 @@ HWPX 재다운로드도 못 함 — Railway 백엔드 도메인도 이번에 또
 - [x] `audit_v_bullet_diagnose.py` Colab 실행 완료 — 아래 참고, 가설이 크게 바뀜
 - [x] `audit_v_bullet_font_check.py` Colab 실행 완료 — **가설 확정** (아래 참고)
 - [x] `audit_symbol_font_leak_scope.py` Colab 실행 완료 — 아래 참고
-- [ ] `audit_symbol_font_leak_font_check2.py` 실행 필요(아래 참고) — m/q/y/r 후보
-      원본 PDF 폰트 확인
+- [x] `audit_symbol_font_leak_font_check2.py` Colab 실행 완료 — m/q는
+      Wingdings-Regular로 확정, y/r은 표본 0건(기관명 매칭 실패 추정)
+- [ ] `audit_symbol_font_leak_font_check3.py` 실행 필요(아래 참고) — y/r을
+      scope 스크립트가 찾은 문서 ID로 직접 재확인
 - [ ] (태그명 절단 그룹, 별개 버그) 원인을 실제 원본 HWPX(328d072215a508c6)로
       재현 — 어느 XML 요소/속성이 새는지 정확히 특정한 뒤에 재추출 스크립트 작성
 - [ ] 확인 전까지는 DB에 아무것도 반영하지 않음
@@ -52,6 +54,23 @@ boilerplate 앵커 문구 9종 직전의 알파벳 단독 1글자를 전수조�
 기술원, `y`=한국에너지공단, `r`=한국남부발전, `m`=병원·과학관류 다수 기관).
 `audit_symbol_font_leak_font_check2.py` 작성 — m/q/y/r을 `v`와 동일한 방식
 (pymupdf 폰트 확인)으로 검증. 읽기 전용, 아직 미실행.
+
+### symbol_font_leak_font_check2 실행 결과 (2026-08-24)
+
+`m`(서울대학교병원 2건, 국립부산과학관 2건, 한국수자원조사기술원 1건)과 `q`
+(한국원자력통제기술원 2건) 전부 `font='Wingdings-Regular'`로 확인 — `v`와 완전히
+같은 부류의 버그로 확정. 특히 `m`은 서울대병원/국립부산과학관 문서에서 **감사
+개요 섹션 헤더 전체**(감사 기간/대상/범위/총괄현황 등)마다 반복 등장해서, 불릿
+하나가 아니라 그 문서의 핵심 구조(섹션 구분자) 역할을 하고 있음 — 단순 노이즈
+치고는 검색 미리보기/표시에 영향이 있을 수 있어 우선순위를 더 높여야 할 수도.
+`q`도 "업무개요/관계 법령(판단기준)/감사결과 확인된 문제점/관련자 의견/조치할
+사항" 섹션 헤더 전부에서 반복 확인.
+
+**`y`(한국에너지공단)/`r`(한국남부발전)은 표본 0건** — institution+letter로 문서를
+다시 찾는 쿼리가 실패함(원인 미확인 — 기관명 문자열 불일치 추정, scope 스크립트가
+집계할 때는 분명 해당 기관으로 잡혔는데 재조회 시 안 잡힘). 원인 규명 대신 scope
+스크립트가 이미 찾아둔 실제 문서 ID를 그대로 써서 우회하는
+`audit_symbol_font_leak_font_check3.py` 작성. 읽기 전용, 아직 미실행.
 
 ### v_bullet_font_check 실행 결과 (2026-08-24) — 가설 확정: Wingdings 심볼폰트 체크마크 불릿 누출
 
