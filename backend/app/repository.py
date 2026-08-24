@@ -14,6 +14,7 @@ db.py(연결 방법)와 분리한 이유: "DB에 어떻게 연결하는지"와 "
 from typing import Any
 
 import asyncpg
+import numpy as np
 
 # RRF(§3.1) + document 단위 dedup(§3.2) — 원래는 리랭커 입력용으로 top 20을 뽑아서
 # top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있어 지금은 top 40을 그대로
@@ -154,6 +155,62 @@ WHERE id = $1;
 async def get_document(pool: asyncpg.Pool, document_id: str) -> asyncpg.Record | None:
     async with pool.acquire() as conn:
         return await conn.fetchrow(_GET_DOCUMENT_SQL, document_id)
+
+
+# 2026-08-24(피드백 반영): 상세페이지 "유사 사례" 섹션 — 검색(_SEARCH_SQL)과 똑같은
+# 벡터 검색을 재사용하되, "사용자가 입력한 문장" 대신 "지금 보고 있는 이 문서 자체"를
+# 쿼리로 삼음. 쿼리 임베딩을 SQL 밖(파이썬)에서 만드는 것도 search_candidates와 동일한
+# 패턴 — main.py가 encode_query()로 벡터를 만든 뒤 SQL에 넘기는 것처럼, 여기서는 그
+# 문서에 속한 모든 청크 임베딩의 평균(centroid)을 만들어서 넘김.
+#
+# 청크 하나(예: 첫 청크)만 대표로 쓰지 않고 평균을 쓰는 이유: 문서 하나가 여러 주제를
+# 걸칠 수 있는데(지적사항/원인/조치/결과 등 서로 다른 문단), 특정 청크 하나만 기준으로
+# 삼으면 그 청크 내용에만 치우친 "유사"가 나올 위험이 있음. 평균을 내면 문서 전체
+# 주제를 고르게 반영함 — Postgres 쪽에 vector AVG 집계를 시키는 대신(pgvector 버전에
+# 따라 지원 여부가 갈릴 수 있어 안전하게) numpy로 파이썬에서 계산.
+_DOC_CHUNK_EMBEDDINGS_SQL = "SELECT embedding FROM chunks WHERE document_id = $1;"
+
+_SIMILAR_SQL = """
+WITH ranked AS (
+    SELECT c.id AS chunk_id, c.document_id,
+           c.embedding <=> $1 AS distance
+    FROM chunks c
+    WHERE c.document_id != $2
+    ORDER BY c.embedding <=> $1
+    LIMIT 100
+),
+deduped AS (
+    -- 검색(_SEARCH_SQL)과 동일한 이유로 문서당 최고(=최소 거리) 청크 1개만 남김
+    SELECT DISTINCT ON (document_id) chunk_id, document_id, distance
+    FROM ranked
+    ORDER BY document_id, distance ASC
+)
+SELECT
+    d.document_id,
+    d.distance,
+    doc.institution,
+    doc.year,
+    doc.audit_type,
+    doc.parsing_quality,
+    left(doc.raw_text, 200) AS title_buffer,
+    left(c.text, 320) AS preview_buffer
+FROM deduped d
+JOIN documents doc ON doc.id = d.document_id
+JOIN chunks c ON c.id = d.chunk_id
+ORDER BY d.distance ASC
+LIMIT $3;
+"""
+
+
+async def get_similar_documents(
+    pool: asyncpg.Pool, document_id: str, limit: int = 5
+) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_DOC_CHUNK_EMBEDDINGS_SQL, document_id)
+        if not rows:
+            return []  # 청크가 아예 없는 문서(파싱 실패 등) — 유사 사례를 계산할 기준이 없음
+        centroid = np.mean(np.stack([r["embedding"] for r in rows]), axis=0)
+        return await conn.fetch(_SIMILAR_SQL, centroid, document_id, limit)
 
 
 _SAVE_SUMMARY_SQL = """

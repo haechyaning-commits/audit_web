@@ -88,9 +88,15 @@ async def search(
     안 주면 기존과 동일하게 전체 문서 대상으로 검색됨. 값이 실제 DB에 없는 조합이어도
     그냥 결과 0건으로 응답(별도 검증 안 함 — /filters가 내려준 값만 프론트가 쓰므로
     잘못된 값이 들어올 일이 원래 없음).
-    debug_score=1: 고정 개수 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
-    실측하려고 임시로 추가한 파라미터. 기본값 False면 기존 응답과 완전히 동일함
-    (score 필드가 항상 None) — 컷오프 비율 정하고 나면 이 파라미터+로직 정리 예정."""
+    debug_score=1: 고정 개수(40) 대신 점수 기반 컷오프로 바꾸기 위해, RRF 점수 분포를
+    실측하려고 임시로 추가한 파라미터 — 켜면 컷오프 지점을 보려고 후보 풀을 100건까지
+    넉넉히 가져옴(응답에 노출되는 건수 자체가 늘어남). 컷오프 비율 정하고 나면 이
+    파라미터+search_limit 분기는 정리 예정.
+    2026-08-24(피드백 반영): score 필드 자체는 이제 debug_score와 무관하게 항상 채워서
+    내려줌 — 프론트 결과 카드에 상대 관련도(막대) 표시용(ResultCard.jsx 참고). 원래
+    이 파라미터가 하던 "후보 풀 100건까지 확장" 역할만 남기고, "score를 감춘다"는
+    부수효과는 분리함(스코어 노출과 컷오프 실험은 서로 다른 관심사라 같이 묶여있을
+    이유가 없었음)."""
     if not q.strip():
         raise HTTPException(status_code=400, detail="검색어를 입력해주세요")
 
@@ -118,7 +124,7 @@ async def search(
             audit_type=r["audit_type"],
             confidence=_confidence_label(r["parsing_quality"]),
             preview_text=build_preview(r["preview_buffer"]),
-            score=float(r["score"]) if debug_score else None,
+            score=float(r["score"]),
         )
         for r in candidates
     ]
@@ -163,6 +169,36 @@ async def get_document_detail(document_id: str) -> DocumentDetail:
         summary_freeform=doc["summary_freeform"],
         summary_freeform_failed=doc["summary_freeform_failed"],
     )
+
+
+@app.get("/documents/{document_id}/similar", response_model=list[SearchResultCard])
+async def get_similar_cases(document_id: str, limit: int = 5) -> list[SearchResultCard]:
+    """2026-08-24(피드백 반영): 상세페이지 "유사 사례" 섹션. /search와 같은 벡터검색
+    로직을 재사용하되, 쿼리 임베딩을 사용자 입력 대신 이 문서 자체(청크 임베딩 평균)로
+    만듦(repository.get_similar_documents 참고). LLM 호출이 아니라 순수 벡터검색이라
+    원문 로딩과 같이 자동으로 보여줘도 지연 걱정이 없음(요약보기처럼 버튼 뒤로 미룰
+    필요 없음).
+    문서가 존재하지 않아도(또는 청크가 없어도) 404 대신 빈 배열 반환 — 이 섹션은
+    상세페이지의 부가 정보라, 있으면 좋고 없어도 원문 조회 자체는 막지 않아야 함."""
+    pool = db.get_pool()
+    rows = await repository.get_similar_documents(pool, document_id, limit=limit)
+    return [
+        SearchResultCard(
+            document_id=r["document_id"],
+            title=extract_title(r["title_buffer"]),
+            institution=r["institution"],
+            year=r["year"],
+            audit_type=r["audit_type"],
+            confidence=_confidence_label(r["parsing_quality"]),
+            preview_text=build_preview(r["preview_buffer"]),
+            # pgvector cosine distance(<=>)는 0(동일)~2(반대) 범위라, "높을수록 유사"로
+            # 방향을 맞추기 위해 1-distance로 뒤집음 — /search의 RRF score와 스케일은
+            # 다르지만 "숫자가 클수록 더 관련 있다"는 의미는 같아서, 프론트의 상대
+            # 관련도 막대(ResultCard.jsx)가 그대로 재사용 가능함.
+            score=1 - r["distance"],
+        )
+        for r in rows
+    ]
 
 
 @app.post("/documents/{document_id}/summary", response_model=SummaryResponse)

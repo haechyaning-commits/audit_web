@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import FilterSidebar from "../components/FilterSidebar.jsx";
 import ResultCard from "../components/ResultCard.jsx";
@@ -39,8 +39,16 @@ const PAGE_SIZE = 10; // 2열 x 5줄
  * 이 상태를 같이 씀 — 어느 쪽에서 검색해도 같은 results가 반영됨.
  */
 export default function SearchPage({ search }) {
-  const { results, baseResults, searchedQuery, loading, error, recentSearches, runSearch } =
-    search;
+  const {
+    results,
+    baseResults,
+    searchedQuery,
+    loading,
+    error,
+    recentSearches,
+    runSearch,
+    clearRecent,
+  } = search;
   const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
   // 2026-08-24(FR5): 필터도 URL이 진실의 원천 — 새로고침/공유 링크로 들어와도
@@ -48,16 +56,50 @@ export default function SearchPage({ search }) {
   const filterInstitution = searchParams.get("institution") || "";
   const filterYear = searchParams.get("year") || "";
   const filterAuditType = searchParams.get("audit_type") || "";
+  // 2026-08-24(피드백 반영): 정렬 — 기본은 백엔드가 계산한 RRF 관련도순 그대로, "최신순"은
+  // 이미 받아온 results(최대 40건)를 프론트에서 연도 기준으로 재정렬만 하면 돼서 백엔드
+  // 변경 없이 구현 가능(추가 API 호출 없음). URL 파라미터로 둬서 새로고침/공유해도 유지됨.
+  const sortMode = searchParams.get("sort") === "latest" ? "latest" : "relevance";
 
   const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef(null);
+  // 2026-08-24(피드백 반영): 모바일(≤720px)에서는 필터 사이드바가 기본으로 접혀있음 —
+  // 감사유형/기관/연도 세 그룹이 다 펼쳐진 채로 검색 결과보다 위에 쌓이면, 화면을 한참
+  // 내려야 결과가 보이는 문제(index.css의 .filter-sidebar 관련 미디어쿼리 참고). 데스크톱
+  // 폭에서는 이 상태와 무관하게 CSS가 항상 펼쳐서 보여줌(아래 toggle 버튼도 그때만 보임).
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // 2026-08-24(피드백 반영): 결과 카드의 상대 관련도 막대(ResultCard.jsx)용 기준값.
+  // results[0]은 정렬 모드와 무관하게 항상 백엔드가 매긴 1위 스코어(ORDER BY score DESC로
+  // 응답됨) — "최신순" 정렬로 화면 순서가 바뀌어도 막대 기준(=1위 점수)은 안 바뀌어야
+  // 하므로 sortedResults가 아니라 results[0]에서 구함.
+  const topScore = results && results.length > 0 ? results[0].score : null;
+
+  const sortedResults = useMemo(() => {
+    if (!results) return results;
+    if (sortMode !== "latest") return results;
+    // 연도만 보고 정렬 — 같은 연도 안에서는 원래(관련도) 순서를 그대로 유지(안정 정렬).
+    return [...results].sort((a, b) => (b.year || 0) - (a.year || 0));
+  }, [results, sortMode]);
 
   // 페이지네이션 — URL의 page 파라미터가 진실의 원천 (새로고침해도 보던 페이지 유지,
   // 새 검색(q 변경) 시엔 setSearchParams({q})가 page를 같이 지워버려서 자동으로 1페이지로 리셋됨)
   const pageParam = parseInt(searchParams.get("page"), 10);
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
-  const totalPages = results ? Math.max(1, Math.ceil(results.length / PAGE_SIZE)) : 1;
-  const pagedResults = results ? results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : [];
+  const totalPages = sortedResults ? Math.max(1, Math.ceil(sortedResults.length / PAGE_SIZE)) : 1;
+  const pagedResults = sortedResults
+    ? sortedResults.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+    : [];
+
+  function handleSortChange(mode) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (mode === "latest") next.set("sort", "latest");
+      else next.delete("sort");
+      next.delete("page"); // 정렬이 바뀌면 이전 페이지 번호가 의미 없어지므로 1페이지로
+      return next;
+    });
+  }
 
   function goToPage(p) {
     setSearchParams((prev) => {
@@ -191,6 +233,14 @@ export default function SearchPage({ search }) {
                   {text}
                 </button>
               ))}
+              {/* 2026-08-24(피드백 반영): 최근 검색어는 localStorage에 계속 쌓이는데
+                  지우는 방법이 지금까지 없었음(recentSearches.js 참고) — 예시 칩으로
+                  바뀌는 게 아니라 "최근 검색"일 때만 노출 */}
+              {recentSearches.length > 0 && (
+                <button type="button" className="chip-clear" onClick={clearRecent}>
+                  지우기
+                </button>
+              )}
             </div>
 
             <div className="stat-cards">
@@ -240,7 +290,20 @@ export default function SearchPage({ search }) {
             빈 채로 렌더링됨 — FilterSidebar 내부에서 안전하게 처리. */}
         {(results !== null || loading) && (
           <div className="search-layout">
+            {/* 모바일 전용 — 데스크톱 폭에서는 CSS(min-width 미디어쿼리)로 숨김 */}
+            <button
+              type="button"
+              className="filter-toggle-mobile"
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+            >
+              필터
+              <span className="filter-toggle-mobile-arrow" aria-hidden="true">
+                {filtersOpen ? "▴" : "▾"}
+              </span>
+            </button>
             <FilterSidebar
+              className={filtersOpen ? "is-open" : ""}
               baseResults={baseResults}
               results={results || []}
               filters={{
@@ -288,13 +351,36 @@ export default function SearchPage({ search }) {
 
               {!loading && results !== null && results.length > 0 && (
                 <>
-                  <p className="section-label">
-                    검색 결과 <span className="count">{results.length}건</span>
-                  </p>
+                  <div className="result-list-header">
+                    <p className="section-label">
+                      검색 결과 <span className="count">{results.length}건</span>
+                    </p>
+                    <div className="sort-toggle" role="group" aria-label="정렬 방식">
+                      <button
+                        type="button"
+                        className={sortMode === "relevance" ? "active" : ""}
+                        onClick={() => handleSortChange("relevance")}
+                      >
+                        관련도순
+                      </button>
+                      <button
+                        type="button"
+                        className={sortMode === "latest" ? "active" : ""}
+                        onClick={() => handleSortChange("latest")}
+                      >
+                        최신순
+                      </button>
+                    </div>
+                  </div>
                   <ul className="result-list">
                     {pagedResults.map((result, i) => (
                       <li key={result.document_id}>
-                        <ResultCard result={result} rank={(page - 1) * PAGE_SIZE + i + 1} query={searchedQuery} />
+                        <ResultCard
+                          result={result}
+                          rank={(page - 1) * PAGE_SIZE + i + 1}
+                          query={searchedQuery}
+                          topScore={topScore}
+                        />
                       </li>
                     ))}
                   </ul>

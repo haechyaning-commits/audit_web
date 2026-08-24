@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  2026-08-24(피드백 반영): 지금은 정적 라우트("/")만 담은 최소 버전.
+
+  사례 상세페이지(/cases/{id}/{slug})까지 전부 담으려면 documents 테이블(67,751건)을
+  조회해서 URL을 나열해야 하는데, 이 저장소(코드 샌드박스 세션)에는 실제 Railway
+  DATABASE_URL이 없어 여기서 만들어낼 수 없음 — scripts/generate_sitemap.py가 그
+  스크립트고, 실제 DB 접근 가능한 환경(로컬/CI)에서 그걸 실행하면 이 파일이
+  sitemap-index.xml(+ sitemap-1.xml, sitemap-2.xml...)로 자동 교체됨(스크립트 상단
+  주석 참고). 그때까지는 이 최소 버전이 "아예 없는 것보다 낫다"는 선에서 커밋해둠 —
+  개별 사례 페이지도 SPA 특성상(SSR 없음) 크롤러가 JS를 렌더링해야 실제 내용을 보므로,
+  sitemap에 올린다고 색인 품질이 완전히 보장되는 것도 아니라는 점은 README에도 한계로
+  적어둘 것.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://audit-web-phi.vercel.app/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

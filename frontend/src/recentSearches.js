@@ -21,3 +21,12 @@ export function addRecentSearch(query) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   return updated;
 }
+
+/** 2026-08-24(피드백 반영): 최근 검색어는 로컬 저장이라 UI에서 지울 방법이 지금까지
+ * 아예 없었음 — 이 서비스가 다루는 검색어 성격상(예: "직장 상사가 지속적으로 괴롭혀서
+ * 신고하고 싶어요") 같은 기기를 다른 사람과 같이 쓰는 경우 신경 쓰일 수 있어서 추가.
+ * 개별 삭제가 아니라 전체 지우기만 우선 제공(가장 저렴하면서 효과 큰 선). */
+export function clearRecentSearches() {
+  localStorage.removeItem(STORAGE_KEY);
+  return [];
+}

@@ -62,4 +62,11 @@ export function getCaseSummary(documentId) {
   return request(`/documents/${encodeURIComponent(documentId)}/summary`, { method: "POST" });
 }
 
+/** 상세페이지 "유사 사례" 섹션 — 이 문서 자체를 쿼리로 삼은 벡터검색 결과(최대 5건).
+ * 요약과 달리 LLM 호출이 아니라 순수 벡터검색이라 원문 로딩과 같이 자동 호출해도 됨
+ * (GET /documents/{id}/similar). */
+export function getSimilarCases(documentId) {
+  return request(`/documents/${encodeURIComponent(documentId)}/similar`);
+}
+
 export { ApiError };

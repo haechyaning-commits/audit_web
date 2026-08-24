@@ -1,6 +1,10 @@
 # 이 파일의 모든 버전은 추측이 아니라, 실제로 설치 + import 테스트를 통과한 값입니다
 # (fastapi 앱 구동, asyncpg+pgvector 비동기 DB 연결, sentence-transformers 임베딩 로드까지 검증).
 #
+# numpy는 별도로 안 적어둠 — torch/sentence-transformers가 이미 의존성으로 끌고 오고,
+# 여기 실제로 설치+테스트해본 값이 아니라서 임의로 버전을 새로 고정하지 않음
+# (2026-08-24, repository.py의 유사 사례 검색(centroid 계산)에서 직접 import해서 씀).
+#
 # torch는 CPU 전용 빌드를 씁니다 (Railway는 GPU가 없는데, 기본 index로 설치하면
 # 안 쓰는 CUDA 라이브러리가 같이 딸려와서 배포 용량이 쓸데없이 몇 GB씩 커짐).
 # 설치 순서:
