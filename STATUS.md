@@ -2,6 +2,39 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🚧 2026-08-24 (8차) — 기관/연도 검색 필터(FR5) 구현 — 실 DB 검증 아직 안 됨, main 머지 보류
+
+README "다음에 붙일 만한 것"에 v1.1로 미뤄뒀던 기관/연도 필터를 구현. 이번 건
+**오늘 다른 수정들과 달리 프론트뿐 아니라 백엔드 SQL이 바뀌고, main에 올리면
+Railway가 바로 재배포하는 실서비스 검색 기능이라 — 검증 없이 main에 못 올림**
+(이 세션은 살아있는 Postgres 접근이 없어서 SQL 실행 자체를 못 해봄).
+
+**백엔드**:
+- `repository.py`: `_SEARCH_SQL`에 `filtered_docs` CTE 추가 — institution/year를
+  vector_search/text_search **랭킹 전에** 걸러내도록 함(랭킹 후에 거르면, 상위
+  100건 후보가 필터에 안 걸리는 문서로 이미 채워졌을 때 필터링 후 결과가 텅 빌
+  위험이 있어서). 필터 없으면($4/$5 둘 다 NULL) 기존 쿼리와 동일하게 동작.
+  `get_filter_options()`도 추가(기관/연도 DISTINCT 목록).
+- `schemas.py`: `FilterOptions` 추가.
+- `main.py`: `/search`에 `institution`/`year` 쿼리파라미터 추가, `/filters` 신규
+  엔드포인트 추가(드롭다운용 값 목록).
+
+**프론트**: `api.js`(searchCases에 filters 인자 추가, getFilterOptions 추가) /
+`useSearchState.js`(appliedFilters 상태 추가) / `SearchPage.jsx`(기관/연도
+드롭다운 UI, URL 파라미터로 필터 상태 유지 — page 파라미터와 같은 방침) /
+`index.css`(.filter-bar).
+
+**검증한 것**: FastAPI 앱을 무거운 의존성(torch/sentence-transformers/openai)만
+모킹해서 임포트 — 라우트 등록(`/filters` 신규, `/search` 파라미터) 정상 확인.
+`npm run lint`/`npm run build` 통과.
+
+**검증 못 한 것(중요)**: SQL 자체(`filtered_docs` CTE, `$N::type IS NULL OR ...`
+캐스트 패턴, `ARRAY(SELECT DISTINCT ...)`)를 실제 Postgres+pgvector에 대고
+실행해본 적이 없음 — 문법/실행계획 문제가 있을 수 있음. **main 머지 전에 반드시
+로컬(`.env`에 실제 DATABASE_URL 넣고 `uvicorn app.main:app`) 또는 Railway
+프리뷰에서 `/filters`와 `/search?q=...&institution=...&year=...`를 직접 호출해서
+확인 필요.** 확인되면 그때 main 머지.
+
 ## ✅ 2026-08-24 (7차) — HWP 표 손실 스크립트들의 체크포인트 폴더 누락 버그 일괄 수정
 
 사용자가 `audit_hwp_table_loss_full_population.py` 전수조사(33,089건)를 Colab에서

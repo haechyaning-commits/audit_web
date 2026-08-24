@@ -19,6 +19,9 @@ export default function useSearchState() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [recentSearches, setRecentSearches] = useState(getRecentSearches);
+  // 2026-08-24(FR5): 마지막으로 실제 적용된 필터 — SearchPage가 필터 드롭다운
+  // 초기값을 검색 결과와 맞게 보여주는 데 씀(예: URL로 필터가 걸린 링크로 바로 들어온 경우).
+  const [appliedFilters, setAppliedFilters] = useState({});
 
   // 헤더 로고/타이틀 클릭 시 진짜 첫 화면(히어로)으로 되돌아가기 위한 초기화.
   // Link to="/"만으로는 URL만 바뀌고 이 훅의 results가 안 지워져서, 검색 결과 화면이
@@ -27,18 +30,20 @@ export default function useSearchState() {
     setResults(null);
     setSearchedQuery("");
     setError(null);
+    setAppliedFilters({});
   }, []);
 
-  const runSearch = useCallback(async (q) => {
+  const runSearch = useCallback(async (q, filters = {}) => {
     const trimmed = q.trim();
     if (!trimmed) return;
 
     setLoading(true);
     setError(null);
     try {
-      const data = await searchCases(trimmed);
+      const data = await searchCases(trimmed, filters);
       setResults(data.results);
       setSearchedQuery(trimmed);
+      setAppliedFilters(filters);
       setRecentSearches(addRecentSearch(trimmed));
     } catch (err) {
       setError(err.message || "검색 중 오류가 발생했습니다.");
@@ -48,5 +53,14 @@ export default function useSearchState() {
     }
   }, []);
 
-  return { results, searchedQuery, loading, error, recentSearches, runSearch, resetSearch };
+  return {
+    results,
+    searchedQuery,
+    loading,
+    error,
+    recentSearches,
+    appliedFilters,
+    runSearch,
+    resetSearch,
+  };
 }

@@ -22,6 +22,14 @@ class SearchResponse(BaseModel):
     results: list[SearchResultCard]
 
 
+class FilterOptions(BaseModel):
+    """검색 필터 드롭다운(기관/연도)을 채우는 값 목록 — 2026-08-24, FR5(v1.1로
+    미뤄뒀던 기관/연도 필터). 검색 응답과 분리된 별도 엔드포인트(GET /filters)로
+    캐싱하기 쉽게 함(값 목록 자체는 새 데이터가 들어오기 전까진 안 바뀜)."""
+    institutions: list[str]
+    years: list[int]
+
+
 class DocumentDetail(BaseModel):
     """상세페이지 응답 — 요약 생성은 트리거하지 않고 DB에 캐싱된 값만 반환(없으면 전부 null).
     요약이 필요하면 프론트가 별도로 POST /documents/{id}/summary를 호출함."""

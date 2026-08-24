@@ -36,9 +36,19 @@ async function request(path, { method = "GET" } = {}) {
   return response.json();
 }
 
-/** 자연어 검색 → 유사 사례 카드 목록 (GET /search?q=...) */
-export function searchCases(query) {
-  return request(`/search?q=${encodeURIComponent(query)}`);
+/** 자연어 검색 → 유사 사례 카드 목록 (GET /search?q=...).
+ * filters(선택): { institution, year } — 둘 다 없으면 기존과 동일한 URL(GET
+ * /search?q=...)이라 백엔드 쿼리 캐시/로그 등에 영향 없음(FR5, 2026-08-24). */
+export function searchCases(query, filters = {}) {
+  const params = new URLSearchParams({ q: query });
+  if (filters.institution) params.set("institution", filters.institution);
+  if (filters.year) params.set("year", filters.year);
+  return request(`/search?${params.toString()}`);
+}
+
+/** 검색 필터(기관/연도) 드롭다운용 값 목록 (GET /filters) — 페이지 로드 시 한 번만 호출 */
+export function getFilterOptions() {
+  return request("/filters");
 }
 
 /** 사례 상세 — 원문 + (있으면) 캐싱된 요약. 요약 자동 생성은 안 함 (GET /documents/{id}) */

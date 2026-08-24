@@ -531,6 +531,31 @@ body {
   color: var(--primary-dark);
 }
 
+/* 2026-08-24(FR5): 기관/연도 검색 필터 — 결과 목록 위, section-label과 같은 폭에 걸침 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+.filter-bar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.filter-bar select {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-heading);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  max-width: 220px;
+}
+
 /* 2026-08-12: law.go.kr류 목록형으로 재구성 — 카드 그리드 대신 헤어라인으로 구분되는
    촘촘한 행 목록. 상단 굵은 선(법령 목록 특유의 구획선)으로 시작 */
 .result-list {

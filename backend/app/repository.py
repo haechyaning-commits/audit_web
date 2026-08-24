@@ -23,11 +23,24 @@ import asyncpg
 # 40건을 채울 수 있을 만큼 후보가 남게 함(안 늘리면 소수 문서에 청크가 몰린 검색어에서
 # dedup 후 40건에 못 미칠 수 있음). 나중에 리랭커 붙이면 LIMIT을 더 키우고 rerank()에서
 # 압축하는 구조로 바꾸면 됨.
+# 2026-08-24: 기관/연도 필터(FR5, v1.1로 미뤄뒀던 것) 추가 — filtered_docs CTE로
+# 후보 문서 id를 먼저 좁혀두고, vector_search/text_search 둘 다 그 안에서만 순위를
+# 매기게 함. 필터를 "다 뽑은 뒤에" 걸면(WHERE를 최종 SELECT에만 두면) 상위 100건
+# 후보가 필터에 안 걸리는 문서들로 이미 채워진 경우 필터링 후 결과가 몇 건 안
+# 남을 수 있어서(예: 특정 기관으로 좁혔는데 그 기관 문서가 벡터 유사도 상위 100위
+# 안에 하나도 없으면 0건) — 반드시 랭킹 전에 걸러야 함. 필터 없을 땐($4/$5 둘 다
+# NULL) 이 서브쿼리가 documents 테이블 id를 전부 반환해서 기존 동작과 동일함.
 _SEARCH_SQL = """
-WITH vector_search AS (
+WITH filtered_docs AS (
+    SELECT id FROM documents
+    WHERE ($4::text IS NULL OR institution = $4)
+      AND ($5::int IS NULL OR year = $5)
+),
+vector_search AS (
     SELECT id AS chunk_id, document_id,
            ROW_NUMBER() OVER (ORDER BY embedding <=> $1) AS rank
     FROM chunks
+    WHERE document_id IN (SELECT id FROM filtered_docs)
     ORDER BY embedding <=> $1
     LIMIT 100
 ),
@@ -38,6 +51,7 @@ text_search AS (
            ) AS rank
     FROM chunks
     WHERE tsv @@ plainto_tsquery('simple', $2)
+      AND document_id IN (SELECT id FROM filtered_docs)
     LIMIT 100
 ),
 rrf_scored AS (
@@ -88,9 +102,29 @@ async def search_candidates(
     query_vector: list[float],
     query_text: str,
     limit: int = 40,
+    institution: str | None = None,
+    year: int | None = None,
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
-        return await conn.fetch(_SEARCH_SQL, query_vector, query_text, limit)
+        return await conn.fetch(
+            _SEARCH_SQL, query_vector, query_text, limit, institution, year
+        )
+
+
+_FILTER_OPTIONS_SQL = """
+SELECT
+    ARRAY(SELECT DISTINCT institution FROM documents
+          WHERE institution IS NOT NULL ORDER BY institution) AS institutions,
+    ARRAY(SELECT DISTINCT year FROM documents
+          WHERE year IS NOT NULL ORDER BY year) AS years;
+"""
+
+
+async def get_filter_options(pool: asyncpg.Pool) -> asyncpg.Record:
+    """기관/연도 필터 드롭다운용 값 목록(FR5) — documents 테이블 규모(6.8만 건)가
+    작아서 매 요청 직접 조회해도 부담 없음(캐싱은 필요해지면 나중에 추가)."""
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(_FILTER_OPTIONS_SQL)
 
 
 def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Record]:

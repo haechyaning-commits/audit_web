@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { getFilterOptions } from "../api.js";
 import ResultCard from "../components/ResultCard.jsx";
 import YearChart from "../components/YearChart.jsx";
 
@@ -41,9 +42,24 @@ export default function SearchPage({ search }) {
   const { results, searchedQuery, loading, error, recentSearches, runSearch } = search;
   const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
+  // 2026-08-24(FR5): 필터도 URL이 진실의 원천 — 새로고침/공유 링크로 들어와도
+  // 같은 필터 상태가 재현됨(page 파라미터와 같은 방침).
+  const filterInstitution = searchParams.get("institution") || "";
+  const filterYear = searchParams.get("year") || "";
 
   const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef(null);
+  // 필터 드롭다운 값 목록 — 페이지 로드 시 한 번만 불러옴(검색과 무관한 정적 값)
+  const [filterOptions, setFilterOptions] = useState({ institutions: [], years: [] });
+  useEffect(() => {
+    getFilterOptions()
+      .then(setFilterOptions)
+      .catch(() => {
+        // 필터 목록을 못 불러와도 검색 자체는 정상 동작해야 하므로 조용히 무시
+        // (드롭다운이 그냥 빈 채로 남음 — 필수 기능이 아니라 편의 기능이라 에러
+        // 배너까지 띄울 정도는 아니라고 판단).
+      });
+  }, []);
 
   // 페이지네이션 — URL의 page 파라미터가 진실의 원천 (새로고침해도 보던 페이지 유지,
   // 새 검색(q 변경) 시엔 setSearchParams({q})가 page를 같이 지워버려서 자동으로 1페이지로 리셋됨)
@@ -67,7 +83,7 @@ export default function SearchPage({ search }) {
   // 이 이펙트가 뒤따라와도 loading=true인 걸 보고 조용히 넘어감).
   useEffect(() => {
     if (urlQuery && urlQuery !== searchedQuery && !loading) {
-      runSearch(urlQuery);
+      runSearch(urlQuery, { institution: filterInstitution, year: filterYear });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQuery]);
@@ -87,18 +103,46 @@ export default function SearchPage({ search }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [results]);
 
+  // 2026-08-24(FR5): 새 검색어를 넣어도(검색창 제출/예시칩 클릭) 이미 골라둔
+  // 기관/연도 필터는 그대로 유지 — "이 기관 안에서 다른 검색어로 다시 찾고 싶다"는
+  // 흐름이 자연스러워서(선택 안 한 필터는 params에 아예 안 넣음, {q}만 있던 기존
+  // 동작과 동일하게 유지됨).
+  function runSearchWithFilters(text) {
+    const params = { q: text };
+    if (filterInstitution) params.institution = filterInstitution;
+    if (filterYear) params.year = filterYear;
+    setSearchParams(params);
+    runSearch(text, { institution: filterInstitution, year: filterYear });
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
-    setSearchParams({ q: trimmed });
-    runSearch(trimmed);
+    runSearchWithFilters(trimmed);
   }
 
   function handleChipClick(text) {
     setQuery(text);
-    setSearchParams({ q: text });
-    runSearch(text);
+    runSearchWithFilters(text);
+  }
+
+  // 필터 드롭다운 변경 — 이미 검색어가 있으면(결과 화면) 그 자리에서 바로 재검색.
+  // 페이지 파라미터는 지워서 1페이지로(필터가 바뀌면 이전 페이지 번호가 새 결과
+  // 개수보다 클 수 있음).
+  function handleFilterChange(field, value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(field, value);
+      else next.delete(field);
+      next.delete("page");
+      return next;
+    });
+    if (searchedQuery) {
+      const nextInstitution = field === "institution" ? value : filterInstitution;
+      const nextYear = field === "year" ? value : filterYear;
+      runSearch(searchedQuery, { institution: nextInstitution, year: nextYear });
+    }
   }
 
   const chipSource = recentSearches.length > 0 ? recentSearches : EXAMPLE_QUERIES;
@@ -184,6 +228,43 @@ export default function SearchPage({ search }) {
 
       <div className="app-main">
         {error && <p className="error-message">{error}</p>}
+
+        {/* 2026-08-24(FR5): 기관/연도 필터 — 검색이 한 번이라도 실행된 뒤에만 보여줌
+            (히어로 단계에선 아직 결과가 없어서 필터를 걸 대상 자체가 없음). 값을
+            /filters에서 못 불러왔으면(드묾) 옵션이 비어있어 셀렉트가 사실상
+            비활성처럼 보이지만 페이지 자체는 정상 동작함. */}
+        {(results !== null || loading) && (
+          <div className="filter-bar">
+            <label>
+              기관
+              <select
+                value={filterInstitution}
+                onChange={(e) => handleFilterChange("institution", e.target.value)}
+              >
+                <option value="">전체</option>
+                {filterOptions.institutions.map((inst) => (
+                  <option key={inst} value={inst}>
+                    {inst}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              연도
+              <select
+                value={filterYear}
+                onChange={(e) => handleFilterChange("year", e.target.value)}
+              >
+                <option value="">전체</option>
+                {filterOptions.years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}년
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         {loading && (
           <>
