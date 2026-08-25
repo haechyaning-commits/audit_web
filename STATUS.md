@@ -26,6 +26,30 @@
   쿼리 재현·수정 후 재검증은 못 함 — **배포 후 `GET /documents/{id}/similar`를 실제 문서
   ID 몇 개로 다시 호출해서 200이 뜨는지, Railway 로그에 새 에러가 안 남는지 확인 필요.**
 
+## 🔧 2026-08-25 (2차) — `/similar` 진짜 원인 발견: embedding NULL이 아니라 `pgvector.Vector` ↔ numpy 타입 불일치
+
+1차 수정 배포 후 재확인했더니 500은 없어졌는데(try/except가 잡아줌), **테스트한 문서 13건
+전부 `200 []`(빈 배열)**이 나옴 — 실제로 유사 사례가 없을 확률이 통계적으로 매우
+낮아서(6.8만 건 중 13건 연속 0건), try/except가 다른 진짜 에러를 조용히 삼키고 있다고
+의심하고 Railway 로그(`유사 사례 조회 실패` 검색)를 다시 확인함.
+
+- **진짜 원인**: `db.py`가 `register_vector(conn)`으로 등록한 asyncpg 코덱은 `vector`
+  컬럼을 numpy 배열이 아니라 **`pgvector.Vector` 객체**로 디코딩함
+  (`pgvector.asyncpg.register`의 `decoder=Vector.from_binary` 참고). `Vector`는
+  numpy가 이해하는 `__array__` 인터페이스가 없어서 `np.stack([Vector, ...])`이
+  "파이썬 객체 배열"을 만들고, 그 뒤 `np.mean(..., axis=0)`이 `Vector`끼리 더하려다
+  (`+` 연산자 미구현) `TypeError: unsupported operand type(s) for +: 'Vector' and
+  'Vector'`를 던짐. **NULL 임베딩 여부와 무관하게 이 함수는 애초에 한 번도 정상
+  동작한 적이 없었던 것으로 보임** — 1차 수정(NULL 필터링)이 잘못된 건 아니지만
+  진짜 원인이 아니었어서, 1차 수정 후에도 500이 200으로 바뀌었을 뿐 결과는 계속
+  비어있었음.
+- **수정**: `repository.py` — `r["embedding"].to_numpy()`로 명시적 변환 후 `np.stack`.
+  pgvector 패키지 소스(`Vector.to_numpy()`)를 직접 받아 확인 후 적용.
+- **검증**: pgvector 0.5.0 패키지를 받아서 로컬에서 실제로 재현 — 수정 전 코드로
+  동일한 `TypeError`가 실제로 재현됨을 확인, 수정 후 코드로 정상적인 (1024,) float32
+  centroid가 나오고 재인코딩(`Vector(centroid)`)까지 성공하는 것 확인. `py_compile` 통과.
+  **Railway DB로 최종 검증은 여전히 필요(배포 후 재확인).**
+
 ## ✅ 2026-08-24 (23차) — 상세페이지 "유사 사례" 섹션 추가
 
 지금까지 상세페이지는 검색→클릭→원문 보기에서 끝나고 더 파고들 길이 없었음. 지금 보고

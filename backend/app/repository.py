@@ -251,11 +251,19 @@ async def get_similar_documents(
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(_DOC_CHUNK_EMBEDDINGS_SQL, document_id)
-        # chunks.embedding에 NOT NULL 제약이 없어서(schema_tables.sql), 배치 임베딩
-        # 단계에서 스킵된 청크가 embedding=NULL로 남아있을 수 있음 — 그런 행이 섞여
-        # 있으면 np.stack이 None과 ndarray를 같이 쌓으려다 TypeError를 던져서 이
-        # 엔드포인트 전체가 500이 됨(실사용 중 실제로 재현된 버그, 2026-08-25).
-        embeddings = [r["embedding"] for r in rows if r["embedding"] is not None]
+        # 2026-08-25(진짜 원인, 500 버그 2차 수정): db.py에서 register_vector(conn)로
+        # 등록한 asyncpg 코덱은 vector 컬럼을 numpy 배열이 아니라 pgvector.Vector
+        # 객체로 디코딩함(pgvector.asyncpg.register 참고) — Vector는 numpy가 이해하는
+        # __array__ 같은 인터페이스가 없어서, np.stack([Vector, ...])가 그냥 "파이썬
+        # 객체 배열"을 만들고 그 뒤 np.mean(..., axis=0)이 Vector끼리 더하려다(+
+        # 연산자 미구현) TypeError를 던짐 — NULL 여부와 무관하게 이 함수는 애초에
+        # 한 번도 정상 동작한 적이 없었던 것으로 보임(첫 수정에서 NULL 필터링만
+        # 추가했을 때도 500은 없어졌지만 실제로는 여전히 이 지점에서 실패해서
+        # 매번 빈 배열만 반환되고 있었음 — 실사용 재확인으로 발견).
+        # Vector.to_numpy()로 진짜 numpy 배열(float32, 1024차원)로 변환한 뒤 쌓아야 함.
+        # chunks.embedding에 NOT NULL 제약이 없어서(schema_tables.sql) 임베딩 누락 청크가
+        # 섞여 있을 가능성은 여전히 있으므로 None 필터링은 유지.
+        embeddings = [r["embedding"].to_numpy() for r in rows if r["embedding"] is not None]
         if not embeddings:
             return []  # 청크가 아예 없거나(파싱 실패 등) 전부 임베딩 누락 — 계산할 기준이 없음
         centroid = np.mean(np.stack(embeddings), axis=0)
