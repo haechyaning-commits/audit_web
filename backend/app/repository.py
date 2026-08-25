@@ -251,9 +251,14 @@ async def get_similar_documents(
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(_DOC_CHUNK_EMBEDDINGS_SQL, document_id)
-        if not rows:
-            return []  # 청크가 아예 없는 문서(파싱 실패 등) — 유사 사례를 계산할 기준이 없음
-        centroid = np.mean(np.stack([r["embedding"] for r in rows]), axis=0)
+        # chunks.embedding에 NOT NULL 제약이 없어서(schema_tables.sql), 배치 임베딩
+        # 단계에서 스킵된 청크가 embedding=NULL로 남아있을 수 있음 — 그런 행이 섞여
+        # 있으면 np.stack이 None과 ndarray를 같이 쌓으려다 TypeError를 던져서 이
+        # 엔드포인트 전체가 500이 됨(실사용 중 실제로 재현된 버그, 2026-08-25).
+        embeddings = [r["embedding"] for r in rows if r["embedding"] is not None]
+        if not embeddings:
+            return []  # 청크가 아예 없거나(파싱 실패 등) 전부 임베딩 누락 — 계산할 기준이 없음
+        centroid = np.mean(np.stack(embeddings), axis=0)
         return await conn.fetch(_SIMILAR_SQL, centroid, document_id, limit)
 
 
