@@ -521,6 +521,16 @@ const TABLE_INTERLEAVE_RE = /연번[\s\n]*지적사항[\s\n]*처분/;
 // 안에 인라인으로 있던 로직을 함수로 분리함(동작 변경 없음, 순수 리팩터링).
 const KOREAN_LETTER_HEADING_RE = /^[가나다라마바사아자차카타파하][.)]?\s+\S/;
 const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
+// 2026-08-25: "가./나." 하위에 "ⅰ)/ⅱ)/ⅲ)..." 로마숫자(Unicode 소문자 로마숫자,
+// U+2170~2179)로 매기는 세부 소제목을 쓰는 문서를 실제로 확인함(한국자산관리공사
+// 2021, bd34c36a201043cf — "나. 관계 법령·내규 및 판단 기준" 아래 "ⅰ) 내규 준수
+// 및 복무 기본자세 관련"/"ⅱ) 직무관련자로부터 금품등 수수 관련" 등). 지금까지
+// 어떤 헤딩 패턴에도 안 걸려서 그냥 body로 흘러들어가 안 굵게 나왔고(사용자
+// 스크린샷 제보), 그 결과 이 줄이 각주 문단 한가운데 끼면 각주 흡수 가드도
+// "번호 헤딩"으로 인식을 못 해 "ⅱ)" 항목 전체가 통째로 각주 작은 글씨에 먹히는
+// 연쇄까지 발생함. 가/나/다·1./2./3.과 동일한 방식(짧은 라벨만 헤딩)으로 추가.
+const ROMAN_NUMERAL_HEADING_RE = /^([ⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹ])\)\s+\S/;
+const ROMAN_NUMERAL_VALUES = { ⅰ: 1, ⅱ: 2, ⅲ: 3, ⅳ: 4, ⅴ: 5, ⅵ: 6, ⅶ: 7, ⅷ: 8, ⅸ: 9, ⅹ: 10 };
 const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
 // isGenericListHeading 안에서만 쓰이지만, 줄마다(최대 세 번까지) 호출되므로 다른
 // top-level 정규식들과 같이 모듈 스코프로 끌어올림 — scripts/audit_render_anomalies.py의
@@ -568,6 +578,8 @@ function isGenericListHeading(trimmed) {
   // 가/나/다 단독 소제목은 원문에서 보통 그 줄 전체가 짧은 편(예: "가 업무개요") —
   // 본문 문장이 우연히 "나"로 시작하는 경우까지 오탐하지 않게 길이 상한을 둠
   if (KOREAN_LETTER_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
+  // ROMAN_NUMERAL_HEADING_RE 선언부 주석 참고 — 가/나/다와 동일한 길이 상한.
+  if (ROMAN_NUMERAL_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
   // 2026-08-18: "1. 2. 3." 번호 항목도 같은 이유로 길이 상한을 둠 — 원문에서 "1. 관계
   // 법령 및 규정"처럼 짧은 소제목 뒤에 줄바꿈 없이 긴 본문이 바로 이어 붙는 경우(PDF
   // 원본부터 그렇게 한 줄이었음, 실제 문서 e6bae4491398a6b2로 확인)가 있어서, 길이
@@ -782,6 +794,9 @@ function splitIntoBlocks(text) {
   // 최근 번호 — TOP_LEVEL_SECTION_RE 주석 참고. 위 lastHeadingListNum이 "N)"
   // 형식(각주/목록)을 추적하는 것과 대칭.
   let lastTopLevelHeadingNum = null;
+  // 2026-08-25: 위 lastTopLevelHeadingNum과 같은 목적, "ⅰ)/ⅱ)/ⅲ)..." 로마숫자
+  // 소제목용 — ROMAN_NUMERAL_HEADING_RE 선언부 주석 참고.
+  let lastRomanHeadingNum = null;
   // 2026-08-18: "□" 기호 혼자만 있는 줄 바로 다음 줄에 "점검 개요" 같은 실제 소제목
   // 텍스트가 오는 문서를 실제로 확인함(한국임업진흥원 2026 — 원래 "□ 점검 개요"가 PDF
   // 줄바꿈으로 기호와 글자가 갈라진 것으로 보임). "□" 혼자인 줄은 뒤에 오는 non-space
@@ -878,6 +893,12 @@ function splitIntoBlocks(text) {
       lastTopLevelHeadingNum !== null &&
       topLevelMatch &&
       Number(topLevelMatch[1]) === lastTopLevelHeadingNum + 1;
+    // 2026-08-25: 위와 같은 목적, "ⅰ)/ⅱ)/ⅲ)..." 로마숫자 소제목용.
+    const romanMatch = ROMAN_NUMERAL_HEADING_RE.exec(trimmed);
+    const continuesRomanHeadingList =
+      lastRomanHeadingNum !== null &&
+      romanMatch &&
+      ROMAN_NUMERAL_VALUES[romanMatch[1]] === lastRomanHeadingNum + 1;
     // 2026-08-20: 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 디버그
     // 추적해서 확인함 — "* 당시 관련자는..." 같은 "*" 불릿이 각주 정의 줄보다
     // 먼저 나와서 그 뒤 평문들을 계속 "bullet" 문단으로 흡수하다가 진짜 각주
@@ -1004,7 +1025,8 @@ function splitIntoBlocks(text) {
       isGenericListHeading(trimmed) &&
       !splitLawCitationHeading(trimmed) &&
       !splitLawNameHeading(trimmed) &&
-      !continuesTopLevelSection
+      !continuesTopLevelSection &&
+      !continuesRomanHeadingList
     ) {
       para.push(trimmed);
       continue;
@@ -1096,6 +1118,7 @@ function splitIntoBlocks(text) {
       prevType = "heading";
       lastHeadingListNum = extractListNum(trimmed);
       if (topLevelMatch) lastTopLevelHeadingNum = Number(topLevelMatch[1]);
+      if (romanMatch) lastRomanHeadingNum = ROMAN_NUMERAL_VALUES[romanMatch[1]];
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
     }
