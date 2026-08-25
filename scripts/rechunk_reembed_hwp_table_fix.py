@@ -29,14 +29,21 @@
 #      크게 달라지면(추출 로직이 이 문서에서 이상 동작했다는 신호) 자동 반영 안 함.
 #
 # **실행 순서**:
-#   1) scripts/audit_hwp_table_loss.py를 먼저 끝까지 돌려서
-#      hwp_table_loss_checkpoint.jsonl을 만들어 둘 것(이 스크립트가 그 결과에서
+#   1) scripts/audit_hwp_table_loss_full_population.py를 먼저 끝까지 돌려서
+#      hwp_table_loss_full_checkpoint.jsonl을 만들어 둘 것(이 스크립트가 그 결과에서
 #      affected=true인 문서만 대상으로 삼음).
 #   2) DRY_RUN=True로 이 스크립트 실행 — 대상 문서 수, 마커/표 개수 일치율,
 #      자동반영/수동검토 갈림, 병합 샘플 확인.
 #   3) 이상 없으면 DRY_RUN=False로 재실행 —
 #      documents.raw_text UPDATE(자동반영분만) -> DELETE 옛 청크 -> INSERT 새 청크
 #      (embedding NULL) -> GPU 임베딩(체크포인트) -> UPDATE.
+#
+# **2026-08-25 추가: 다운로드+병합 단계(가장 오래 걸리는 부분)도 체크포인트로
+# 이어하기 지원** — 런타임이 도중에 끊겨도(또는 오늘 다 못 끝내고 세션을 나눠
+# 여러 날에 걸쳐 돌려도) MERGE_CHECKPOINT_PATH에 이미 처리된 문서는 재다운로드/
+# 재병합하지 않고 건너뜀. 이 덕분에 DRY_RUN=True로 다 끝낸 뒤 DRY_RUN=False로
+# 재실행할 때도 병합을 처음부터 다시 안 하고 체크포인트에서 바로 읽어서 DB 반영
+# 단계로 직행함 — DRY_RUN=True/False를 같은 체크포인트로 여러 번 돌려도 안전.
 # ------------------------------------------------------------------
 
 # !pip install -q psycopg2-binary requests FlagEmbedding pgvector
@@ -111,6 +118,12 @@ _session.mount("http://", _adapter)
 # 이제부터 이 스크립트를 다시 돌릴 때는 표본 밖 나머지 모집단을 전수조사한
 # audit_hwp_table_loss_full_population.py의 체크포인트를 기본값으로 씀.
 CANDIDATE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_loss_full_checkpoint.jsonl"
+# 2026-08-25: 다운로드+hwp5txt+hwp5html 병합 단계(19,150건, 24워커)는 원래 중간
+# 저장이 없어서 런타임이 도중에 끊기면 처음부터 다시 해야 했음 — 다른 조사
+# 스크립트들과 같은 체크포인트 패턴을 여기도 적용. 이어하기뿐 아니라, DRY_RUN=True로
+# 다 끝낸 뒤 DRY_RUN=False로 재실행할 때도 이 체크포인트에 이미 전부 있으므로
+# 병합을 다시 안 하고 바로 DB 반영 단계로 감(가장 오래 걸리는 부분을 건너뜀).
+MERGE_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_merge_checkpoint_full.jsonl"
 REVIEW_QUEUE_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_manual_review_full.jsonl"
 EMBED_CHECKPOINT_PATH = "/content/drive/MyDrive/audit_project/hwp_table_fix_embed_checkpoint_full.jsonl"
 # 2026-08-24: 위 경로들의 부모 폴더가 이번 Colab 런타임엔 아직 없을 수 있어서
@@ -431,27 +444,45 @@ def _process_one(doc_id, institution, year, source_file, old_text):
     }
 
 
-apply_list = []  # (doc_id, new_text)
-review_list = []
+# 2026-08-25: 병합 결과를 체크포인트에서 이어받음 — 이미 처리된 문서는 재다운로드/
+# 재병합 안 함(DRY_RUN=True로 끝낸 뒤 DRY_RUN=False로 재실행하는 경우 포함, 이때는
+# todo_rows가 빈 리스트라 아래 ThreadPoolExecutor 블록 자체가 사실상 즉시 끝남).
+merge_done: dict[str, dict] = {}
+if os.path.exists(MERGE_CHECKPOINT_PATH):
+    with open(MERGE_CHECKPOINT_PATH, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            merge_done[rec["id"]] = rec
+    print(f"병합 체크포인트에서 {len(merge_done)}건 이미 처리된 것 발견 — 이어서 진행")
+
+todo_rows = [row for row in doc_rows if row[0] not in merge_done]
+print(f"남은 {len(todo_rows)}건을 {DOWNLOAD_WORKERS}개 동시 처리로 진행")
 
 print_lock = threading.Lock()
 n_done = 0
+merge_ckpt_f = open(MERGE_CHECKPOINT_PATH, "a", encoding="utf-8")
 
 with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
-    futures = [pool.submit(_process_one, *row) for row in doc_rows]
+    futures = [pool.submit(_process_one, *row) for row in todo_rows]
     for fut in as_completed(futures):
         result = fut.result()
-        if result.get("ok") and result.get("apply"):
-            apply_list.append((result["id"], result["new_text"]))
-        else:
-            review_list.append({k: v for k, v in result.items() if k not in ("ok", "apply")})
         with print_lock:
+            merge_ckpt_f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            merge_ckpt_f.flush()
+            merge_done[result["id"]] = result
             n_done += 1
-            if n_done % 20 == 0 or n_done == len(doc_rows):
-                print(
-                    f"  {n_done}/{len(doc_rows)}건 처리, "
-                    f"자동반영 {len(apply_list)}건, 수동검토 {len(review_list)}건"
-                )
+            if n_done % 20 == 0 or n_done == len(todo_rows):
+                print(f"  {n_done}/{len(todo_rows)}건 처리(누적 {len(merge_done)}/{len(doc_rows)})")
+
+merge_ckpt_f.close()
+
+apply_list = []  # (doc_id, new_text)
+review_list = []
+for result in merge_done.values():
+    if result.get("ok") and result.get("apply"):
+        apply_list.append((result["id"], result["new_text"]))
+    else:
+        review_list.append({k: v for k, v in result.items() if k not in ("ok", "apply")})
 
 print(f"\n자동 반영 대상: {len(apply_list)}건")
 print(f"수동 검토 필요: {len(review_list)}건")
