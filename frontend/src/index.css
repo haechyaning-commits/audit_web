@@ -553,6 +553,13 @@ body {
 .section-label .count {
   color: var(--primary-dark);
 }
+/* 2026-08-25(성능 피드백 대응): 첫 검색어는 AI 인코딩이 오래 걸릴 수 있어서(SearchPage.jsx
+   참고) 2.5초 넘게 로딩 중이면 보여주는 안내 문구 — 제목(section-label)과 톤 차이를 주려고
+   본문보다 옅은 색 + 일반 굵기로 둠. */
+.search-slow-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+}
 
 /* 2026-08-24(피드백 반영): 정렬 토글(관련도순/최신순) — section-label 옆에 배치.
    백엔드는 그대로 두고 프론트에서 이미 받은 results를 재정렬만 함(SearchPage.jsx 참고). */
