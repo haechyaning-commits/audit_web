@@ -143,13 +143,36 @@ const ATTACHMENT_LABEL_RE = new RegExp(`^(붙\\s*임)\\s*${LABEL_SEP}`);
 // (원본은 둘 다 굵은 소제목인데 웹에서는 문단 속 평범한 텍스트로 보이고, 그
 // 앞뒤로 문단도 안 나뉘는 문제 — 사용자 스크린샷 제보 "볼드체에 크게 되어야하는데
 // 문단 변경도 안되고"). "관계자 의견"도 같은 관용구의 변형으로 다른 문서
-// (한국생산기술연구원, raw_text10)에서 동일하게 확인됨. classifyLine에서
-// FIELD_LABEL_PATTERNS(matchFieldLabel)보다 이 배열이 먼저 검사되므로, 여기
-// 추가하는 것만으로 "관계부서 의견"이 필드로 오분류되는 것도 함께 막힘. 줄
-// 전체가 정확히 이 라벨뿐일 때만 인정(뒤에 다른 내용이 바로 붙은 "조치할 사항이
-// 없다고..." 같은 본문 문장은 $ 고정으로 배제).
-const BARE_LABEL_HEADING_RE =
-  /^(관\s*계\s*부\s*서\s*의\s*견|관\s*계\s*자\s*의\s*견|조\s*치\s*할\s*사\s*항)\s*$/;
+// (한국생산기술연구원, raw_text10)에서 동일하게 확인됨.
+//
+// 2026-08-25 12차: 처음엔 "줄 전체가 라벨뿐일 때만"($ 고정)으로 좁혀뒀는데,
+// 한국산업인력공단 2026(00a9024fa7611eea)에서 "조치할 사항 [부서]지역본부장은
+// 직장 내 괴롭힘...하시기 바랍니다.(징계)"처럼 라벨 뒤에 줄바꿈 없이 내용이 바로
+// 붙는 실제 사례가 확인됨(라벨/헤딩 인식 자체가 안 돼서 앞의 "관련자 의견 및
+// 검토결과"~"징계요구 양정"까지 수십 줄이 문단 하나로 통째로 뭉쳐 안 읽히는 문제,
+// 사용자 제보 "들여쓰기 안되는거 같은데"). 같은 문서에서 "관련자 의견"(뒤에 "및
+// 검토결과" 붙음)과 "징계요구 양정"(뒤에 판단 문장 붙음)도 라벨 자체가 아예
+// 인식이 안 되고 있었음(전자는 소상공인시장진흥공단류 문서(raw_text8)에서 "조치할
+// 사항 소상공인시장진흥공단 이사장께서는..."로도 확인, 후자는 raw_text6에서 단독
+// 줄로도 확인). BRACKET_LABEL_WITH_TRAILING_RE/splitBracketLabelHeading과 같은
+// 방식으로 "라벨 뒤에 공백+내용"이 있으면 [라벨, 내용]으로 쪼개는 쪽으로 확장 —
+// 뒤에 공백 없이 조사가 바로 붙는 "조치할 사항이 없다고..."는 여전히 안 걸림(라벨
+// 바로 뒤에 \s 필수라 자연히 배제, 위 6차 수정 코멘트가 걱정했던 오탐).
+const BARE_LABEL_WITH_TRAILING_RE =
+  /^(관\s*계\s*부\s*서\s*의\s*견|관\s*계\s*자\s*의\s*견|관\s*련\s*자\s*의\s*견|조\s*치\s*할\s*사\s*항|징\s*계\s*요\s*구\s*양\s*정)(?=\s|$)/;
+
+/** BARE_LABEL_WITH_TRAILING_RE에 매칭되고 라벨 뒤에 실제 내용이 남아있으면
+ * [라벨, 내용]으로 나눔(splitBracketLabelHeading과 같은 목적·같은 방식) — 라벨
+ * 하나로 줄이 끝나면(내용 없음) null 반환(그 경우는 classifyLine의 heading
+ * 승격만으로 충분, 아래 일반 heading push가 trimmed 전체를 그대로 씀). */
+function splitBareLabelHeading(trimmed) {
+  const m = BARE_LABEL_WITH_TRAILING_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[0].trim();
+  const body = trimmed.slice(m[0].length).trim();
+  if (!label || !body) return null;
+  return [label, body];
+}
 
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
@@ -211,7 +234,7 @@ const HEADING_LABEL_PATTERNS = [
   // 분리(BRACKET_LABEL_WITH_TRAILING_RE, splitLawCitationHeading 옆) — 동작 변경 없음.
   BRACKET_LABEL_WITH_TRAILING_RE,
   ATTACHMENT_LABEL_RE, // "붙임 : ..." — ATTACHMENT_LABEL_RE 주석 참고
-  BARE_LABEL_HEADING_RE, // "관계부서 의견" / "관계자 의견" / "조치할 사항" 단독 줄 — 바로 위 주석 참고
+  BARE_LABEL_WITH_TRAILING_RE, // "관계부서 의견" / "관계자 의견" / "조치할 사항" / "징계요구 양정" — 바로 위 주석 참고
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
@@ -1172,6 +1195,19 @@ function splitIntoBlocks(text) {
         blocks.push({ type: "heading", text: label, isTitle: false });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label); // 항상 null(라벨이 "N)"로 안 시작함)
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
+      // 2026-08-25 12차: "조치할 사항 [부서]지역본부장은..." 류(BARE_LABEL_WITH_TRAILING_RE)
+      // 라벨도 같은 이유로 라벨/내용 분리(splitBareLabelHeading 주석 참고).
+      const bareSplit = splitBareLabelHeading(trimmed);
+      if (bareSplit) {
+        const [label, body] = bareSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label);
         nextIsTable = false;
         paraType = "body";
         para.push(body);
