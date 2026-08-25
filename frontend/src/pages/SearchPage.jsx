@@ -192,6 +192,24 @@ export default function SearchPage({ search }) {
     }
   }
 
+  // 필터 3종을 한 번에 초기화 — handleFilterChange를 3번 연달아 부르면 매번 그
+  // 시점의 (아직 안 바뀐) filterInstitution/filterYear/filterAuditType 클로저값을
+  // 기준으로 runSearch를 호출해서 중간 호출들이 서로 어긋난 params로 낭비 요청을
+  // 날리게 됨 — 그래서 URL/검색 둘 다 한 번에 정리하는 별도 핸들러로 분리.
+  function handleResetFilters() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("institution");
+      next.delete("year");
+      next.delete("audit_type");
+      next.delete("page");
+      return next;
+    });
+    if (searchedQuery) {
+      runSearch(searchedQuery, { institution: "", year: "", audit_type: "" });
+    }
+  }
+
   const chipSource = recentSearches.length > 0 ? recentSearches : EXAMPLE_QUERIES;
   const chipLabel = recentSearches.length > 0 ? "최근 검색" : "예시";
 
@@ -221,6 +239,26 @@ export default function SearchPage({ search }) {
                 placeholder="예: 직장 상사가 지속적으로 괴롭혀서 신고하고 싶어요"
                 aria-label="검색어"
               />
+              {query && (
+                <button
+                  type="button"
+                  className="input-clear-btn"
+                  onClick={() => {
+                    setQuery("");
+                    inputRef.current?.focus();
+                  }}
+                  aria-label="검색어 지우기"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M5 5l14 14M19 5L5 19"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              )}
               <button type="submit" disabled={loading || !query.trim()}>
                 {loading ? "검색 중…" : "검색"}
               </button>
@@ -312,6 +350,7 @@ export default function SearchPage({ search }) {
                 audit_type: filterAuditType,
               }}
               onChange={handleFilterChange}
+              onResetAll={handleResetFilters}
             />
 
             <div className="search-main">

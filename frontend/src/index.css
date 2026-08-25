@@ -255,6 +255,30 @@ body {
   outline: none;
 }
 
+/* 검색어 지우기(X) — 헤더 검색창/히어로 검색창 둘 다 재사용 */
+.input-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  align-self: center;
+}
+.input-clear-btn:hover {
+  background: var(--gray-5);
+  color: var(--text-heading);
+}
+.input-clear-btn svg {
+  margin-top: 0;
+}
+
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -614,6 +638,27 @@ body {
   padding: 4px 0;
   position: sticky;
   top: 20px;
+}
+/* 기관/연도/감사유형 3종을 한 번에 초기화 — 그룹별 "전체보기"(.filter-reset)와 달리
+   하나라도 걸려있을 때만 사이드바 맨 위에 나타남 */
+.filter-sidebar-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.filter-reset-all {
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  cursor: pointer;
+  background: var(--primary-5);
+  border: 1px solid var(--primary-10);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: inherit;
+}
+.filter-reset-all:hover {
+  background: var(--primary-10);
 }
 .filter-group {
   padding: 14px 16px;
@@ -1217,6 +1262,15 @@ body {
 }
 .source-file-link:hover {
   background: var(--primary-5);
+}
+/* 링크 복사 버튼 — <a>인 원본 파일 링크와 나란히 두는 <button>이라 커서/폰트만 맞춰줌 */
+.link-copy-btn {
+  cursor: pointer;
+  font-family: inherit;
+}
+.link-copy-btn.copied {
+  color: var(--success-text);
+  border-color: var(--success-text);
 }
 
 /* 검색 결과에서 이어져 들어왔을 때(?q= 있음), 왜 이 사례가 나왔는지 알려주는 안내 —

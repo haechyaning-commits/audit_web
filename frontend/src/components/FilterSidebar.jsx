@@ -86,8 +86,16 @@ function FilterGroup({
   );
 }
 
-export default function FilterSidebar({ baseResults, results, filters, onChange, className = "" }) {
+export default function FilterSidebar({
+  baseResults,
+  results,
+  filters,
+  onChange,
+  onResetAll,
+  className = "",
+}) {
   const [instQuery, setInstQuery] = useState("");
+  const hasActiveFilter = Boolean(filters.institution || filters.year || filters.audit_type);
 
   // 순서는 baseResults가 바뀔 때만(=검색어가 바뀔 때만) 다시 계산 — 필터 조작 중엔
   // 재계산 안 됨(자리 고정의 핵심).
@@ -109,6 +117,13 @@ export default function FilterSidebar({ baseResults, results, filters, onChange,
 
   return (
     <aside className={`filter-sidebar ${className}`}>
+      {hasActiveFilter && (
+        <div className="filter-sidebar-header">
+          <button type="button" className="filter-reset-all" onClick={onResetAll}>
+            필터 전체 초기화
+          </button>
+        </div>
+      )}
       <FilterGroup
         title="감사유형"
         order={typeOrder}

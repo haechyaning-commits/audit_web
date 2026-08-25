@@ -1121,6 +1121,7 @@ export default function DetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   // 4줄 요약 — "요약보기" 버튼을 눌러야 채워짐(§4.5 온디맨드, POST /documents/{id}/summary).
@@ -1266,6 +1267,20 @@ export default function DetailPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // "링크 복사" — 요약 복사(handleCopy)와 같은 패턴, 대상만 이 사례의 현재 URL
+  // (SEO 친화적 slug 포함, window.location.href 그대로)로 다름.
+  function handleCopyLink() {
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 1800);
+      })
+      .catch(() => {
+        // 클립보드 API를 막아둔 브라우저 환경 — 조용히 무시 (버튼은 그대로 남아있어 재시도 가능)
+      });
+  }
+
   if (loading) {
     return (
       <div className="app-main detail-page">
@@ -1331,6 +1346,35 @@ export default function DetailPage() {
                   원본 파일 보기
                 </a>
               )}
+              <button
+                type="button"
+                className={`source-file-link link-copy-btn ${linkCopied ? "copied" : ""}`}
+                onClick={handleCopyLink}
+              >
+                {linkCopied ? (
+                  "복사됨"
+                ) : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.5 1.5"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.5-1.5"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    링크 복사
+                  </>
+                )}
+              </button>
               <ConfidenceBadge label={doc.confidence} />
             </div>
 
