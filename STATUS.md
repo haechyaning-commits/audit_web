@@ -2,6 +2,22 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔧 2026-08-25 (7차) — rechunk_reembed_hwp_table_fix.py에도 hwp5txt/hwp5html 자가설치 선반영
+
+6차로 19,150건 후보가 확정돼서 사용자에게 다음 단계 스크립트
+(`rechunk_reembed_hwp_table_fix.py` — 표 내용 복구 병합 + 재청킹 +
+재임베딩, DRY_RUN=True 기본값)를 보내기 전에, 5차와 같은 사고(다른
+Colab 런타임에서 hwp5txt 없이 실행)를 미리 막아둠. 이 스크립트는
+hwp5txt뿐 아니라 hwp5html도 쓰므로(표 내용을 <table>로 복구하는 쪽)
+`_ensure_hwp5txt()`를 이식하면서 두 실행파일 다 확인하도록 함.
+`python -m py_compile` 통과만 확인 — 이 세션은 DATABASE_URL 없어
+DRY_RUN 실행 자체는 검증 못 함.
+
+**다음 단계(사용자, Colab에서)**: DRY_RUN=True(기본값) 그대로 실행 →
+자동반영/수동검토 갈림 비율과 수동검토 사유(marker_table_count_mismatch
+vs low_similarity_after_merge) 비율, 병합 샘플 3건 확인 → 이상 없으면
+DRY_RUN=False로 재실행(실제 반영+재청킹+재임베딩, GPU 런타임 필요).
+
 ## ✅ 2026-08-25 (6차) — HWP 표 손실 전수조사 완료: 19,150건(57.9%) 영향 확정, 다음은 실제 반영 검토
 
 5차 자가설치 수정판을 사용자가 재실행 — 이번엔 정상 완주. 33,089건 전체

@@ -39,7 +39,6 @@
 #      (embedding NULL) -> GPU 임베딩(체크포인트) -> UPDATE.
 # ------------------------------------------------------------------
 
-# !pip install -q "setuptools<60" pyhwp
 # !pip install -q psycopg2-binary requests FlagEmbedding pgvector
 
 import datetime
@@ -49,7 +48,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.parse
@@ -60,6 +61,33 @@ import numpy as np
 import psycopg2
 import requests
 from psycopg2.extras import execute_values
+
+
+def _ensure_hwp5txt():
+    # 2026-08-25: audit_hwp_table_loss_full_population.py에서 실제로 겪은 사고 —
+    # 다른 세션에서 pyhwp 설치를 확인했어도, 이 스크립트를 새 Colab 런타임에서
+    # 바로 돌리면 hwp5txt/hwp5html이 없어서 전부 에러남. 이 스크립트는 hwp5html도
+    # 쓰므로 둘 다 확인.
+    if shutil.which("hwp5txt") and shutil.which("hwp5html"):
+        return
+    print("hwp5txt/hwp5html이 PATH에 없음 — 설치 시도 중 (setuptools<60 → pyhwp → setuptools<82)...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "setuptools<60", "pyhwp"],
+        check=False,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-qU", "setuptools<82"],
+        check=False,
+    )
+    if not (shutil.which("hwp5txt") and shutil.which("hwp5html")):
+        raise SystemExit(
+            "hwp5txt/hwp5html 자동 설치 실패 — scripts/audit_hwp5txt_env_check.py를 "
+            "먼저 돌려서 pip 설치 로그를 확인할 것."
+        )
+    print("hwp5txt/hwp5html 설치 확인됨 — 이어서 진행.")
+
+
+_ensure_hwp5txt()
 
 DRY_RUN = True  # 먼저 True로 돌려서 확인, 이상 없으면 False로
 # 표 내용을 다시 빼낸 병합 결과 vs DB 옛 raw_text 유사도 게이트 — 이 밑이면
