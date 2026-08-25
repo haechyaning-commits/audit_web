@@ -2,6 +2,26 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-25 (10차) — 검색 결과 카드에 title 표시 (베타테스트 4번)
+
+지금까지 검색 결과 카드(ResultCard.jsx)는 title 필드를 아예 안 쓰고 있었음 — 기관명이
+유일한 "제목 역할"이었음. 문서 절반가량은 raw_text 첫 줄이 "제목 : ..." 형식이 아니라서
+(다른 서류 양식) `textutils.extract_title`이 원래도 null을 반환하는 게 정상 동작이라
+백엔드는 안 건드리고, title이 있는 문서만 프론트에서 활용하도록 함:
+
+- `ResultCard.jsx`: `result.title`이 있을 때만 institution 줄 위에 `<h3
+  className="result-card-title">`로 추가 표시. null이면 그냥 생략 — 기존처럼 institution
+  줄이 유일한 제목 역할을 그대로 함(레이아웃 안 안 깨짐).
+- `index.css`: `.result-card-title + .result-card-institution` 인접 셀렉터로, title이
+  있을 때만 institution을 작고 옅은 부제(byline) 스타일로 격하 — title 없는 카드는
+  institution 스타일이 기존 그대로 유지됨(JS 조건 분기 없이 순수 CSS로 처리).
+  `.result-card-title`은 2줄까지 클램프(제목이 길어도 레이아웃 안 깨지게, preview와
+  동일한 방식).
+
+`npm run lint`/`npm run build` 통과, 빌드 결과물에 새 클래스 포함 확인. DetailPage.jsx는
+이번 범위에서 제외(카드에 대한 피드백이었음 — 상세페이지에 title을 heading으로 안 쓰는
+건 별개 사안으로 남겨둠).
+
 ## ✅ 2026-08-25 (9차) — 관련성 하한선(베타테스트 3번) 범위 축소: 1글자 이하 검색어만 거절
 
 `vector_similarity` 노출(8차 이전 항목) 후 정상/의미없는 질문 간 값을 실측 비교했는데,
