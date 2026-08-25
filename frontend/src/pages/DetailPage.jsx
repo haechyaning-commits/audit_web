@@ -241,6 +241,17 @@ const LONE_BULLET_GLYPH_RE = /^[-–—□○◦▪‣·❍※•]$/;
 // 일관되고, 한국어 문장이 대문자 알파벳+대시로 시작하는 경우는 사실상 없어서 좁게 추가.
 const PERSON_LIST_ITEM_RE = /^[A-Z]{1,3}\s*[-–—]\s+\S/;
 
+// 2026-08-25: "no. 지적사항 처분요구사항\n1 - 출퇴근 및 출장 등 복무위반 주도자
+// 중징계 징계\n2 - 출퇴근 및 출장 등 복무위반자 중징계 징계\n..."처럼, 표에서
+// 캡션·테두리를 잃고 "번호 - 내용" 형태의 줄만 남은 문서를 실제로 확인함(한국생산
+// 기술연구원 2024, a1c9d802f9e2ebb9 — 지적사항 목록 표가 "1 -"~"9 -" 9줄로
+// 남았는데, 어떤 기존 패턴에도 안 걸려 전부 body로 흘러들어가 한 문단으로 뭉쳐
+// 보이던 문제, 사용자 제보). 위 PERSON_LIST_ITEM_RE(대문자 라벨+대시)와 같은
+// 이유로, "숫자+대시"로 시작하는 줄도 목록 항목 경계로 인정 — 한국어 문장이 줄
+// 맨 앞을 "1 - "처럼 시작하는 경우는(날짜·범위 표기 등은 보통 문장 중간에 나옴)
+// 사실상 없어서 좁게 추가.
+const NUMBERED_DASH_LIST_ITEM_RE = /^\d{1,2}\s*[-–—]\s+\S/;
+
 // 2026-08-14: "□"/"○" 같은 원문 불릿 기호가 PDF 폰트 글리프 매핑 문제로 텍스트 추출
 // 시 라틴 알파벳 "q"/"m"으로 저장된 문서를 실제로 확인함(예: "q ｢취업규칙｣ 제9조
 // 제1항...", "m 지부위원장인 [부서]은..." — 원본 PDF에는 □/○로 보임, "네모가 q로
@@ -612,7 +623,8 @@ function classifyLine(line) {
   if (
     BULLET_RE.test(trimmed) ||
     GLYPH_BULLET_RE.test(trimmed) ||
-    PERSON_LIST_ITEM_RE.test(trimmed)
+    PERSON_LIST_ITEM_RE.test(trimmed) ||
+    NUMBERED_DASH_LIST_ITEM_RE.test(trimmed)
   )
     return "bullet";
   return "body";
