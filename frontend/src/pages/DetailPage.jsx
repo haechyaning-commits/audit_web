@@ -496,6 +496,38 @@ const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
 // LAW_CITATION_HINT_RE(430행)와 동일 반영(코드 리뷰로 발견, 2026-08-21).
 const LAW_CITATION_HINT_RE = /「|제\s*\d+\s*(?:조|항|호)/;
 
+// 2026-08-25: "1. 관계 법령 및 규정 「보조금 관리에 관한 법률」제22조(용도 외
+// 사용)는 보조사업자는 ... 명시되어 있다." — 사용자 스크린샷으로 제보: 짧은 번호
+// 소제목("1. 관계 법령 및 규정") 뒤에 줄바꿈 없이 법령명 인용(「」)이 곧장 이어붙고,
+// 그 뒤로 실제 인용부호(따옴표) 없이 긴 서술형 문장이 계속되는 경우였음. 이 문단은
+// (a) 24자를 넘고 (b) splitLawCitationHeading이 찾는 실제 따옴표 인용문이 없고
+// (c) 80자를 넘으면서 "...있다." 처럼 문장종결로 끝나서, isGenericListHeading의
+// 세 조건 전부에 안 걸려 "1."로 시작하는 문단 전체가 그냥 body로 떨어짐 —
+// 결과적으로 "2./3." 소제목(별도 짧은 줄이라 정상 인식됨)과 달리 "1."만 안
+// 굵어지는 버그. splitLawCitationHeading과 같은 방식(라벨/본문 분리)이되, 분리
+// 기준이 실제 인용부호가 아니라 법령명 대괄호(「/｢) 자체라는 점만 다름.
+const LAW_NAME_BRACKET_RE = /[「｢]/;
+
+/** "N. 소제목 「법령명」..."처럼 짧은 번호 라벨 뒤에 줄바꿈 없이 법령명 인용이 곧장
+ * 붙는 경우 [라벨, 본문]으로 나눔 — splitLawCitationHeading이 다루는 "라벨+실제
+ * 인용문(따옴표)" 패턴과 달리, 이쪽은 라벨 뒤에 인용부호 없는 서술형 본문이 이어짐.
+ * 라벨이 24자를 넘으면(진짜 헤딩이 아니라 우연히 「가 낀 일반 문장일 가능성) 분리
+ * 안 함 — 가/나/다·번호 헤딩과 동일한 상한. 줄 전체가 이미 24자 이하면(예: "2.
+ * 「보조금법」" 자체가 온전한 짧은 헤딩인 경우) 분리하지 않고 그대로 통짜 헤딩으로
+ * 둠 — 그 경우까지 쪼개면 라벨이 번호 하나만 남는 회귀(예: "2." + "「보조금법」")가
+ * 생김. */
+function splitLawNameHeading(trimmed) {
+  if (trimmed.length <= 24) return null;
+  if (!NUMBERED_HEADING_RE.test(trimmed)) return null;
+  const bracketIdx = trimmed.search(LAW_NAME_BRACKET_RE);
+  if (bracketIdx <= 0) return null;
+  const label = trimmed.slice(0, bracketIdx).replace(/\s+$/, "");
+  if (!label || label.length > 24) return null;
+  const body = trimmed.slice(bracketIdx);
+  if (!body) return null;
+  return [label, body];
+}
+
 /** 가/나/다 또는 "1. 2. 3." 번호로 시작하는 줄이 classifyLine의 번호 헤딩
  * 휴리스틱(길이 상한/법령인용 예외)에 걸리는지만 따로 판별. 아래 두 곳에서 씀:
  * ①classifyLine 자체 ②splitIntoBlocks의 각주 문단 흡수 판단(번호헤딩처럼 보이는
@@ -540,6 +572,7 @@ function isGenericListHeading(trimmed) {
     NUMBERED_HEADING_RE.test(trimmed) &&
     (trimmed.length <= 24 ||
       splitLawCitationHeading(trimmed) ||
+      splitLawNameHeading(trimmed) ||
       (trimmed.length <= 80 &&
         !SENTENCE_END_RE.test(trimmed) &&
         LAW_CITATION_HINT_RE.test(trimmed)))
@@ -875,7 +908,8 @@ function splitIntoBlocks(text) {
       kind === "heading" &&
       paraType === "footnote" &&
       isGenericListHeading(trimmed) &&
-      !splitLawCitationHeading(trimmed)
+      !splitLawCitationHeading(trimmed) &&
+      !splitLawNameHeading(trimmed)
     ) {
       para.push(trimmed);
       continue;
@@ -888,7 +922,8 @@ function splitIntoBlocks(text) {
       kind === "heading" &&
       inAttachmentList &&
       isGenericListHeading(trimmed) &&
-      !splitLawCitationHeading(trimmed)
+      !splitLawCitationHeading(trimmed) &&
+      !splitLawNameHeading(trimmed)
     ) {
       para.push(trimmed);
       continue;
@@ -904,6 +939,21 @@ function splitIntoBlocks(text) {
         // 법령인용 라벨은 TITLE_RE("제목" 라벨)에 걸릴 일이 없지만, 아래 일반
         // heading push와 마찬가지로 isTitle을 명시적으로 계산해둬서 undefined로
         // 새지 않게 함(fixMissingTitleNumber의 b.isTitle 체크와 일관성 유지).
+        blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label);
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
+      // 2026-08-25: "1. 관계 법령 및 규정 「보조금 관리에 관한 법률」제22조..."처럼
+      // 짧은 번호 소제목 뒤에 줄바꿈 없이 법령명 인용(따옴표 인용문 없이)이 곧장
+      // 이어붙는 경우 — 위 citationSplit과 같은 방식으로 라벨/본문 분리
+      // (splitLawNameHeading 주석 참고).
+      const lawNameSplit = splitLawNameHeading(trimmed);
+      if (lawNameSplit) {
+        const [label, body] = lawNameSplit;
         blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
