@@ -132,6 +132,25 @@ const BRACKET_LABEL_WITH_TRAILING_RE =
 // 써서 그 두 곳보다 앞에 선언해둠(BRACKET_LABEL_WITH_TRAILING_RE와 같은 이유).
 const ATTACHMENT_LABEL_RE = new RegExp(`^(붙\\s*임)\\s*${LABEL_SEP}`);
 
+// 2026-08-25 11차: "관계부서 의견"/"조치할 사항"처럼 대괄호도 콜론도 없이, 그 줄
+// 전체가 소제목 라벨 하나로만 이루어진 문서를 실제로 확인함(한국관광공사 2024
+// 특정감사, a85748231dd23bc7 — "...하겠다는 의견을 제시하였다.\n관계부서 의견\n
+// ♣♣팀은...\n조치할 사항\n한국관광공사 사장은\n① ..." 형태). 이 중 "관계부서
+// 의견"은 위 FIELD_LABEL_PATTERNS의 "(소관|조치|관계)(기관|부서)" + LABEL_SEP
+// 패턴에 걸려서 라벨="관계부서"/값="의견"인 필드("관계부서: ♣♣팀"처럼 부서명이
+// 오는 형태)로 잘못 쪼개지고 있었고, "조치할 사항"은 대괄호 있는 형태만 인식하는
+// BRACKET_LABEL_WITH_TRAILING_RE에 안 걸려서 그냥 앞 문단에 그대로 이어붙었음
+// (원본은 둘 다 굵은 소제목인데 웹에서는 문단 속 평범한 텍스트로 보이고, 그
+// 앞뒤로 문단도 안 나뉘는 문제 — 사용자 스크린샷 제보 "볼드체에 크게 되어야하는데
+// 문단 변경도 안되고"). "관계자 의견"도 같은 관용구의 변형으로 다른 문서
+// (한국생산기술연구원, raw_text10)에서 동일하게 확인됨. classifyLine에서
+// FIELD_LABEL_PATTERNS(matchFieldLabel)보다 이 배열이 먼저 검사되므로, 여기
+// 추가하는 것만으로 "관계부서 의견"이 필드로 오분류되는 것도 함께 막힘. 줄
+// 전체가 정확히 이 라벨뿐일 때만 인정(뒤에 다른 내용이 바로 붙은 "조치할 사항이
+// 없다고..." 같은 본문 문장은 $ 고정으로 배제).
+const BARE_LABEL_HEADING_RE =
+  /^(관\s*계\s*부\s*서\s*의\s*견|관\s*계\s*자\s*의\s*견|조\s*치\s*할\s*사\s*항)\s*$/;
+
 const HEADING_LABEL_PATTERNS = [
   TITLE_RE, // 제목 / 제 목
   /^징\s*계\s*(대\s*상\s*자|종\s*류|사\s*유)/, // 징계대상자 / 징 계 종 류 / 징 계 사 유
@@ -192,6 +211,7 @@ const HEADING_LABEL_PATTERNS = [
   // 분리(BRACKET_LABEL_WITH_TRAILING_RE, splitLawCitationHeading 옆) — 동작 변경 없음.
   BRACKET_LABEL_WITH_TRAILING_RE,
   ATTACHMENT_LABEL_RE, // "붙임 : ..." — ATTACHMENT_LABEL_RE 주석 참고
+  BARE_LABEL_HEADING_RE, // "관계부서 의견" / "관계자 의견" / "조치할 사항" 단독 줄 — 바로 위 주석 참고
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
