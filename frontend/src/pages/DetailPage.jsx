@@ -302,6 +302,17 @@ function maskDeptPlaceholder(text) {
 const TABLE_CAPTION_RE =
   /^[【[]\s*(표|그림|별표)[\s-]*\d*\s*[】\]]|^[【[][^【】[\]]*(?:명세|현황|내역|명단|실태)\s*[】\]]$/;
 
+// 2026-08-25: "【표N】"/"[표N]" 같은 대괄호 캡션 없이, "(단위 : 원)"만 표 바로 위에
+// 붙는 문서를 실제로 확인함(국립공원공단 2016, 22801421c9615f3c — "1. 현황(...)"
+// 헤딩 다음 줄이 "(단위 : 원)", 그 다음이 "품명 출장자명 출장기간..." 표 데이터).
+// 위 TABLE_CAPTION_RE는 대괄호 캡션만 보므로 이 문서에서 nextIsTable이 전혀 안
+// 걸려서, 표 데이터가 일반 body 문단으로 공백 이어붙어 뜻 없는 단어 나열이
+// 됐었음(사용자 스크린샷 제보 — "표인데 텍스트로 들어가있고 이상해"). 셀 구분자
+// 자체가 원문에 없어서 완전한 그리드 복원은 못 하지만, "(단위 : ...)" 캡션을 표
+// 시작 신호로 인정해서 최소한 원본 줄 단위 구분(table 타입, white-space: pre-wrap)
+// 은 살림 — 공백으로 뭉개지는 것보다 훨씬 읽기 쉬움.
+const UNIT_CAPTION_RE = /^\(\s*단위\s*[:：]/;
+
 // 2026-08-12 6차: 표 데이터 뒤에는 보통 "자료: ○○ 제출자료 재구성" 같은 출처 표기가
 // 붙는데, 그 바로 뒤에 헤딩/불릿 없이 실제 문장이 곧장 이어지는 경우가 있었음(실제 문서로
 // 확인 — "자료: 지사 제출자료 및 현지 확인 결과 재구성" 다음 줄에 "♠♡지사에서는 ①
@@ -905,6 +916,17 @@ function splitIntoBlocks(text) {
       flushPara();
       paraType = "footnote";
       para.push(trimmed);
+      continue;
+    }
+
+    // 2026-08-25: "(단위 : 원)" 캡션 — UNIT_CAPTION_RE 선언부 주석 참고. 대괄호 캡션
+    // (TABLE_CAPTION_RE)이 표를 "끝내는" caption과 반대로 표를 "시작하는" 신호라
+    // caption kind 분기(nextIsTable = false로 고정)를 그대로 재사용 못 해 별도 처리.
+    if (UNIT_CAPTION_RE.test(trimmed)) {
+      flushPara();
+      blocks.push({ type: "caption", text: trimmed });
+      prevType = "caption";
+      nextIsTable = true;
       continue;
     }
 
