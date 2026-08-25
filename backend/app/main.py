@@ -45,6 +45,12 @@ async def lifespan(app: FastAPI):
     # 모델/커넥션 풀은 앱 시작 시 딱 한 번만 로드 (요청마다 로드하면 지연시간 폭증, §3.3)
     await db.init_pool()
     await asyncio.to_thread(embedding.load_model)
+    # 2026-08-25(성능 개선): 캐시 예열은 await로 기다리지 않고 백그라운드로 던짐 —
+    # 예열 문구 4개가 각각 ~15초씩 걸릴 수 있어서 await하면 배포 직후 헬스체크/시작
+    # 시간이 크게 늘어나 배포 자체가 불안정해질 위험이 있음(embedding.py 주석 참고).
+    # 앱은 예열 완료를 기다리지 않고 바로 요청을 받기 시작 — 예열 전에 그 검색어가
+    # 들어와도 그냥 평소처럼(느리게) 처리될 뿐 에러는 아님.
+    asyncio.create_task(asyncio.to_thread(embedding.prewarm_cache))
     yield
     await db.close_pool()
 

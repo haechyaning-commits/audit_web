@@ -4,8 +4,10 @@
 배치(Colab GPU)와 달리 검색 시점엔 실시간으로 인코딩해야 함. 모델을 요청마다 새로 불러오면
 지연시간이 폭증하므로, 앱 시작 시 딱 한 번만 로드해서 재사용.
 """
+import os
 from functools import lru_cache
 
+import torch
 from sentence_transformers import SentenceTransformer
 
 _model: SentenceTransformer | None = None
@@ -15,6 +17,16 @@ def load_model() -> None:
     global _model
     if _model is not None:
         return
+    # 2026-08-25(성능 조사): 실사용 중 처음 보는 검색어 인코딩이 15~17초씩 걸리는 게
+    # 확인됨(동일 검색어 재요청은 lru_cache 히트로 ~1초). 컨테이너 환경(Railway 등)에서
+    # PyTorch가 기본으로 "호스트가 보고하는 논리 CPU 코어 수"만큼 스레드를 켜는데,
+    # 실제 컨테이너에 할당된 CPU가 그보다 훨씬 적으면(흔한 상황) 스레드가 서로
+    # 컨텍스트 스위칭만 하느라 오히려 더 느려지는 경우가 있음 — 특히 배치 크기 1(검색어
+    # 한 문장)처럼 원래 병렬화 이득이 크지 않은 연산에서 두드러짐. 이게 실측된 지연의
+    # 원인인지는 아직 배포 후 실측으로 검증 전(가설) — 인프라/모델 교체 없이 시도해볼
+    # 수 있는 가장 저렴한 변경이라 먼저 시도함. TORCH_NUM_THREADS 환경변수로 조절
+    # 가능하게 해서, 실측 후 다른 값이 낫다고 나오면 재배포 없이 바로 바꿀 수 있게 함.
+    torch.set_num_threads(int(os.environ.get("TORCH_NUM_THREADS", "2")))
     # Railway는 보통 GPU 없는 CPU 인스턴스 — device 명시 안 하면 자동으로 CPU 씀
     _model = SentenceTransformer("BAAI/bge-m3", device="cpu")
     _model.max_seq_length = 512
@@ -49,3 +61,25 @@ def _encode_query_cached(text: str) -> tuple[float, ...]:
 
 def encode_query(text: str) -> list[float]:
     return list(_encode_query_cached(text))
+
+
+# 2026-08-25(성능 개선): 홈 화면 예시 검색어(frontend/src/pages/SearchPage.jsx의
+# EXAMPLE_QUERIES와 동일한 문구 — 실사용자가 클릭할 확률이 특히 높음)를 서버 시작 시
+# 미리 인코딩해서 lru_cache를 예열해둠. 처음 보는 검색어는 여전히 15초 안팎 걸리지만,
+# 최소한 이 케이스는 첫 클릭도 캐시 히트로 빠르게 응답됨.
+# main.py가 이 함수를 asyncio.create_task(asyncio.to_thread(...))로 백그라운드에서
+# 돌림(await 안 함) — load_model()과 달리 이건 앱이 요청을 받기 시작하는 걸 지연시킬
+# 이유가 없고(예열 안 된 검색어는 어차피 느린 채로 정상 동작), 문구 4개 * ~15초로
+# 배포 직후 헬스체크/시작 시간이 1분 가까이 늘어나면 오히려 배포 자체가 불안정해질
+# 위험이 있어서(Railway 헬스체크 타임아웃) 블로킹시키지 않음.
+_PREWARM_QUERIES = [
+    "수의계약 특혜",
+    "출장비를 부풀려 청구한 사례",
+    "보조금 부정수급",
+    "직장 상사가 부하직원을 괴롭힌 사례",
+]
+
+
+def prewarm_cache() -> None:
+    for text in _PREWARM_QUERIES:
+        encode_query(text)

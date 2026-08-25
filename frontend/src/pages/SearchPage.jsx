@@ -69,6 +69,23 @@ export default function SearchPage({ search }) {
   // 폭에서는 이 상태와 무관하게 CSS가 항상 펼쳐서 보여줌(아래 toggle 버튼도 그때만 보임).
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  // 2026-08-25(성능 피드백 대응): 처음 보는 검색어는 서버가 AI 임베딩 모델을 CPU로
+  // 실시간 추론해야 해서 15초 안팎 걸릴 수 있음(백엔드 embedding.py 참고, 근본 해결은
+  // 백엔드 성능 개선 쪽에서 계속 진행 중) — "검색 중…" 스켈레톤만 보이면 사용자가
+  // "느린 게 아니라 멈춘 것/고장난 것"으로 오해하기 쉬움. 2.5초 넘게 로딩 중이면
+  // (재검색 캐시 히트처럼 원래 빠른 경우엔 안 보이게) 안내 문구를 추가로 보여줘서
+  // "느리지만 정상 동작 중"이라는 기대치를 맞춰줌 — 실제 지연을 없애진 못하지만
+  // 체감 이탈은 줄일 수 있는 임시 완화책.
+  const [showSlowHint, setShowSlowHint] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShowSlowHint(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowSlowHint(true), 2500);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
   // 2026-08-24(피드백 반영): 결과 카드의 상대 관련도 막대(ResultCard.jsx)용 기준값.
   // results[0]은 정렬 모드와 무관하게 항상 백엔드가 매긴 1위 스코어(ORDER BY score DESC로
   // 응답됨) — "최신순" 정렬로 화면 순서가 바뀌어도 막대 기준(=1위 점수)은 안 바뀌어야
@@ -336,7 +353,15 @@ export default function SearchPage({ search }) {
             <div className="search-main">
               {loading && (
                 <>
-                  <p className="section-label">검색 중…</p>
+                  <p className="section-label">
+                    검색 중…
+                    {showSlowHint && (
+                      <span className="search-slow-hint">
+                        {" "}
+                        처음 입력하신 문장은 AI가 새로 분석하고 있어요 — 최대 15초 정도 걸릴 수 있어요.
+                      </span>
+                    )}
+                  </p>
                   <div className="skeleton-list">
                     {[0, 1, 2, 3].map((i) => (
                       <div className="skeleton-card" key={i}>
