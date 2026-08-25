@@ -2,6 +2,28 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-25 (3차) — hwp5txt 진단 통과: pyhwp 자동설치로 정상화, 전수조사 재실행만 남음
+
+2차 수정 스크립트를 사용자가 재실행 — 이번엔 hwp5txt가 PATH에 없는 것까지
+스크립트가 직접 잡아서 `setuptools<60`+`pyhwp` → `setuptools<82` 순서로
+설치, 별도 런타임 재시작 없이 같은 세션에서 바로 `hwp5txt`를 찾음(0.1b15).
+테스트 문서(한전KPS 2018, `cb8dcfbd7983ba43`)에서 `<표>` 마커 6개 정확히
+검출(returncode=0) — **hwp5txt 런타임 정상 동작 확인**. `pkg_resources`
+deprecation 경고(setuptools 81+ 예정 제거)는 뜨지만 실행 자체엔 영향 없음.
+
+원인 최종 정리: 8/24(17차) 사고는 setuptools 버전 문제가 아니라, 애초에
+그 세션에서 pyhwp가 설치조차 안 된 상태로 전수조사를 돌렸던 것으로 결론
+(pip install 안내가 주석이라 실행 안 됐을 가능성이 유력, 8/19 사고와는
+별개의 실패 모드).
+
+**다음 단계(사용자, Colab에서, 이 세션은 DATABASE_URL 없어 실행 불가)**:
+1. 무효 체크포인트 삭제: `!rm -f /content/drive/MyDrive/audit_project/hwp_table_loss_full_checkpoint.jsonl`
+2. `audit_hwp_table_loss_full_population.py` 재실행 (.hwp 33,089건 전수,
+   8/18 실측 기준 대략 5~6시간 예상 — 체크포인트 이어쓰기 지원되니 여러
+   세션에 나눠 돌려도 됨)
+3. 결과 나오면 8/18 표본조사 영향률(50.5%)과 비교해서 규모 확정 → 그 다음
+   `rechunk_reembed_hwp_table_fix.py`로 실제 반영(DRY_RUN=True 먼저)
+
 ## 🔧 2026-08-25 (2차) — hwp5txt 진단 스크립트 실행 결과: pyhwp 자체가 설치 안 돼 있었음 — 자동설치로 수정
 
 1차 스크립트를 실제로 돌려본 사용자 결과: `hwp5txt --version`부터
