@@ -171,8 +171,17 @@ const ATTACHMENT_LABEL_RE = new RegExp(`^(붙\\s*임)\\s*${LABEL_SEP}`);
 // 없었음).
 const DEPT_OPINION_LABEL_GROUP_RE =
   "(?:소\\s*관|조\\s*치|관\\s*계|관\\s*련)\\s*(?:기\\s*관|부\\s*서)(?:[(（]\\s*(?:기\\s*관|부\\s*서)\\s*[)）])?\\s*의\\s*견";
+// 2026-08-25 17차: 같은 1,894건 스캔에서 이 라벨들이 소괄호로 통째로 감싸인 형태
+// ("(관련자 의견) p지사 7급...", "((관계기관 의견)) ○○○는..." — 여는 괄호가
+// 하나뿐 아니라 두 개(중복 추출로 보임)인 경우도 실제 문서로 확인됨), 그리고 라벨
+// 뒤에 공백 없이 괄호가 바로 붙는 형태("관련자 의견(및 검토결과)")와 콜론이 바로
+// 붙는 형태("조치할 사항: 통보 사장(...)은...", 서로 다른 문서 15건 이상에서
+// 반복 확인)가 전부 안 걸리고 있었음 — 앞뒤로 소괄호 0~2개를 허용하고, 라벨 바로
+// 뒤 경계 문자에 공백 말고 여는 괄호/콜론도 인정하도록 확장(뒤에 공백 없이 조사가
+// 바로 붙는 진짜 본문 문장은 여전히 안 걸림 — 위 6차 수정 코멘트의 오탐 방지 이유
+// 그대로 유지).
 const BARE_LABEL_WITH_TRAILING_RE = new RegExp(
-  `^(${DEPT_OPINION_LABEL_GROUP_RE}|관\\s*계\\s*자\\s*의\\s*견|관\\s*련\\s*자\\s*의\\s*견|조\\s*치\\s*할\\s*사\\s*항|징\\s*계\\s*요\\s*구\\s*양\\s*정)(?=\\s|$)`
+  `^[(（]{0,2}(${DEPT_OPINION_LABEL_GROUP_RE}|관\\s*계\\s*자\\s*의\\s*견|관\\s*련\\s*자\\s*의\\s*견|조\\s*치\\s*할\\s*사\\s*항|징\\s*계\\s*요\\s*구\\s*양\\s*정)[)）]{0,2}(?=[\\s(（:：]|$)`
 );
 
 /** BARE_LABEL_WITH_TRAILING_RE에 매칭되고 라벨 뒤에 실제 내용이 남아있으면
@@ -181,6 +190,35 @@ const BARE_LABEL_WITH_TRAILING_RE = new RegExp(
  * 승격만으로 충분, 아래 일반 heading push가 trimmed 전체를 그대로 씀). */
 function splitBareLabelHeading(trimmed) {
   const m = BARE_LABEL_WITH_TRAILING_RE.exec(trimmed);
+  if (!m) return null;
+  const label = m[0].trim();
+  const body = trimmed.slice(m[0].length).trim();
+  if (!label || !body) return null;
+  return [label, body];
+}
+
+// 2026-08-25 16차: 검색 API로 모은 실제 문서 1,894건 스캔에서, "N."/"N)"이 아니라
+// "(N)"/"(N-M)"으로 번호를 매기면서 그 라벨 뒤에 줄바꿈 없이 내용이 바로 이어지는
+// 문서가 다수 확인됨 — "(2) 감사결과 확인된 문제점 그런데 ...", "(1) 관계규정 및
+// 판단기준 민원 처리 업무에 관한..." 형태(서로 다른 기관 문서 20건 이상). 위
+// PAREN_NUMBERED_HEADING_RE(길이 24자 이내만 안전하게 인정)로는 이렇게 뒤에 긴
+// 내용이 붙은 경우를 못 잡음 — "N. 법령명 인용..."류를 다루는 splitLawNameHeading과
+// 같은 이유로, 실제로 반복 확인된 두 라벨 어구(감사결과 확인된 문제점 / 관계·관련
+// 법령·규정·내규 및 판단기준)만 좁혀서 라벨/내용 분리 대상으로 인정 — 임의의 다른
+// 문구까지 일반화하면(법령 인용 힌트 같은 안전한 판별 신호가 없어서) 오탐 위험이
+// 커 이번엔 이 두 어구로 한정함.
+const AUDIT_RESULT_ISSUE_LABEL_RE =
+  "감\\s*사\\s*결\\s*과\\s*확\\s*인\\s*된\\s*문\\s*제\\s*점?";
+const JUDGE_CRITERIA_LABEL_RE =
+  "(?:관\\s*계|관\\s*련)\\s*(?:법\\s*령|규\\s*정|내\\s*규)\\s*및\\s*판\\s*단\\s*기\\s*준";
+const PAREN_NUM_LABEL_WITH_TRAILING_RE = new RegExp(
+  `^\\(\\d{1,2}(?:-\\d{1,2})?\\)\\s*(${AUDIT_RESULT_ISSUE_LABEL_RE}|${JUDGE_CRITERIA_LABEL_RE})(?=\\s|$)`
+);
+
+/** PAREN_NUM_LABEL_WITH_TRAILING_RE에 매칭되고 라벨 뒤에 실제 내용이 남아있으면
+ * [라벨, 내용]으로 나눔(splitBareLabelHeading과 같은 목적·같은 방식). */
+function splitParenNumLabelHeading(trimmed) {
+  const m = PAREN_NUM_LABEL_WITH_TRAILING_RE.exec(trimmed);
   if (!m) return null;
   const label = m[0].trim();
   const body = trimmed.slice(m[0].length).trim();
@@ -249,6 +287,7 @@ const HEADING_LABEL_PATTERNS = [
   BRACKET_LABEL_WITH_TRAILING_RE,
   ATTACHMENT_LABEL_RE, // "붙임 : ..." — ATTACHMENT_LABEL_RE 주석 참고
   BARE_LABEL_WITH_TRAILING_RE, // "관계부서 의견" / "관계자 의견" / "조치할 사항" / "징계요구 양정" — 바로 위 주석 참고
+  PAREN_NUM_LABEL_WITH_TRAILING_RE, // "(2) 감사결과 확인된 문제점" / "(1) 관계규정 및 판단기준" — 바로 위 주석 참고
 ];
 
 // 새 문단(목록 항목) 시작 신호로만 쓰는 불릿 — 굵게 만들지 않음(위 3차 수정 이유 참고).
@@ -589,6 +628,14 @@ const TABLE_INTERLEAVE_RE = /연번[\s\n]*지적사항[\s\n]*처분/;
 // 안에 인라인으로 있던 로직을 함수로 분리함(동작 변경 없음, 순수 리팩터링).
 const KOREAN_LETTER_HEADING_RE = /^[가나다라마바사아자차카타파하][.)]?\s+\S/;
 const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
+// 2026-08-25 16차: 검색 API로 모은 실제 문서 표본(1,894건)을 splitIntoBlocks로
+// 스캔해서, "N."/"N)"이 아니라 "(N)"/"(N-M)"으로 번호를 매기는 소제목 문서를
+// 다수 확인함(예: "(1) 관계규정 및 판단기준", "(2) 감사결과 확인된 문제점",
+// "(3-1) 겸직 허가 기준 미비" — 서로 다른 기관 문서 20건 이상, 여는 괄호가
+// NUMBERED_HEADING_RE·BULLET_RE 어디에도 안 걸려서 전부 body로 흘러들어가
+// 앞 문단에 이어붙어 있었음). 위 두 헤딩 패턴과 같은 이유로 짧은 라벨(24자
+// 이내)만 안전하게 인정 — isGenericListHeading에서만 씀.
+const PAREN_NUMBERED_HEADING_RE = /^\(\d{1,2}(?:-\d{1,2})?\)\s+\S/;
 // 2026-08-25: "가./나." 하위에 "ⅰ)/ⅱ)/ⅲ)..." 로마숫자(Unicode 소문자 로마숫자,
 // U+2170~2179)로 매기는 세부 소제목을 쓰는 문서를 실제로 확인함(한국자산관리공사
 // 2021, bd34c36a201043cf — "나. 관계 법령·내규 및 판단 기준" 아래 "ⅰ) 내규 준수
@@ -702,6 +749,8 @@ function isGenericListHeading(trimmed) {
     return true;
   // ROMAN_NUMERAL_HEADING_RE 선언부 주석 참고 — 가/나/다와 동일한 길이 상한.
   if (ROMAN_NUMERAL_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
+  // PAREN_NUMBERED_HEADING_RE 선언부 주석 참고 — 위와 동일한 길이 상한.
+  if (PAREN_NUMBERED_HEADING_RE.test(trimmed) && trimmed.length <= 24) return true;
   // 2026-08-18: "1. 2. 3." 번호 항목도 같은 이유로 길이 상한을 둠 — 원문에서 "1. 관계
   // 법령 및 규정"처럼 짧은 소제목 뒤에 줄바꿈 없이 긴 본문이 바로 이어 붙는 경우(PDF
   // 원본부터 그렇게 한 줄이었음, 실제 문서 e6bae4491398a6b2로 확인)가 있어서, 길이
@@ -1230,6 +1279,19 @@ function splitIntoBlocks(text) {
       const bareSplit = splitBareLabelHeading(trimmed);
       if (bareSplit) {
         const [label, body] = bareSplit;
+        blocks.push({ type: "heading", text: label, isTitle: false });
+        prevType = "heading";
+        lastHeadingListNum = extractListNum(label);
+        nextIsTable = false;
+        paraType = "body";
+        para.push(body);
+        continue;
+      }
+      // 2026-08-25 16차: "(2) 감사결과 확인된 문제점 그런데..." 류(PAREN_NUM_LABEL_WITH_TRAILING_RE)
+      // 라벨도 같은 이유로 라벨/내용 분리(splitParenNumLabelHeading 주석 참고).
+      const parenNumSplit = splitParenNumLabelHeading(trimmed);
+      if (parenNumSplit) {
+        const [label, body] = parenNumSplit;
         blocks.push({ type: "heading", text: label, isTitle: false });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
