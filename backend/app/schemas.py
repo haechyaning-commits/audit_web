@@ -30,6 +30,18 @@ class SearchResponse(BaseModel):
     results: list[SearchResultCard]
 
 
+class YearCount(BaseModel):
+    year: int
+    count: int
+
+
+class YearStatsResponse(BaseModel):
+    """홈 화면 '연도별 사례 수' 막대그래프용 (베타테스트 피드백 5번, 2026-08-25) —
+    지금까지 프론트에 값이 통째로 하드코딩돼 있던 걸 라이브 집계로 대체."""
+    total: int
+    years: list[YearCount]
+
+
 class FilterOptions(BaseModel):
     """검색 필터 사이드바(기관/연도/감사유형)를 채우는 값 목록 — 2026-08-24, FR5
     (v1.1로 미뤄뒀던 필터). 검색 응답과 분리된 별도 엔드포인트(GET /filters)로

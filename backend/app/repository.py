@@ -187,6 +187,32 @@ async def get_filter_options(pool: asyncpg.Pool) -> asyncpg.Record:
         return await conn.fetchrow(_FILTER_OPTIONS_SQL)
 
 
+# 2026-08-25(베타테스트 피드백 5번): 홈 화면 "연도별 사례 수" 막대그래프가 지금까지
+# frontend/src/pages/SearchPage.jsx에 값이 통째로 하드코딩돼 있어서, DB에 새 문서가
+# 계속 반영되고 있는데도(HWP 표 손실 복구 등 진행 중) 프론트를 재배포하지 않는 한 그
+# 시점 스냅샷에 멈춰있는 문제. get_filter_options와 같은 이유로 매 요청 직접 집계해도
+# 부담 없는 규모.
+# year가 NULL인 문서(현재 2건, README §스크린샷 참고)는 막대그래프엔 못 넣지만 "전체
+# 건수" 통계에선 빠지면 안 되므로, total은 year 조건 없이 documents 테이블 전체를
+# 따로 셈 — years 배열의 count 합과 total이 살짝 다를 수 있는 게 정상(연도 미상 문서 수만큼).
+_TOTAL_DOCUMENTS_SQL = "SELECT count(*) AS total FROM documents;"
+
+_YEAR_STATS_SQL = """
+SELECT year, count(*) AS count
+FROM documents
+WHERE year IS NOT NULL
+GROUP BY year
+ORDER BY year;
+"""
+
+
+async def get_year_stats(pool: asyncpg.Pool) -> tuple[int, list[asyncpg.Record]]:
+    async with pool.acquire() as conn:
+        total_row = await conn.fetchrow(_TOTAL_DOCUMENTS_SQL)
+        years = await conn.fetch(_YEAR_STATS_SQL)
+        return total_row["total"], years
+
+
 def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Record]:
     """
     스트레치 목표(§3.4) — bge-reranker-v2-m3로 20건 재채점 후 top 10 반환 예정.

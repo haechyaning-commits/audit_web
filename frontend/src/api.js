@@ -52,6 +52,13 @@ export function getFilterOptions() {
   return request("/filters");
 }
 
+/** 홈 화면 "연도별 사례 수" 막대그래프 + 전체 건수 (GET /stats/years) — 베타테스트 피드백
+ * 5번(2026-08-25): 지금까지 SearchPage.jsx에 값이 하드코딩돼 있던 걸 라이브 집계로 대체.
+ * 페이지 로드 시 한 번만 호출. */
+export function getYearStats() {
+  return request("/stats/years");
+}
+
 /** 사례 상세 — 원문 + (있으면) 캐싱된 요약. 요약 자동 생성은 안 함 (GET /documents/{id}) */
 export function getCaseDetail(documentId) {
   return request(`/documents/${encodeURIComponent(documentId)}`);

@@ -24,7 +24,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from . import db, embedding, repository, summary
-from .schemas import DocumentDetail, FilterOptions, SearchResponse, SearchResultCard, SummaryResponse
+from .schemas import (
+    DocumentDetail,
+    FilterOptions,
+    SearchResponse,
+    SearchResultCard,
+    SummaryResponse,
+    YearCount,
+    YearStatsResponse,
+)
 from .textutils import build_preview, build_source_url, extract_title
 
 logger = logging.getLogger(__name__)
@@ -182,6 +190,19 @@ async def get_filter_options() -> FilterOptions:
     return FilterOptions(
         institutions=row["institutions"], years=row["years"], audit_types=row["audit_types"]
     )
+
+
+@app.get("/stats/years", response_model=YearStatsResponse)
+async def get_year_stats() -> YearStatsResponse:
+    """홈 화면 '연도별 사례 수' 막대그래프(베타테스트 피드백 5번, 2026-08-25) — 지금까지
+    프론트(SearchPage.jsx)에 값이 통째로 하드코딩돼 있어서 DB에 새 문서가 반영돼도
+    프론트를 재배포하지 않는 한 그 시점 스냅샷에 멈춰있던 문제를 라이브 집계로 대체.
+    /filters와 같은 이유로 별도 엔드포인트로 분리 — 검색 자체와 무관하고, 페이지 로드
+    시 한 번만 불러서 씀."""
+    pool = db.get_pool()
+    total, rows = await repository.get_year_stats(pool)
+    years = [YearCount(year=r["year"], count=r["count"]) for r in rows]
+    return YearStatsResponse(total=total, years=years)
 
 
 @app.get("/documents/{document_id}", response_model=DocumentDetail)

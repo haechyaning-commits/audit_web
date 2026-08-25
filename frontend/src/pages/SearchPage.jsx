@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { getYearStats } from "../api.js";
 import FilterSidebar from "../components/FilterSidebar.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import YearChart from "../components/YearChart.jsx";
 
-// 2026-08-10 데이터 품질 정리(재추출 불가 문서 삭제)로 72,913 -> 67,751건으로 조정됨
-// (STATUS.md "데이터 품질 사고 대응 완료" 항목 참고)
-const TOTAL_CASES = "67,751";
-
-// 연도별 문서 수 (2026-08-12, DB 복구 후 재조회) — Railway Query 탭에서 실행:
-//   SELECT year, count(*) FROM documents GROUP BY year ORDER BY year;
-// year가 NULL인 2건은 차트에 표시할 수 없어 제외(총합 67,751건 중 67,749건만 반영).
-const YEAR_COUNTS = [
+// 2026-08-25(베타테스트 피드백 5번): 이 두 값이 지금까지 여기 하드코딩돼 있어서, DB에
+// 새 문서가 계속 반영되고 있는데도(HWP 표 손실 복구 등 진행 중) 프론트를 재배포하지
+// 않는 한 이 시점 스냅샷(2026-08-10 데이터 품질 정리 직후 수치)에 멈춰있는 문제가
+// 있었음 — GET /stats/years로 대체(아래 useEffect). 이 상수들은 그 요청이 아직
+// 안 왔거나 실패했을 때 보여줄 폴백으로만 남겨둠(빈 화면/로딩 깜빡임 방지) — 값이
+// 오차 없이 최신일 필요는 없고, 그냥 "완전히 빈 것보단 나은" 대체재 역할.
+const TOTAL_CASES_FALLBACK = "67,751";
+const YEAR_COUNTS_FALLBACK = [
   { year: 2016, count: 4457 },
   { year: 2017, count: 4552 },
   { year: 2018, count: 4665 },
@@ -85,6 +86,30 @@ export default function SearchPage({ search }) {
     const timer = setTimeout(() => setShowSlowHint(true), 2500);
     return () => clearTimeout(timer);
   }, [loading]);
+
+  // 2026-08-25(베타테스트 피드백 5번): 홈 화면 상단 통계(전체 건수 + 연도별 막대그래프)를
+  // 하드코딩 상수 대신 GET /stats/years 라이브 값으로 교체. 폴백 상수로 초기화해두고
+  // 로드되면 조용히 교체하는 방식 — 로딩 스피너나 빈 화면 없이(히어로 영역이라 첫
+  // 진입에 바로 보여야 함), 실패해도(네트워크 문제 등) 그냥 폴백 값이 계속 보이는
+  // 채로 남음(에러 노출 안 함 — 이 통계는 부가 정보라 검색 기능 자체를 막을 이유가 없음,
+  // /similar와 같은 원칙).
+  const [yearStats, setYearStats] = useState({
+    total: TOTAL_CASES_FALLBACK,
+    years: YEAR_COUNTS_FALLBACK,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    getYearStats()
+      .then((data) => {
+        if (!cancelled) setYearStats({ total: data.total.toLocaleString(), years: data.years });
+      })
+      .catch(() => {
+        // 조용히 무시 — 폴백 값이 계속 보임
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 2026-08-24(피드백 반영): 결과 카드의 상대 관련도 막대(ResultCard.jsx)용 기준값.
   // results[0]은 정렬 모드와 무관하게 항상 백엔드가 매긴 1위 스코어(ORDER BY score DESC로
@@ -286,7 +311,7 @@ export default function SearchPage({ search }) {
                     <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.6" />
                   </svg>
                 </span>
-                <span className="stat-card-num">{TOTAL_CASES}건</span>
+                <span className="stat-card-num">{yearStats.total}건</span>
                 <span className="stat-card-label">공공감사 사례 데이터</span>
               </div>
               <div className="stat-card">
@@ -311,7 +336,7 @@ export default function SearchPage({ search }) {
               </div>
             </div>
 
-            <YearChart data={YEAR_COUNTS} />
+            <YearChart data={yearStats.years} />
           </div>
         </section>
       )}
