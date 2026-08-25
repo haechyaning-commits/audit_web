@@ -104,7 +104,16 @@ SELECT
     -- 320자로 넉넉히 가져오는 이유: 실제 자를 지점(문장/어절 경계)은 textutils.build_preview가
     -- Python에서 정함(2026-08-12) — 200자에서 그냥 뚝 자르면 문장 중간에서 끊기는 문제가
     -- 있었음. SQL은 여유분 있는 buffer만 넘겨줌.
-    left(c.text, 320) AS preview_buffer
+    left(c.text, 320) AS preview_buffer,
+    -- 2026-08-25(베타테스트 피드백 3번 착수): RRF score는 "두 검색(벡터/키워드) 중
+    -- 어느 쪽에서 몇 등이었나"만 반영하는 순위 기반 값이라, 실측해보니 완전히 무의미한
+    -- 검색어("a")와 정상적인 문장의 1위 점수가 소수점까지 동일하게 나오는 경우가 있음
+    -- (우연이 아니라 "한쪽 leg 1등 + 다른 leg 후보 100건 밖" 조합이 흔해서 구조적으로
+    -- 자주 나오는 값) — 즉 RRF score만으로는 "진짜 관련 있음"을 판단할 근거가 안 됨.
+    -- 그래서 순위 융합을 거치지 않은 원래 코사인 유사도(쿼리 벡터 ↔ 실제 매치된 청크)를
+    -- 별도로 노출함 — 이 값의 정상/의미없는 질문 간 분포 차이를 실측해서 "관련성 낮음"
+    -- 판단 기준을 정할 예정(아직 응답에만 추가, 필터링/배지 로직은 실측 후 다음 작업).
+    1 - (c.embedding <=> $1) AS vector_similarity
 FROM doc_deduped dd
 JOIN documents doc ON doc.id = dd.document_id
 JOIN chunks c ON c.id = dd.chunk_id
