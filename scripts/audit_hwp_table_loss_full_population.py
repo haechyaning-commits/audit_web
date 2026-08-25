@@ -29,12 +29,14 @@
 # 이어쓰기를 활용해 여러 세션에 나눠 돌려도 됨).
 # ------------------------------------------------------------------
 
-# !pip install -q pyhwp psycopg2-binary requests
+# !pip install -q psycopg2-binary requests
 
 import os
 import random
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.parse
@@ -43,6 +45,36 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg2
 import requests
+
+
+def _ensure_hwp5txt():
+    # 2026-08-25: 진단 스크립트(audit_hwp5txt_env_check.py)로 hwp5txt 설치를
+    # 확인했던 세션과 실제 이 전수조사를 돌린 세션이 서로 다른 Colab 런타임이라
+    # pyhwp가 그 세션엔 없는 채로 33,089건 전부
+    # "[Errno 2] No such file or directory: 'hwp5txt'"로 에러난 사고 이후 추가.
+    # 진단 스크립트를 먼저 돌렸는지 여부와 무관하게 이 스크립트 자체가 매번
+    # 스스로 확인/설치해서, 어느 세션에서 바로 실행해도 안전하게 함.
+    if shutil.which("hwp5txt"):
+        return
+    print("hwp5txt가 PATH에 없음 — 설치 시도 중 (setuptools<60 → pyhwp → setuptools<82)...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "setuptools<60", "pyhwp"],
+        check=False,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-qU", "setuptools<82"],
+        check=False,
+    )
+    if not shutil.which("hwp5txt"):
+        raise SystemExit(
+            "hwp5txt 자동 설치 실패 — audit_hwp5txt_env_check.py를 먼저 돌려서 "
+            "pip 설치 로그를 확인할 것. 이 상태로 전수조사를 강행하면 8/25처럼 "
+            "33,089건 전부가 에러로 새어 시간만 날리게 됨."
+        )
+    print("hwp5txt 설치 확인됨 — 이어서 진행.")
+
+
+_ensure_hwp5txt()
 
 # 2026-08-18: 처음엔 서브프로세스 실행이 있어서 PDF 스크립트(16)보다 낮게(8) 잡았는데,
 # 실측해보니 hwp5txt 1건 처리에 ~0.29초라 딱히 낮출 이유가 없었음(서브프로세스는 GIL을
@@ -230,6 +262,18 @@ if RANDOM_SAMPLE_SIZE and TOTAL_HWP_DOCS > RANDOM_SAMPLE_SIZE:
 else:
     print(f"전체 .hwp 문서: {len(doc_rows)}건")
     print(f"표 손실 영향받음(표 있었는데 DB엔 흔적 없음): {len(affected)}건 ({sample_rate:.1f}%)")
+
+# 2026-08-25: 이 줄이 없어서 "영향받음 0건"이 진짜 0건인지 대량 에러로 새는
+# 중인지 최종 요약만으로 구분이 안 됐던 사고 이후 추가(진행 중 20건마다는
+# 원래도 찍혔지만, 스크롤을 놓치면 최종 요약에 안 남아있었음).
+n_errors = sum(1 for v in done.values() if v.get("error"))
+print(f"에러: {n_errors}건 ({n_errors / len(doc_rows) * 100:.1f}%)"
+      if doc_rows else "에러: 0건")
+if n_errors > len(doc_rows) * 0.1:
+    print(
+        "⚠️ 에러 비율이 10% 넘음 — '영향받음' 수치를 그대로 믿지 말 것. "
+        "audit_hwp_table_loss_full_checkpoint_diagnose.py로 에러 메시지 확인 필요."
+    )
 
 inst_counter = Counter(v.get("institution", "?") for v in affected)
 print("\n기관별 상위 10:")
