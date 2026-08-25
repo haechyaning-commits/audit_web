@@ -725,6 +725,23 @@ function splitIntoBlocks(text) {
     footnoteNums.add(m[1]);
   }
 
+  // 2026-08-25: 원본이 "문장 하나 = 문단 하나"로 각 문장 앞에 들여쓰기(공백)를 남겨
+  // 두는 서식을 쓰는 문서가 있음(서울올림픽기념국민체육진흥공단 2020,
+  // 82d99b460474700a — "관련자 주장 및 판단" 절처럼 여러 사람의 진술이 문장마다
+  // 갈리는 부분에서 특히 두드러짐, 사용자 스크린샷 제보 — "글씨가 너무 빽빽하다").
+  // 지금까지는 이 들여쓰기 신호를 무시하고 헤딩/불릿 아닌 줄을 전부 공백으로
+  // 이어붙여서, 원래 독립된 문단 여러 개가 벽처럼 하나로 뭉쳐 보였음.
+  // 이 서식은 모든 문서에 있는 게 아니라(실제로 확인한 다른 문서 5건은 들여쓰기
+  // 0줄) 일부 문서에만 있어서, 문서 전체에서 들여쓰기 있는 줄의 비율을 먼저 재서
+  // 이 서식을 쓰는 문서인지 자체 판별함 — 그런 문서에서만(전체 코퍼스 재검증 없이도
+  // 안전하게) 들여쓰기를 문단 경계 신호로 씀. 비율 낮은 대부분의 문서는 기존 동작
+  // (공백 이어붙이기) 그대로 유지돼 회귀 위험이 없음. 문서가 너무 짧으면(줄 10개
+  // 미만) 비율이 우연에 좌우되기 쉬워 판별 대상에서 제외.
+  const nonBlankLines = text.split("\n").filter((l) => l.trim());
+  const indentedLineCount = nonBlankLines.filter((l) => /^[ \t]{2,}/.test(l)).length;
+  const usesIndentParagraphs =
+    nonBlankLines.length >= 10 && indentedLineCount / nonBlankLines.length >= 0.3;
+
   const blocks = [];
   let para = [];
   let paraType = "body";
@@ -1097,6 +1114,18 @@ function splitIntoBlocks(text) {
     if (para.length === 0 && nextIsTable) {
       paraType = "table";
       nextIsTable = false;
+    }
+    // 2026-08-25: usesIndentParagraphs 선언부 주석 참고 — 이 서식을 쓰는 문서에서는
+    // 들여쓰기 있는 body 줄을 새 문단 시작으로 보고 여기서 끊음. bullet/footnote/
+    // table 문단(paraType이 body가 아닌 경우)은 대상에서 제외 — 그 안의 줄바꿈/들여
+    // 쓰기는 이미 각자 다른 방식으로 다루고 있어 겹치지 않게 함.
+    if (
+      usesIndentParagraphs &&
+      paraType === "body" &&
+      para.length > 0 &&
+      /^[ \t]{2,}/.test(rawLine)
+    ) {
+      flushPara();
     }
     para.push(trimmed);
   }
