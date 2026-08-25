@@ -1162,12 +1162,20 @@ function splitIntoBlocks(text) {
       nextIsTable = false;
     }
     // 2026-08-25: usesIndentParagraphs 선언부 주석 참고 — 이 서식을 쓰는 문서에서는
-    // 들여쓰기 있는 body 줄을 새 문단 시작으로 보고 여기서 끊음. bullet/footnote/
-    // table 문단(paraType이 body가 아닌 경우)은 대상에서 제외 — 그 안의 줄바꿈/들여
-    // 쓰기는 이미 각자 다른 방식으로 다루고 있어 겹치지 않게 함.
+    // 들여쓰기 있는 body 줄을 새 문단 시작으로 보고 여기서 끊음. bullet/footnote
+    // 문단(paraType이 그쪽인 경우)은 대상에서 제외 — 그 안의 줄바꿈/들여쓰기는 이미
+    // 각자 다른 방식으로 다루고 있어 겹치지 않게 함.
+    // 2026-08-25(2차): "table"도 대상에 포함시킴 — 실제 문서(소상공인시장진흥공단
+    // 2025, 00491c347e197a52)로 확인된 버그: "[표N]" 캡션(nextIsTable)으로 시작된
+    // 문단이 flushPara 시점에 looksLikeRealProse로 "body"로 재분류되더라도, 그건
+    // "다 쌓은 뒤" 판정이라 정작 쌓는 도중엔 paraType이 "table"이라 여기 조건에
+    // 안 걸려서 들여쓰기 문단 분리가 통째로 안 먹혔음(1965자짜리 문단이 줄바꿈
+    // 0개로 그대로 남음) — 캡션 뒤가 진짜 표든 서술문이든, 들여쓰기 있는 문서라면
+    // 똑같이 문단 경계로 인정해도 안전함(진짜 표라면 조각이 늘어날 뿐 여전히
+    // table로 렌더링됨).
     if (
       usesIndentParagraphs &&
-      paraType === "body" &&
+      (paraType === "body" || paraType === "table") &&
       para.length > 0 &&
       /^[ \t]/.test(rawLine)
     ) {
