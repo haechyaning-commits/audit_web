@@ -25,12 +25,14 @@
 #      "영향받음"으로 집계
 # ------------------------------------------------------------------
 
-# !pip install -q pyhwp psycopg2-binary requests
+# !pip install -q psycopg2-binary requests
 
 import os
 import random
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.parse
@@ -39,6 +41,34 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg2
 import requests
+
+
+def _ensure_hwp5txt():
+    # 2026-08-25: 다른 세션(audit_hwp5txt_env_check.py)에서 hwp5txt 설치를
+    # 확인했더라도 이 스크립트를 새 Colab 런타임에서 바로 돌리면 pyhwp가 없어서
+    # 전부 "[Errno 2] No such file or directory: 'hwp5txt'"로 에러나는 사고가
+    # audit_hwp_table_loss_full_population.py에서 실제로 발생 — 그 스크립트와
+    # 로직을 동일하게 맞추기 위해 여기도 매 실행마다 스스로 확인/설치하도록 추가.
+    if shutil.which("hwp5txt"):
+        return
+    print("hwp5txt가 PATH에 없음 — 설치 시도 중 (setuptools<60 → pyhwp → setuptools<82)...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "setuptools<60", "pyhwp"],
+        check=False,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-qU", "setuptools<82"],
+        check=False,
+    )
+    if not shutil.which("hwp5txt"):
+        raise SystemExit(
+            "hwp5txt 자동 설치 실패 — audit_hwp5txt_env_check.py를 먼저 돌려서 "
+            "pip 설치 로그를 확인할 것."
+        )
+    print("hwp5txt 설치 확인됨 — 이어서 진행.")
+
+
+_ensure_hwp5txt()
 
 # 2026-08-18: 처음엔 서브프로세스 실행이 있어서 PDF 스크립트(16)보다 낮게(8) 잡았는데,
 # 실측해보니 hwp5txt 1건 처리에 ~0.29초라 딱히 낮출 이유가 없었음(서브프로세스는 GIL을

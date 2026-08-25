@@ -2,6 +2,34 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔧 2026-08-25 (5차) — "0건" 재현 원인 확정: 진단 세션과 실행 세션이 다른 Colab 런타임 — 두 스크립트에 자가설치 로직 이식
+
+체크포인트 재진단 스크립트(4차) 실행 결과: 33,089건 **전부** 에러, 그중
+33,022건이 `[Errno 2] No such file or directory: 'hwp5txt'`(나머지 67건은
+jsdelivr 403, 무관). hwp5txt 자체 실행 실패(returncode != 0)가 아니라
+**아예 PATH에 없는** 것 — 3차에서 진단 스크립트로 pyhwp 설치를 확인했던
+Colab 런타임과, 실제로 전수조사를 돌린 런타임이 서로 다른 세션이었던
+것으로 확정(pip로 설치한 패키지는 해당 런타임에만 남고 새 세션엔
+안 남음).
+
+`_ensure_hwp5txt()` 헬퍼를 `audit_hwp_table_loss_full_population.py`와
+`audit_hwp_table_loss.py` 양쪽에 이식 — `audit_hwp5txt_env_check.py`를
+먼저 돌렸는지 여부와 무관하게, 이 스크립트들 자체가 실행 시작 시
+`shutil.which("hwp5txt")`로 확인 후 없으면 스스로 설치(같은 세션 안에서
+바로 통함, 3차에서 검증된 방식). 추가로 설계 결함 하나 더 수정: 최종
+"=== 결과 ===" 출력에 에러 총계가 빠져있어서 "영향받음 0건"이 진짜
+0건인지 에러로 새는 중인지 최종 요약만으로 구분 안 됐던 문제 —
+에러 건수/비율을 최종 요약에도 찍고, 10% 넘으면 재진단 스크립트로
+확인하라는 경고까지 추가. `python -m py_compile` 통과만 확인(DB 접근
+불가라 실제 재실행 검증은 못 함).
+
+**다음 단계(사용자, Colab에서)**:
+1. 무효 체크포인트 다시 삭제(이번 결과도 33,089건 전부 무효):
+   `!rm -f /content/drive/MyDrive/audit_project/hwp_table_loss_full_checkpoint.jsonl`
+2. 수정된 `audit_hwp_table_loss_full_population.py` 재실행 — 이번엔
+   어느 세션이든 스크립트가 알아서 hwp5txt를 설치하므로 진단 스크립트를
+   따로 먼저 돌릴 필요 없음. 최종 요약에 에러율도 같이 찍히니 그것부터 확인.
+
 ## 🔴 2026-08-25 (4차) — 전수조사 재실행에도 "0건" 재현 — 최종 요약에 에러 총계 누락 발견, 체크포인트 재진단 스크립트 작성
 
 hwp5txt 정상화(3차) 확인 후 사용자가 `audit_hwp_table_loss_full_population.py`를
