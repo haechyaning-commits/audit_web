@@ -149,6 +149,12 @@ async def search(
             confidence=_confidence_label(r["parsing_quality"]),
             preview_text=build_preview(r["preview_buffer"]),
             score=float(r["score"]),
+            # chunks.embedding이 NULL인 소수 케이스(schema_tables.sql엔 NOT NULL 제약이
+            # 없음, repository.py의 get_similar_documents 버그 수정 때 확인된 것과 동일한
+            # 이슈)에서는 vector_similarity도 NULL로 내려올 수 있음 — 그대로 None 전달.
+            vector_similarity=(
+                float(r["vector_similarity"]) if r["vector_similarity"] is not None else None
+            ),
         )
         for r in candidates
     ]

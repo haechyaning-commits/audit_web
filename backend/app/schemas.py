@@ -17,6 +17,12 @@ class SearchResultCard(BaseModel):
     # 프론트가 결과 카드에 상대 관련도(1위 대비 %) 막대로 보여주는 데 씀
     # (ResultCard.jsx). debug_score는 이제 후보 풀 크기(40건 vs 100건) 조절만 담당함.
     score: float
+    # 2026-08-25(베타테스트 피드백 3번): RRF score(순위 기반)와 별개로, 순위 융합을
+    # 거치지 않은 원래 코사인 유사도(쿼리 ↔ 실제 매치된 청크) — "관련성 낮음" 판단
+    # 기준을 실측으로 잡기 위해 우선 노출만 함(main.py __init__ 주석 참고). /search만
+    # 채워서 보냄 — /similar는 이미 score 자체가 코사인 유사도(1-distance)라 중복이라
+    # 안 채움(None).
+    vector_similarity: float | None = None
 
 
 class SearchResponse(BaseModel):
