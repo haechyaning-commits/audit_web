@@ -7,6 +7,7 @@ await로 바로 처리하고, CPU 연산인 임베딩 인코딩만 asyncio.to_th
 비동기를 지원 안 해서 동기 함수로 남겨둠).
 """
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -25,6 +26,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from . import db, embedding, repository, summary
 from .schemas import DocumentDetail, FilterOptions, SearchResponse, SearchResultCard, SummaryResponse
 from .textutils import build_preview, build_source_url, extract_title
+
+logger = logging.getLogger(__name__)
 
 CONFIDENCE_LABELS = {
     "standard": "신뢰도 높음",
@@ -194,9 +197,19 @@ async def get_similar_cases(document_id: str, limit: int = 5) -> list[SearchResu
     원문 로딩과 같이 자동으로 보여줘도 지연 걱정이 없음(요약보기처럼 버튼 뒤로 미룰
     필요 없음).
     문서가 존재하지 않아도(또는 청크가 없어도) 404 대신 빈 배열 반환 — 이 섹션은
-    상세페이지의 부가 정보라, 있으면 좋고 없어도 원문 조회 자체는 막지 않아야 함."""
+    상세페이지의 부가 정보라, 있으면 좋고 없어도 원문 조회 자체는 막지 않아야 함.
+    2026-08-25(버그 수정): 위 원칙이 지금까지 프론트(.catch(()=>[]))에서만 지켜지고
+    있었고, 백엔드는 예외가 나면 그냥 500을 냈음(실사용 중 재현됨 — repository.py의
+    get_similar_documents 주석 참고). 원인이 된 케이스(embedding NULL)는 거기서
+    고쳤지만, 데이터 품질 문제가 계속 나오는 프로젝트 특성상 "이 부가 기능 하나가
+    상세페이지 전체를 못 열게 만드는" 상황을 원천 차단하려고 여기서도 한 번 더
+    방어함 — 원인은 삼키지 않고 로그로 남기되, 사용자에게는 500 대신 빈 배열로 응답."""
     pool = db.get_pool()
-    rows = await repository.get_similar_documents(pool, document_id, limit=limit)
+    try:
+        rows = await repository.get_similar_documents(pool, document_id, limit=limit)
+    except Exception:
+        logger.exception("유사 사례 조회 실패 (document_id=%s)", document_id)
+        return []
     return [
         SearchResultCard(
             document_id=r["document_id"],
