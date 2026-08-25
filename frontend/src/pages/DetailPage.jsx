@@ -354,6 +354,15 @@ const FOOTNOTE_REF_RE = /[^\s\d](\d{1,2})\)/g;
 // 버렸음. \s*로 완화(공백 0개 이상) — footnoteNums 사전 스캔 + splitIntoBlocks의
 // effectivePrevType 조건이 이미 오탐을 걸러주고 있어 안전함.
 const FOOTNOTE_DEF_RE = /^(\d{1,2})\)\s*\S/;
+// 2026-08-25: "1. 업무 개요" → "2. 관계 법령 및 판단기준" → "3. 감사결과 확인된
+// 문제점"처럼 문서 최상위 구조를 이루는 "N." 형식(괄호 아닌 마침표) 번호 헤딩만
+// 따로 뽑음 — 각주 정의("N)")와 형식 자체가 달라서 안 겹침. 각주 문단을 누적하는
+// 중에 이 최상위 섹션 번호가 "직전 최상위 섹션 번호+1"로 정확히 이어지면, 그건
+// 각주가 인용한 법조항 번호가 아니라 진짜 다음 섹션이 시작된 것으로 보고 흡수를
+// 막는 데 씀(splitIntoBlocks의 각주 흡수 분기 참고, 실제 문서로 확인:
+// 한국관광공사 2024 a85748231dd23bc7 — 각주 1) 누적 중 "2. 관계 법령 및
+// 판단기준" 전체가 흡수돼 작은 글씨로 렌더링되던 버그).
+const TOP_LEVEL_SECTION_RE = /^(\d{1,2})\.\s+\S/;
 // 목록 헤딩 줄("1) 법령 ...")의 맨 앞 번호만 뽑음 — 아래 두 가지에 씀: ①연속된 번호
 // 목록인지 판단(각주 오판별 방지, splitIntoBlocks 참고) ②splitLawCitationHeading으로
 // 라벨만 잘라낸 뒤에도 그 라벨 자체의 번호를 계속 추적하기 위함.
@@ -708,6 +717,10 @@ function splitIntoBlocks(text) {
   // 각주로 오분류되는 문제를 실제 스크린샷으로 확인함(한국가스공사 2021 사례). 직전
   // 목록 번호 + 1과 정확히 같으면 목록 연속으로 보고 각주 판정에서 제외.
   let lastHeadingListNum = null;
+  // 2026-08-25: 지금까지 실제로 승격(흡수 안 됨)된 최상위 "N." 섹션 헤딩 중 가장
+  // 최근 번호 — TOP_LEVEL_SECTION_RE 주석 참고. 위 lastHeadingListNum이 "N)"
+  // 형식(각주/목록)을 추적하는 것과 대칭.
+  let lastTopLevelHeadingNum = null;
   // 2026-08-18: "□" 기호 혼자만 있는 줄 바로 다음 줄에 "점검 개요" 같은 실제 소제목
   // 텍스트가 오는 문서를 실제로 확인함(한국임업진흥원 2026 — 원래 "□ 점검 개요"가 PDF
   // 줄바꿈으로 기호와 글자가 갈라진 것으로 보임). "□" 혼자인 줄은 뒤에 오는 non-space
@@ -795,6 +808,13 @@ function splitIntoBlocks(text) {
     const continuesHeadingList =
       lastHeadingListNum !== null &&
       Number(footnoteMatch?.[1]) === lastHeadingListNum + 1;
+    // 2026-08-25: 각주 흡수 가드가 "다음 최상위 섹션 헤딩"까지 삼키는 걸 막기 위한
+    // 판별 — TOP_LEVEL_SECTION_RE/lastTopLevelHeadingNum 선언부 주석 참고.
+    const topLevelMatch = TOP_LEVEL_SECTION_RE.exec(trimmed);
+    const continuesTopLevelSection =
+      lastTopLevelHeadingNum !== null &&
+      topLevelMatch &&
+      Number(topLevelMatch[1]) === lastTopLevelHeadingNum + 1;
     // 2026-08-20: 실제 문서(한국자산관리공사 2021, 9ddc6393057cc532)를 디버그
     // 추적해서 확인함 — "* 당시 관련자는..." 같은 "*" 불릿이 각주 정의 줄보다
     // 먼저 나와서 그 뒤 평문들을 계속 "bullet" 문단으로 흡수하다가 진짜 각주
@@ -909,7 +929,8 @@ function splitIntoBlocks(text) {
       paraType === "footnote" &&
       isGenericListHeading(trimmed) &&
       !splitLawCitationHeading(trimmed) &&
-      !splitLawNameHeading(trimmed)
+      !splitLawNameHeading(trimmed) &&
+      !continuesTopLevelSection
     ) {
       para.push(trimmed);
       continue;
@@ -942,6 +963,8 @@ function splitIntoBlocks(text) {
         blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
+        const citationTopLevel = TOP_LEVEL_SECTION_RE.exec(label);
+        if (citationTopLevel) lastTopLevelHeadingNum = Number(citationTopLevel[1]);
         nextIsTable = false;
         paraType = "body";
         para.push(body);
@@ -957,6 +980,8 @@ function splitIntoBlocks(text) {
         blocks.push({ type: "heading", text: label, isTitle: TITLE_RE.test(label) });
         prevType = "heading";
         lastHeadingListNum = extractListNum(label);
+        const lawNameTopLevel = TOP_LEVEL_SECTION_RE.exec(label);
+        if (lawNameTopLevel) lastTopLevelHeadingNum = Number(lawNameTopLevel[1]);
         nextIsTable = false;
         paraType = "body";
         para.push(body);
@@ -996,6 +1021,7 @@ function splitIntoBlocks(text) {
       blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
       lastHeadingListNum = extractListNum(trimmed);
+      if (topLevelMatch) lastTopLevelHeadingNum = Number(topLevelMatch[1]);
       nextIsTable = TABLE_CAPTION_RE.test(trimmed);
       continue;
     }
