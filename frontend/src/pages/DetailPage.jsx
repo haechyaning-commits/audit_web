@@ -934,6 +934,24 @@ function splitIntoBlocks(text) {
     footnoteNums.add(m[1]);
   }
 
+  // 2026-08-25 19차: "구분 | 내용" 2단 표(캡션·셀 구분자 없이 셀이 줄마다 나열되는
+  // 문서, 한국자산관리공사 2021 9ddc6393057cc532 — 사용자가 원본 PDF와 같이 제보)
+  // 에서, 셀 값 "내용"이 문서 최상단 "2. 내용" 절 제목과 똑같이 생겨서(줄 전체가
+  // "내용"뿐) HEADING_LABEL_PATTERNS의 "내 용" 단독 줄 패턴에 걸려 표 안에서
+  // 여러 번(이 문서만 4번) 헤딩으로 잘못 승격됨 — 그때마다 문단이 끊겨서 "구분/
+  // 내용" 표 데이터가 짧은 조각들로 뿔뿔이 흩어져 보임. 실제 최상위 "내용" 절
+  // 제목은 "구분" 바로 다음에 오는 일이 없어서, 바로 앞 줄이 "구분"(표 헤더 쌍)일
+  // 때만 좁혀서 헤딩 승격을 막음 — 아래 메인 루프에서 현재 줄 인덱스로 참조.
+  const rawLines = text.split("\n");
+  const suppressContentHeadingAt = new Set();
+  for (let i = 1; i < rawLines.length; i++) {
+    const cur = rawLines[i].trim();
+    const prev = rawLines[i - 1].trim();
+    if (/^내\s*용$/.test(cur) && /^구\s*분$/.test(prev)) {
+      suppressContentHeadingAt.add(i);
+    }
+  }
+
   // 2026-08-25: 원본이 "문장 하나 = 문단 하나"로 각 문장 앞에 들여쓰기(공백)를 남겨
   // 두는 서식을 쓰는 문서가 있음(서울올림픽기념국민체육진흥공단 2020,
   // 82d99b460474700a — "관련자 주장 및 판단" 절처럼 여러 사람의 진술이 문장마다
@@ -1029,7 +1047,7 @@ function splitIntoBlocks(text) {
     paraType = "body";
   }
 
-  for (const rawLine of text.split("\n")) {
+  for (const [rawLineIdx, rawLine] of rawLines.entries()) {
     let trimmed = rawLine.trim();
 
     if (!trimmed || ORNAMENT_GLYPH_LINE_RE.test(trimmed)) {
@@ -1176,7 +1194,13 @@ function splitIntoBlocks(text) {
       continue;
     }
 
-    const kind = classifyLine(trimmed);
+    // suppressContentHeadingAt 선언부 주석 참고 — "구분" 바로 다음 "내용"만 표
+    // 헤더 쌍으로 보고 헤딩 승격을 막음(그 외의 "내용" 단독 줄은 그대로 헤딩).
+    const classifiedKind = classifyLine(trimmed);
+    const kind =
+      classifiedKind === "heading" && suppressContentHeadingAt.has(rawLineIdx)
+        ? "body"
+        : classifiedKind;
 
     // 2026-08-14: 표 데이터를 접어서 보여주는 중(paraType === "table")에 표 안 날짜
     // 셀 하나만 있는 줄("(2025. 8. 8.)")이 우연히 PAREN_LABEL_RE(괄호 라벨 헤딩)에도
