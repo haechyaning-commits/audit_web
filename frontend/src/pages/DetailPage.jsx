@@ -1358,10 +1358,25 @@ function splitIntoBlocks(text) {
       // 걸리지 않게(제목 스타일/목차 제외가 계속 정확히 동작하게) 하기 위함.
       blocks.push({ type: "heading", text: trimmed, isTitle: TITLE_RE.test(trimmed) });
       prevType = "heading";
-      lastHeadingListNum = extractListNum(trimmed);
+      // 2026-08-25 21차: "1) 성희롱에 관한 사항 ... [표 3] 성희롱 사건 일람표 ...
+      // 2) 직장 내 괴롭힘에 관한 사항"처럼 "N)" 목록 항목 두 개 사이에 "[표 N]"
+      // 캡션이 끼는 실제 문서(한국농어촌공사, 229cf35c0e8725cf)를 확인함 — "[표 3]"은
+      // "N)" 형식이 아니라 extractListNum이 null을 반환하는데, 그 null을 그대로
+      // lastHeadingListNum에 덮어써버려서 바로 다음 "2)"가 continuesHeadingList
+      // 판정에서 "1+1=2"를 확인 못 하고(lastHeadingListNum이 null이 됨) 진짜
+      // 각주로 오분류됨 — 본문 핵심 내용(5,548자, "2) 직장 내 괴롭힘에 관한
+      // 사항"부터 "다. 종합의견"까지)이 통째로 작은 글씨(각주 스타일)로 나오는
+      // 심각한 문제로 이어짐. "[표 N]" 캡션은 본문 흐름 중간에 끼어드는 보충
+      // 자료일 뿐 새 절 경계가 아니므로, 그 경우에만 이전 값을 유지 — 그 외
+      // 헤딩(법령 인용, 로마숫자, 가/나/다 등 진짜 새 절 경계)은 기존처럼 계속
+      // 초기화(null 포함)해서 다른 목록 카운팅과 안 섞이게 함.
+      const isTableCaptionHeading = TABLE_CAPTION_RE.test(trimmed);
+      if (!isTableCaptionHeading) {
+        lastHeadingListNum = extractListNum(trimmed);
+      }
       if (topLevelMatch) lastTopLevelHeadingNum = Number(topLevelMatch[1]);
       if (romanMatch) lastRomanHeadingNum = ROMAN_NUMERAL_VALUES[romanMatch[1]];
-      nextIsTable = TABLE_CAPTION_RE.test(trimmed);
+      nextIsTable = isTableCaptionHeading;
       continue;
     }
     if (kind === "field") {
