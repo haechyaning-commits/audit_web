@@ -77,7 +77,19 @@ doc_deduped AS (
 SELECT
     dd.document_id,
     dd.chunk_id,
-    dd.score,
+    -- 2026-08-25: 기관명 정확 매칭 가산점 — 검색어(자유 텍스트) 안에 실제 DB
+    -- 기관명이 그대로 들어있으면($7, main.py에서 미리 찾아둔 값) 그 기관 문서
+    -- 점수에 고정 가산치($8)를 더함. RRF 점수 최댓값은 두 leg 모두 1등일 때
+    -- 1/61+1/61 ≈ 0.033이므로, $8이 그보다 충분히 크면(기본 0.05) 기관이
+    -- 일치하는 문서가 항상 그렇지 않은 문서보다 위로 옴 — "한국관광공사 2024년
+    -- 특정감사"처럼 기관명을 포함한 자연어 질의를 던졌을 때, 그 기관명이 본문에
+    -- 그대로 안 남아있어 벡터/키워드 검색만으로는 순위가 안 나오는 문제(§FR5
+    -- 필터와 별개로, 자유 텍스트 질의 자체에서 기관을 우선하고 싶은 경우) 완화.
+    -- $7이 NULL이면(검색어에 기관명이 없거나, 사이드바 필터로 이미 institution이
+    -- 좁혀져 있어 가산점이 의미 없는 경우 main.py가 아예 안 채워서 보냄) 항상 0.
+    dd.score
+      + CASE WHEN $7::text IS NOT NULL AND doc.institution = $7 THEN $8::float ELSE 0 END
+      AS score,
     doc.institution,
     doc.year,
     doc.audit_type,
@@ -96,7 +108,7 @@ SELECT
 FROM doc_deduped dd
 JOIN documents doc ON doc.id = dd.document_id
 JOIN chunks c ON c.id = dd.chunk_id
-ORDER BY dd.score DESC
+ORDER BY score DESC
 LIMIT $3;
 """
 
@@ -109,11 +121,43 @@ async def search_candidates(
     institution: str | None = None,
     year: int | None = None,
     audit_type: str | None = None,
+    boost_institution: str | None = None,
+    boost_amount: float = 0.05,
 ) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         return await conn.fetch(
-            _SEARCH_SQL, query_vector, query_text, limit, institution, year, audit_type
+            _SEARCH_SQL,
+            query_vector,
+            query_text,
+            limit,
+            institution,
+            year,
+            audit_type,
+            boost_institution,
+            boost_amount,
         )
+
+
+# 2026-08-25: 검색어(자유 텍스트)에 실제 DB 기관명이 그대로 포함돼 있는지 찾음 —
+# 위 _SEARCH_SQL의 기관명 가산점($7)에 넘길 값을 구하는 용도. 후보를 Python으로
+# 다 끌어와 반복문 돌리는 대신, DISTINCT 기관명 목록(개수가 적어 이 프로젝트
+# 규모에선 충분히 가벼움 — get_filter_options와 같은 전제) 안에서 strpos로 부분
+# 문자열 매칭을 SQL이 직접 하게 함. 여러 기관명이 동시에 부분 매칭되면(예: 한
+# 기관명이 다른 기관명을 포함하는 경우) 가장 긴(가장 구체적인) 것 하나만 채택.
+_MATCH_INSTITUTION_SQL = """
+SELECT institution
+FROM (SELECT DISTINCT institution FROM documents
+      WHERE institution IS NOT NULL AND institution <> '') AS insts
+WHERE strpos($1, institution) > 0
+ORDER BY length(institution) DESC
+LIMIT 1;
+"""
+
+
+async def find_matching_institution(pool: asyncpg.Pool, query_text: str) -> str | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(_MATCH_INSTITUTION_SQL, query_text)
+        return row["institution"] if row else None
 
 
 _FILTER_OPTIONS_SQL = """

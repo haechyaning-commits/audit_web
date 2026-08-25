@@ -101,7 +101,21 @@ async def search(
         raise HTTPException(status_code=400, detail="검색어를 입력해주세요")
 
     pool = db.get_pool()
-    query_vector = await asyncio.to_thread(embedding.encode_query, q)
+    # 2026-08-25: 기관명 정확 매칭 가산점 — 검색어 자체에 실제 DB 기관명이 포함돼
+    # 있으면 그 기관 문서에 점수 가산치를 줌(repository._SEARCH_SQL 주석 참고).
+    # institution 필터(사이드바)가 이미 선택된 상태면 결과가 어차피 그 기관으로만
+    # 좁혀져 있어 가산점이 순위에 영향을 못 주므로(모든 후보에 똑같이 더해짐),
+    # 그 경우엔 조회 자체를 건너뜀. encode_query(CPU 스레드)와 독립적인 DB 조회라
+    # gather로 동시에 실행해서 지연시간을 추가로 늘리지 않음.
+    query_vector_task = asyncio.to_thread(embedding.encode_query, q)
+    boost_institution_task = (
+        repository.find_matching_institution(pool, q)
+        if institution is None
+        else asyncio.sleep(0, result=None)
+    )
+    query_vector, boost_institution = await asyncio.gather(
+        query_vector_task, boost_institution_task
+    )
     # debug_score일 땐 컷오프 지점을 보려고 후보 풀 끝(100건)까지 넉넉히 봄
     search_limit = 100 if debug_score else 40
     candidates = await repository.search_candidates(
@@ -112,6 +126,7 @@ async def search(
         institution=institution,
         year=year,
         audit_type=audit_type,
+        boost_institution=boost_institution,
     )
     candidates = repository.rerank(candidates, q)  # 지금은 no-op, 스트레치 목표(§3.4) 자리
 
