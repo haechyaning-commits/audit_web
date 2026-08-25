@@ -255,30 +255,6 @@ body {
   outline: none;
 }
 
-/* 검색어 지우기(X) — 헤더 검색창/히어로 검색창 둘 다 재사용 */
-.input-clear-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  align-self: center;
-}
-.input-clear-btn:hover {
-  background: var(--gray-5);
-  color: var(--text-heading);
-}
-.input-clear-btn svg {
-  margin-top: 0;
-}
-
 .header-actions {
   margin-left: auto;
   display: flex;
