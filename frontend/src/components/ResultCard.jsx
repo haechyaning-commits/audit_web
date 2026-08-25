@@ -14,7 +14,7 @@ import highlightMatches from "../highlight.jsx";
  * @param {string} [className]
  */
 export default function ResultCard({ result, rank, query, topScore, className = "" }) {
-  const { institution, year, audit_type, preview_text, score } = result;
+  const { title, institution, year, audit_type, preview_text, score } = result;
   const to = buildCaseUrl(result, query);
   // 2026-08-24(피드백 반영): score 자체(예: 0.031)는 사용자가 봐도 의미를 알기 어려워서,
   // 1위 대비 상대값(%)으로 정규화해서 막대로만 보여줌 — 정확한 스코어 수치를 노출하지
@@ -32,6 +32,13 @@ export default function ResultCard({ result, rank, query, topScore, className = 
         </span>
       )}
       <div className="result-card-body">
+        {/* 2026-08-25(베타테스트 피드백 4번): 지금까지 카드에 title이 아예 안 쓰이고
+            있었음 — raw_text 맨 앞줄이 "제목 : ..." 형식으로 안 된 문서(전체의 약
+            절반, textutils.extract_title 참고)는 title이 null이라 아예 못 보여주는
+            게 원래 이유. null일 땐 그냥 생략 — 지금처럼 기관명 줄이 유일한 제목
+            역할을 그대로 하게 둠(레이아웃 안 깨짐). title이 있을 때만 그 위에
+            추가로 보여줘서, 있는 문서는 목록에서 바로 스캔 가능하게 함. */}
+        {title && <h3 className="result-card-title">{title}</h3>}
         <span className="result-card-institution">
           {institution || "기관명 미상"}
           {year ? ` · ${year}년` : ""}
