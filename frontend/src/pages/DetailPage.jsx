@@ -545,6 +545,22 @@ const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
 // 흡수됨 — 실제 4개 각주로 교차검증(1~3번은 걸림/4번은 안 걸림, 아래 주석
 // 참고).
 const FOOTNOTE_LINE_CLOSED_RE = /[가-힣](?:임|함|됨|음)$/;
+// 2026-08-25(2차): "5) Convention and Visitors Bureau, 방문객과 컨벤션을
+// 지역사회에 유치하기 위한 비영리 기구"처럼, 영문 명칭 뒤에 쉼표로 한글 설명이
+// 붙는 "용어 정의형" 각주는 명사로 끝나("...비영리 기구") 위 FOOTNOTE_LINE_CLOSED_RE
+// (임/함/음/됨 한정)에 안 걸림 — 실제 문서(한국관광공사 2024, a85748231dd23bc7)로
+// 확인, 사용자 재제보. 이런 정의문은 "OO는 이런 뜻이다"라는 완결된 구조라 한
+// 줄로 끝나는 게 관례라 안전하게 완결로 봐도 됨 — 단, "4) 경력직(2급 팀장)으로
+// 입사하였으며, ... [부서]팀장을 거쳐"처럼 연결어미("거쳐")로 끝나 다음 줄까지
+// 이어지는 진짜 여러 줄짜리 각주는 한글로 시작해서 이 패턴 자체에 안 걸림 —
+// "영문으로 시작"이라는 조건이 좁혀주는 안전장치. 번호 접두어("N) ")는 제외하고
+// 그 뒤 본문만 검사.
+const FOOTNOTE_GLOSS_LINE_RE = /^[A-Za-z][A-Za-z0-9 &().,'-]*,\s*\S/;
+function looksLikeClosedFootnoteStart(trimmed) {
+  if (FOOTNOTE_LINE_CLOSED_RE.test(trimmed)) return true;
+  const body = trimmed.replace(/^\d{1,2}\)\s*/, "");
+  return FOOTNOTE_GLOSS_LINE_RE.test(body);
+}
 // isGenericListHeading 안에서만 쓰이지만, 줄마다(최대 세 번까지) 호출되므로 다른
 // top-level 정규식들과 같이 모듈 스코프로 끌어올림 — scripts/audit_render_anomalies.py의
 // LAW_CITATION_HINT_RE(430행)와 동일 반영(코드 리뷰로 발견, 2026-08-21).
@@ -990,9 +1006,12 @@ function splitIntoBlocks(text) {
       flushPara();
       paraType = "footnote";
       para.push(trimmed);
-      // FOOTNOTE_LINE_CLOSED_RE 선언부 주석 참고 — 한 줄짜리 완결형 각주면 다음 줄을
-      // 기다리지 않고 여기서 바로 끝냄(진짜 여러 줄짜리 각주는 이 패턴에 안 걸림).
-      if (FOOTNOTE_LINE_CLOSED_RE.test(trimmed)) flushPara();
+      // looksLikeClosedFootnoteStart 선언부 주석 참고 — 한 줄짜리 완결형 각주면
+      // 다음 줄을 기다리지 않고 여기서 바로 끝냄(진짜 여러 줄짜리 각주는 이
+      // 패턴에 안 걸림). 이어지는 줄(아래 catch-all)에는 더 좁은
+      // FOOTNOTE_LINE_CLOSED_RE만 씀 — FOOTNOTE_GLOSS_LINE_RE는 "번호) 영문…"
+      // 형태의 각주 시작 줄에만 의미가 있는 신호라 이어지는 줄에는 안 맞음.
+      if (looksLikeClosedFootnoteStart(trimmed)) flushPara();
       continue;
     }
 
