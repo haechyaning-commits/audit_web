@@ -252,10 +252,46 @@ def strip_hwpml_leak(text: str) -> str:
     return text
 
 
+# 2026-08-25: HWP가 그림에 자동으로 붙이는 "대체 텍스트"(스크린리더용 자동 설명,
+# 화면엔 원래 안 보임)가 그대로 본문 텍스트로 추출되는 문서를 실제로 확인함
+# (신용보증기금 2024, 96cb24681e40d064 — API로 raw_text 직접 조회해서 확인.
+# "『2010 성과감사』 그림입니다. 원본 그림의 이름: 신보로고.jpg 원본 그림의 크기:
+# 가로 588pixel, 세로 97pixel"). 이 프로젝트는 원문을 텍스트로만 렌더링하고
+# 이미지 자체는 안 보여주므로, 이 설명문은 실제 감사 내용과 무관한 잡음일 뿐임 —
+# "그림입니다." + "원본 그림의 이름: ..." + "원본 그림의 크기: 가로 N pixel,
+# 세로 N pixel" 세 조각이 항상 붙어 나오는 HWP 고정 템플릿이라 일반 감사보고서
+# 문장이 우연히 이 모양이 될 일이 없어 오탐 위험이 매우 낮음.
+# 미해결로 남겨둔 것(다음에 폭넓은 표본으로 확인 필요): 이 설명문 앞에 "di"/"n"/
+# "hp"/"styl"/"ch"처럼 소문자로만 된 짧은 낱말 조각이 따로 떨어져 나오는 것도
+# 같은 계열의 누출로 보이지만, 카멜케이스(CAMEL_CASE_TOKEN_RE)가 아니라서 안
+# 걸리고, 이 말뭉치에 실제로 존재할 수 있는 짧은 영문 약어(단위/이니셜 등)와
+# 구분할 안전한 기준을 아직 못 찾음 — 폭넓은 실제 표본 없이 섣불리 넓히면 오탐
+# 위험이 큼.
+IMAGE_ALT_TEXT_RE = re.compile(
+    r"(?:『[^』]{0,60}』\s*)?"  # 선택: 이미지 캡션(『...』)
+    r"그림입니다\.\s*"
+    r"원본\s*그림의\s*이름\s*:\s*\S+\s*"
+    r"원본\s*그림의\s*크기\s*:\s*가로\s*\d+\s*pixel\s*,\s*세로\s*\d+\s*pixel"
+)
+
+
+def strip_image_alt_text_leak(text: str) -> str:
+    """HWP 이미지 대체 텍스트(스크린리더용 자동 설명) 누출 제거. "그림입니다"가
+    아예 없는 문서는 그대로 반환 — strip_hwpml_leak과 같은 가드 원칙(관련 없는
+    문서까지 건드리는 사고 방지)."""
+    if "그림입니다" not in text:
+        return text
+    text = IMAGE_ALT_TEXT_RE.sub(" ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text).strip()
+    return text
+
+
 def full_fix(text: str) -> str:
     """hwp_leak을 먼저 벗겨서 구조를 정리 -> 글자/숫자/괄호 중복 collapse ->
     표 placeholder 잡음 제거 -> 제목 라벨 콜론 통일, 순서로 적용."""
     text = strip_hwpml_leak(text)
+    text = strip_image_alt_text_leak(text)
     text = fix_duplicated_chars(text)
     text = fix_duplicated_digits(text)
     text = fix_duplicated_brackets(text)
