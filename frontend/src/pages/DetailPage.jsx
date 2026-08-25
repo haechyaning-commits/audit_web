@@ -692,6 +692,24 @@ function looksLikePipeTable(text) {
   return Boolean(matches && matches.length >= 2);
 }
 
+// 2026-08-25: "[표N]" 캡션(TABLE_CAPTION_RE)이 항상 진짜 표 데이터로 이어지는 건
+// 아님을 실제 문서로 확인함(소상공인시장진흥공단 2025, 00491c347e197a52 — "[표2]
+// 관련자의 출장증빙 제출 내용" 캡션 바로 다음이 표가 아니라 법령 인용과 조사
+// 경과를 서술하는 정상적인 긴 문단이었음, 사용자 스크린샷 제보 — "이 내용이 표
+// 안에 들어가는게 맞아?"). 지금까지는 캡션이 nextIsTable을 한 번 켜면 그 다음
+// 문단은 내용과 무관하게 무조건 table 타입(접힌 <details>)으로 렌더링됐음 —
+// 실제로는 표가 아니라서 접어서 숨기면 오히려 못 읽게 만드는 역효과.
+// 진짜 표 데이터(셀이 공백으로 뭉개진 형태)는 완결된 한국어 문장이 거의 없이
+// 짧은 구절/숫자가 나열되는 반면, 이 문단처럼 진짜 서술형이면 문장종결
+// (SENTENCE_END_RE)이 여러 번 나옴 — 그 빈도로 "진짜 표"와 "표 캡션 뒤에 이어지는
+// 일반 서술문"을 구분(5회 이상이면 서술문으로 판단, 표 데이터 문단은 실제 확인한
+// 사례들에서 0~1회에 그침).
+const SENTENCE_END_RE_G = /[가-힣][.!?](?:\s|$)/g;
+function looksLikeRealProse(text) {
+  const matches = text.match(SENTENCE_END_RE_G);
+  return Boolean(matches && matches.length >= 5);
+}
+
 // 2026-08-24: "table" 블록이 전부 파이프 그리드는 아님(캡션 뒤에 붙는 표/그림
 // 조각, looksLikeFlattenedTable의 불릿 반복 문단도 같은 "table" 타입으로 옴) —
 // 그런 것들은 셀 경계가 없어서 실제 열로 못 나눔. 그래서 렌더링 시점에 "이 텍스트가
@@ -731,14 +749,17 @@ function splitIntoBlocks(text) {
   // 갈리는 부분에서 특히 두드러짐, 사용자 스크린샷 제보 — "글씨가 너무 빽빽하다").
   // 지금까지는 이 들여쓰기 신호를 무시하고 헤딩/불릿 아닌 줄을 전부 공백으로
   // 이어붙여서, 원래 독립된 문단 여러 개가 벽처럼 하나로 뭉쳐 보였음.
-  // 이 서식은 모든 문서에 있는 게 아니라(실제로 확인한 다른 문서 5건은 들여쓰기
-  // 0줄) 일부 문서에만 있어서, 문서 전체에서 들여쓰기 있는 줄의 비율을 먼저 재서
-  // 이 서식을 쓰는 문서인지 자체 판별함 — 그런 문서에서만(전체 코퍼스 재검증 없이도
-  // 안전하게) 들여쓰기를 문단 경계 신호로 씀. 비율 낮은 대부분의 문서는 기존 동작
-  // (공백 이어붙이기) 그대로 유지돼 회귀 위험이 없음. 문서가 너무 짧으면(줄 10개
-  // 미만) 비율이 우연에 좌우되기 쉬워 판별 대상에서 제외.
+  // 들여쓰기 폭은 문서마다 다름(위 문서는 공백 2칸, 소상공인시장진흥공단 2025
+  // 00491c347e197a52는 공백 1칸) — 정확한 칸 수 대신 "줄 맨 앞에 공백이 하나라도
+  // 있는지"만 봄. 이 서식은 모든 문서에 있는 게 아니라(실제로 확인한 다른 문서
+  // 6건은 전부 들여쓰기 0줄) 일부 문서에만 있어서, 문서 전체에서 들여쓰기 있는
+  // 줄의 비율을 먼저 재서 이 서식을 쓰는 문서인지 자체 판별함 — 그런 문서에서만
+  // (전체 코퍼스 재검증 없이도 안전하게) 들여쓰기를 문단 경계 신호로 씀. 비율
+  // 낮은 대부분의 문서는 기존 동작(공백 이어붙이기) 그대로 유지돼 회귀 위험이
+  // 없음. 문서가 너무 짧으면(줄 10개 미만) 비율이 우연에 좌우되기 쉬워 판별
+  // 대상에서 제외.
   const nonBlankLines = text.split("\n").filter((l) => l.trim());
-  const indentedLineCount = nonBlankLines.filter((l) => /^[ \t]{2,}/.test(l)).length;
+  const indentedLineCount = nonBlankLines.filter((l) => /^[ \t]/.test(l)).length;
   const usesIndentParagraphs =
     nonBlankLines.length >= 10 && indentedLineCount / nonBlankLines.length >= 0.3;
 
@@ -802,9 +823,11 @@ function splitIntoBlocks(text) {
       (paraType === "bullet" && looksLikeFlattenedTable(paraJoined)) ||
       looksLikePipeTable(paraJoined)
         ? "table"
-        : isLeadingCover
-          ? "cover"
-          : paraType;
+        : paraType === "table" && looksLikeRealProse(paraJoined)
+          ? "body"
+          : isLeadingCover
+            ? "cover"
+            : paraType;
     const text = type === "table" || type === "cover" ? para.join("\n") : paraJoined;
     blocks.push({ type, text });
     prevType = type;
@@ -1123,7 +1146,7 @@ function splitIntoBlocks(text) {
       usesIndentParagraphs &&
       paraType === "body" &&
       para.length > 0 &&
-      /^[ \t]{2,}/.test(rawLine)
+      /^[ \t]/.test(rawLine)
     ) {
       flushPara();
     }
@@ -1260,7 +1283,6 @@ export default function DetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   // 4줄 요약 — "요약보기" 버튼을 눌러야 채워짐(§4.5 온디맨드, POST /documents/{id}/summary).
@@ -1406,20 +1428,6 @@ export default function DetailPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // "링크 복사" — 요약 복사(handleCopy)와 같은 패턴, 대상만 이 사례의 현재 URL
-  // (SEO 친화적 slug 포함, window.location.href 그대로)로 다름.
-  function handleCopyLink() {
-    navigator.clipboard
-      .writeText(window.location.href)
-      .then(() => {
-        setLinkCopied(true);
-        setTimeout(() => setLinkCopied(false), 1800);
-      })
-      .catch(() => {
-        // 클립보드 API를 막아둔 브라우저 환경 — 조용히 무시 (버튼은 그대로 남아있어 재시도 가능)
-      });
-  }
-
   if (loading) {
     return (
       <div className="app-main detail-page">
@@ -1485,35 +1493,6 @@ export default function DetailPage() {
                   원본 파일 보기
                 </a>
               )}
-              <button
-                type="button"
-                className={`source-file-link link-copy-btn ${linkCopied ? "copied" : ""}`}
-                onClick={handleCopyLink}
-              >
-                {linkCopied ? (
-                  "복사됨"
-                ) : (
-                  <>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.5 1.5"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.5-1.5"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    링크 복사
-                  </>
-                )}
-              </button>
               <ConfidenceBadge label={doc.confidence} />
             </div>
 

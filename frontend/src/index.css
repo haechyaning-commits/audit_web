@@ -1239,15 +1239,6 @@ body {
 .source-file-link:hover {
   background: var(--primary-5);
 }
-/* 링크 복사 버튼 — <a>인 원본 파일 링크와 나란히 두는 <button>이라 커서/폰트만 맞춰줌 */
-.link-copy-btn {
-  cursor: pointer;
-  font-family: inherit;
-}
-.link-copy-btn.copied {
-  color: var(--success-text);
-  border-color: var(--success-text);
-}
 
 /* 검색 결과에서 이어져 들어왔을 때(?q= 있음), 왜 이 사례가 나왔는지 알려주는 안내 —
    원문 안 하이라이트(.raw-text mark)와 짝을 이룸 */
