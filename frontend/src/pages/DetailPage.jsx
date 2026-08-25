@@ -532,6 +532,19 @@ const NUMBERED_HEADING_RE = /^\d{1,2}[.)]\s+\S/;
 const ROMAN_NUMERAL_HEADING_RE = /^([ⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹ])\)\s+\S/;
 const ROMAN_NUMERAL_VALUES = { ⅰ: 1, ⅱ: 2, ⅲ: 3, ⅳ: 4, ⅴ: 5, ⅵ: 6, ⅶ: 7, ⅷ: 8, ⅸ: 9, ⅹ: 10 };
 const SENTENCE_END_RE = /[가-힣][.!?](?:\s|$)/;
+// 2026-08-25: 각주 정의 줄 자체가 "OO함"/"OO임"/"OO음"/"OO됨"처럼 명사형 어미로
+// 완결되고 마침표가 없는 한 줄짜리 짧은 주석인 문서를 실제로 확인함(한국관광공사
+// 2024, a85748231dd23bc7 — "1) 권익위의 의결서 내에는 87,181,181원으로 오기
+// 표시되어 있음", "2) ...권한을 위임함", "3) ...보조금을 받아 진행하는 행사임"
+// 전부 이 패턴). 지금까지는 각주 문단이 다음 각주 번호나 헤딩을 만나기 전까지
+// 무조건 계속 흡수했는데, 이런 한 줄짜리 완결형 각주 바로 뒤에 헤딩 마커 없이
+// 곧장 본문이 이어지면(사용자 스크린샷 제보 — "본문크기여야 하는데 작은 글씨로
+// 들어가는거 어떻게 고쳐") 그 본문 전체가 다음 헤딩을 만날 때까지 계속 각주
+// 작은글씨에 먹혀버림. 반대로 진짜 여러 줄짜리 각주(예: "...부서 또는 기관을
+// 말하며," 처럼 쉼표로 계속되는 줄)는 이 패턴에 안 걸려서 정상적으로 계속
+// 흡수됨 — 실제 4개 각주로 교차검증(1~3번은 걸림/4번은 안 걸림, 아래 주석
+// 참고).
+const FOOTNOTE_LINE_CLOSED_RE = /[가-힣](?:임|함|됨|음)$/;
 // isGenericListHeading 안에서만 쓰이지만, 줄마다(최대 세 번까지) 호출되므로 다른
 // top-level 정규식들과 같이 모듈 스코프로 끌어올림 — scripts/audit_render_anomalies.py의
 // LAW_CITATION_HINT_RE(430행)와 동일 반영(코드 리뷰로 발견, 2026-08-21).
@@ -977,6 +990,9 @@ function splitIntoBlocks(text) {
       flushPara();
       paraType = "footnote";
       para.push(trimmed);
+      // FOOTNOTE_LINE_CLOSED_RE 선언부 주석 참고 — 한 줄짜리 완결형 각주면 다음 줄을
+      // 기다리지 않고 여기서 바로 끝냄(진짜 여러 줄짜리 각주는 이 패턴에 안 걸림).
+      if (FOOTNOTE_LINE_CLOSED_RE.test(trimmed)) flushPara();
       continue;
     }
 
@@ -1182,6 +1198,12 @@ function splitIntoBlocks(text) {
       flushPara();
     }
     para.push(trimmed);
+    // FOOTNOTE_LINE_CLOSED_RE 선언부 주석 참고 — 여러 줄째 누적 중인 각주도 방금
+    // 넣은 줄이 완결형으로 끝나면 여기서 바로 닫음(진짜 여러 줄짜리 각주의 중간
+    // 줄은 쉼표 등으로 안 끝나서 이 조건에 안 걸리고 계속 흡수됨).
+    if (paraType === "footnote" && FOOTNOTE_LINE_CLOSED_RE.test(trimmed)) {
+      flushPara();
+    }
   }
   if (pendingGlyph) para.push(pendingGlyph); // 문서가 기호 단독 줄로 끝나는 경우
   flushPara();
