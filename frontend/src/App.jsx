@@ -3,7 +3,6 @@ import { Link, Route, Routes, useLocation } from "react-router-dom";
 import SearchPage from "./pages/SearchPage.jsx";
 import DetailPage from "./pages/DetailPage.jsx";
 import InstitutionPage from "./pages/InstitutionPage.jsx";
-import ComparePage from "./pages/ComparePage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import Footer from "./components/Footer.jsx";
 import HeaderSearch from "./components/HeaderSearch.jsx";
@@ -112,7 +111,6 @@ export default function App() {
           <Route path="/cases/:id/:slug" element={<DetailPage />} />
           <Route path="/documents/:id" element={<DetailPage />} />
           <Route path="/institutions/:name" element={<InstitutionPage />} />
-          <Route path="/compare" element={<ComparePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>

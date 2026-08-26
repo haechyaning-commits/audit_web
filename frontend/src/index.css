@@ -677,61 +677,6 @@ body {
   color: #fff;
 }
 
-/* 2026-08-26(나란히 비교 기능 추가): 정렬 토글과 같은 줄, 같은 필 버튼 톤. sort-toggle
-   버튼과 시각적으로 헷갈리지 않게 margin-left로 살짝 떨어뜨림(result-list-header가
-   flex justify-content:space-between이라 자연히 오른쪽 끝에 붙음). */
-.compare-mode-toggle {
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  margin-bottom: 14px;
-}
-.compare-mode-toggle:hover {
-  border-color: var(--primary-10);
-  color: var(--primary-dark);
-}
-.compare-mode-toggle.active {
-  background: var(--primary-5);
-  border-color: var(--primary);
-  color: var(--primary-dark);
-}
-
-/* 플로팅 바 — 2건 이상 선택했을 때만(SearchPage.jsx). 화면 중앙 하단 고정. */
-.compare-float-bar {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 10px 10px 20px;
-  border-radius: 999px;
-  background: var(--text-heading);
-  color: var(--bg);
-  font-size: 13px;
-  font-weight: 600;
-  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.4);
-}
-.compare-float-bar button {
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 700;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 999px;
-  background: var(--primary);
-  color: #fff;
-  cursor: pointer;
-}
-
 /* 2026-08-26(기능 교체): 검색 결과 상단 "이 검색어, 연도별 분포" 미니차트 — 사이드바
    연도 필터(체크박스, 이미 건수 보여주고 클릭도 됨)와 정보가 겹친다는 피드백으로
    "관련 법령 모아보기"(아래 .related-laws)로 교체함. */
@@ -1055,9 +1000,9 @@ body {
   transform: translateY(-1px);
   z-index: 1;
 }
-/* 2026-08-26(기관 프로필 기능 추가로 발견): 첫 슬롯(번호 배지/체크박스)이 아예
-   없는 경우(InstitutionPage.jsx처럼 rank도 selectable도 안 넘기는 화면)에도
-   body(2번째 트랙)/side(3번째 트랙)가 grid auto-placement로 밀려서 잘못된 트랙에
+/* 2026-08-26(기관 프로필 기능 추가로 발견): 첫 슬롯(번호 배지)이 아예 없는 경우
+   (InstitutionPage.jsx처럼 rank를 안 넘기는 화면)에도 body(2번째 트랙)/side(3번째
+   트랙)가 grid auto-placement로 밀려서 잘못된 트랙에
    들어가지 않게 명시적으로 고정. 아래 모바일 미디어쿼리가 이 grid-column을 다시
    덮어써야 하므로(더 좁은 화면에선 2열로 바뀜) 반드시 그 앞에 와야 함 — 소스 순서
    중요(같은 특정성이면 나중 규칙이 이김).
@@ -1093,12 +1038,12 @@ body {
 
 .result-card-body {
   min-width: 0;
-  /* 2026-08-26(기관 프로필 기능 추가로 발견): rank도 selectable도 없이 ResultCard를
-     쓰는 화면(InstitutionPage.jsx)이 생기면서 드러난 버그 — 맨 왼쪽 34px 슬롯(번호
-     배지/체크박스)이 아예 안 그려지면, 이 body가 grid auto-placement로 1번째(34px)
-     트랙에 배치되고 본문 전체가 그 좁은 폭에 눌려 글자가 세로로 줄바꿈되는 참사가
-     났음(DetailPage.jsx의 유사 사례는 항상 rank를 넘겨서 이 버그를 우연히 피해감).
-     grid-column을 명시해서 첫 슬롯 유무와 무관하게 항상 2번째 트랙에 고정. */
+  /* 2026-08-26(기관 프로필 기능 추가로 발견): rank 없이 ResultCard를 쓰는 화면
+     (InstitutionPage.jsx)이 생기면서 드러난 버그 — 맨 왼쪽 34px 슬롯(번호 배지)이
+     아예 안 그려지면, 이 body가 grid auto-placement로 1번째(34px) 트랙에 배치되고
+     본문 전체가 그 좁은 폭에 눌려 글자가 세로로 줄바꿈되는 참사가 났음(DetailPage.jsx의
+     유사 사례는 항상 rank를 넘겨서 이 버그를 우연히 피해감). grid-column을 명시해서
+     첫 슬롯 유무와 무관하게 항상 2번째 트랙에 고정. */
   grid-column: 2;
 }
 /* 2026-08-25(베타테스트 피드백 4번): title이 있는 문서(전체의 약 절반, 나머지는
@@ -1136,21 +1081,6 @@ body {
 .result-card-institution-link:focus-visible {
   text-decoration: underline;
   color: var(--primary);
-}
-/* 2026-08-26(나란히 비교 기능 추가): 비교 모드일 때 번호 배지 자리를 대신 차지하는
-   체크박스(ResultCard.jsx — 34px 슬롯 하나를 공유). */
-.result-card-select {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.result-card-select input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--primary);
-  cursor: pointer;
 }
 /* title이 있을 때만(바로 앞 형제로 존재할 때만) institution을 부제(byline)로 격하 —
    title 없는 문서(institution이 유일한 제목 역할)는 기존 스타일 그대로 유지됨. */
@@ -2057,113 +1987,3 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ------------------------------------------------------------------
-   2026-08-26(기능 추가): 나란히 비교(ComparePage.jsx)
-   ------------------------------------------------------------------ */
-.compare-scroll {
-  overflow-x: auto;
-  /* 표(그리드) 자체 안에서만 가로 스크롤 — 페이지 본문은 안 밀림(다른 wide content와
-     같은 원칙, artifact-design 규칙과도 일치). */
-}
-.compare-grid {
-  display: grid;
-  grid-template-columns: 110px repeat(var(--compare-cols), minmax(220px, 1fr));
-  /* 2026-08-26(실제 렌더링으로 발견한 버그): min-width: max-content를 줬더니 1fr
-     트랙의 "선호 크기(max-content contribution)"가 사실상 무한대에 가깝게 계산돼서
-     비교 문서 3건인데 각 컬럼이 1695px까지 벌어지는 참사가 났음(원문 텍스트가 안
-     꺾이려는 성질 때문으로 추정). 그냥 컨테이너 폭(.compare-scroll)에 맞춰 채우게
-     두고, 컬럼 수가 많아 220px 최소폭도 못 채우는 경우에만 .compare-scroll의
-     overflow-x로 가로 스크롤이 자연스럽게 생기게 함. */
-  width: 100%;
-  min-width: 640px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.compare-cell {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  font-size: 13px;
-  min-width: 0; /* grid 자식이 내용 때문에 폭을 넘치지 않게(.search-main과 같은 원칙) */
-  overflow-wrap: anywhere;
-}
-.compare-cell:last-child {
-  border-right: none;
-}
-.compare-row-label {
-  background: var(--primary-5);
-  color: var(--primary-dark);
-  font-weight: 700;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-}
-.compare-head-label {
-  background: var(--surface);
-}
-.compare-head {
-  position: relative;
-  background: var(--bg);
-}
-.compare-remove {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px;
-}
-.compare-remove:hover {
-  color: var(--text);
-}
-.compare-inst {
-  display: block;
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-heading);
-  text-decoration: none;
-  margin-right: 20px;
-}
-.compare-inst:hover {
-  text-decoration: underline;
-  color: var(--primary);
-}
-.compare-meta {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  margin: 3px 0 8px;
-}
-.compare-loading,
-.compare-error {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--text-muted);
-}
-.compare-body {
-  color: var(--text);
-  line-height: 1.6;
-}
-.compare-raw {
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-.compare-summary-btn {
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border: 1px solid var(--primary-10);
-  border-radius: 999px;
-  background: var(--primary-5);
-  color: var(--primary-dark);
-  cursor: pointer;
-}
-.compare-summary-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
