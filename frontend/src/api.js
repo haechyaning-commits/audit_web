@@ -76,4 +76,10 @@ export function getSimilarCases(documentId) {
   return request(`/documents/${encodeURIComponent(documentId)}/similar`);
 }
 
+/** 홈 화면 "오늘의 사례" — 날짜 기준으로 결정적으로 고른 문서 1건(GET /documents/daily).
+ * 같은 날 안에는 다시 불러도 항상 같은 문서. 페이지 로드 시 한 번만 호출. */
+export function getDailyCase() {
+  return request("/documents/daily");
+}
+
 export { ApiError };

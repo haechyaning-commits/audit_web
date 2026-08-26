@@ -6,6 +6,8 @@
 상세 API가 문서 조회 시 summary_point가 비어있으면 여기를 호출하고, 결과를
 repository.save_summary()로 캐싱해서 다음부터는 재호출 안 함.
 """
+import re
+
 import openai
 
 MODEL = "gpt-4o-mini"  # 참고치 가격: $0.15/1M input, $0.60/1M output — 실행 전 재확인 권장
@@ -36,6 +38,19 @@ FREEFORM_PROMPT_TEMPLATE = """아래 감사 사례 원문을 읽고, 항목 구�
 
 FREEFORM_FALLBACK_PHRASE = "요약할 내용 없음"
 
+# 2026-08-26(실제 브라우저 렌더링으로 발견): PROMPT_TEMPLATE이 모델에게 "1줄: ...", "2줄:
+# ..." 형식으로 답하라고 시키는데, 모델이 그 "N줄: " 라벨까지 그대로 출력에 포함시켜서
+# summary_point 등에 "1줄: 부적정한 출장비 정산으로..."처럼 저장되고 있었음. 상세페이지는
+# 이미 "① 지적사항" 같은 자체 라벨을 헤더로 보여주고 있어서, 화면에 "① 지적사항 / 1줄:
+# 부적정한..."처럼 라벨이 중복으로 겹쳐 보이는 문제였음(FALLBACK_PHRASES 판별은 부분
+# 문자열 매칭이라 이 프리픽스가 있어도 원래 정상 동작했음 — 그 로직은 안 건드림).
+_LINE_PREFIX_RE = re.compile(r"^\d\s*줄\s*[:：]\s*")
+
+
+def _strip_line_prefix(line: str) -> str:
+    return _LINE_PREFIX_RE.sub("", line.strip(), count=1)
+
+
 _client: openai.AsyncOpenAI | None = None
 
 
@@ -64,7 +79,12 @@ async def _call_once(raw_text: str) -> dict | None:
     lines = [l for l in text.strip().split("\n") if l.strip()]
     if len(lines) != 4:
         return None
-    return {"point": lines[0], "cause": lines[1], "action": lines[2], "result": lines[3]}
+    return {
+        "point": _strip_line_prefix(lines[0]),
+        "cause": _strip_line_prefix(lines[1]),
+        "action": _strip_line_prefix(lines[2]),
+        "result": _strip_line_prefix(lines[3]),
+    }
 
 
 def _all_fallback(summary: dict) -> bool:

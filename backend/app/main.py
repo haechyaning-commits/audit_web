@@ -7,9 +7,12 @@ await로 바로 처리하고, CPU 연산인 임베딩 인코딩만 asyncio.to_th
 비동기를 지원 안 해서 동기 함수로 남겨둠).
 """
 import asyncio
+import hashlib
 import logging
 import os
+from collections import Counter
 from contextlib import asynccontextmanager
+from datetime import date
 
 from dotenv import load_dotenv
 
@@ -177,7 +180,40 @@ async def search(
         )
         for r in candidates
     ]
-    return SearchResponse(query=q, results=results)
+    # 2026-08-26(기능 추가): 검색결과 화면에 "이 검색어가 연도별로 얼마나 나오는지" 미니
+    # 차트를 보여주기 위한 집계. 전체 코퍼스(6.8만 건)를 새로 훑는 별도 쿼리를 만들지
+    # 않고, 이미 가져온 candidates(RRF 후보 풀, 최대 40~100건)를 그대로 집계함 — 그래서
+    # "이 검색어와 매칭될 수 있는 문서 전체"가 아니라 "지금 이 검색에서 실제로 보여주는
+    # 후보들"의 연도 분포임(연도 필터가 걸려 있으면 그 필터가 적용된 후보 기준). year가
+    # NULL인 후보는 집계에서 제외.
+    year_counter = Counter(r["year"] for r in candidates if r["year"] is not None)
+    year_distribution = [
+        YearCount(year=year, count=count) for year, count in sorted(year_counter.items())
+    ]
+    return SearchResponse(query=q, results=results, year_distribution=year_distribution)
+
+
+# 2026-08-26(기능 추가): 홈 화면 "오늘의 사례" — 매 새로고침마다 바뀌면 "오늘의"라는
+# 이름과 안 맞아서, 날짜(UTC)를 시드로 결정적으로 하나를 고름(repository.get_daily_case
+# 참고 — 같은 날 안에는 몇 번을 다시 불러도 항상 같은 문서가 나옴).
+@app.get("/documents/daily", response_model=SearchResultCard)
+async def get_daily_case() -> SearchResultCard:
+    pool = db.get_pool()
+    seed = int(hashlib.md5(date.today().isoformat().encode()).hexdigest(), 16)
+    row = await repository.get_daily_case(pool, seed)
+    if row is None:
+        raise HTTPException(status_code=404, detail="사례가 없습니다")
+    return SearchResultCard(
+        document_id=row["id"],
+        title=extract_title(row["raw_text"]),
+        institution=row["institution"],
+        year=row["year"],
+        audit_type=row["audit_type"],
+        confidence=_confidence_label(row["parsing_quality"]),
+        preview_text=build_preview(row["raw_text"]),
+        score=0.0,  # "오늘의 사례"는 검색 관련도 개념이 없음 — SearchResultCard 재사용을 위해 0 고정
+        vector_similarity=None,
+    )
 
 
 @app.get("/filters", response_model=FilterOptions)

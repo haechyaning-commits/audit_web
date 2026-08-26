@@ -25,14 +25,19 @@ class SearchResultCard(BaseModel):
     vector_similarity: float | None = None
 
 
-class SearchResponse(BaseModel):
-    query: str
-    results: list[SearchResultCard]
-
-
 class YearCount(BaseModel):
     year: int
     count: int
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResultCard]
+    # 2026-08-26(기능 추가): 이 검색어가 연도별로 얼마나 나오는지 — results(최대 40~100건,
+    # RRF 후보 풀)를 연도별로 집계한 것. 전체 6.8만 건 중 "이 검색어와 매칭된 문서 전체"의
+    # 정확한 연도 분포가 아니라 "지금 이 검색의 후보 풀 안에서의" 분포임에 유의(주석은
+    # main.py 계산부에 상세).
+    year_distribution: list[YearCount]
 
 
 class YearStatsResponse(BaseModel):

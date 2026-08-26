@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getYearStats } from "../api.js";
+import DailyCase from "../components/DailyCase.jsx";
 import FilterSidebar from "../components/FilterSidebar.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import YearChart from "../components/YearChart.jsx";
+import YearTrendChart from "../components/YearTrendChart.jsx";
 
 // 2026-08-25(베타테스트 피드백 5번): 이 두 값이 지금까지 여기 하드코딩돼 있어서, DB에
 // 새 문서가 계속 반영되고 있는데도(HWP 표 손실 복구 등 진행 중) 프론트를 재배포하지
@@ -42,6 +44,7 @@ const PAGE_SIZE = 10; // 2열 x 5줄
 export default function SearchPage({ search }) {
   const {
     results,
+    yearDistribution,
     baseResults,
     searchedQuery,
     loading,
@@ -331,12 +334,13 @@ export default function SearchPage({ search }) {
                     <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
                   </svg>
                 </span>
-                <span className="stat-card-num">AI 전체 요약 자동 생성</span>
-                <span className="stat-card-label">사례 클릭 시 온디맨드 생성</span>
+                <span className="stat-card-num">AI 4줄 요약 제공</span>
+                <span className="stat-card-label">"요약보기" 클릭 시 AI가 생성</span>
               </div>
             </div>
 
             <YearChart data={yearStats.years} />
+            <DailyCase />
           </div>
         </section>
       )}
@@ -441,6 +445,7 @@ export default function SearchPage({ search }) {
                       </button>
                     </div>
                   </div>
+                  <YearTrendChart data={yearDistribution} />
                   <ul className="result-list">
                     {pagedResults.map((result, i) => (
                       <li key={result.document_id}>

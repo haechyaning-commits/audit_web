@@ -2,6 +2,16 @@ import { Link } from "react-router-dom";
 import { buildCaseUrl } from "../caseUrl.js";
 import highlightMatches from "../highlight.jsx";
 
+// 2026-08-26(디자인 평가 피드백): 지금까지 감사종류 배지가 4종 전부 같은 파란 틴트라,
+// title 없는 문서가 많은 목록에서 행끼리 구분이 잘 안 됐음. 데이터/API 변경 없이 CSS
+// 색상만으로 스캔하기 쉽게 함 — 새 색을 만들지 않고 기존 토큰(success/warn/amend)만
+// 재사용(index.css 참고). 종합감사(가장 흔한 기본형)는 기존 primary 틴트 그대로 둠.
+const AUDIT_TYPE_CLASS = {
+  재무감사: "result-card-audit-type-finance",
+  복무감사: "result-card-audit-type-conduct",
+  특정감사: "result-card-audit-type-special",
+};
+
 /**
  * 2026-08-12: law.go.kr류 목록형으로 재구성 — 카드(둥근모서리+그림자) 그리드 대신
  * 왼쪽 번호열 / 가운데 본문 / 오른쪽 메타(감사종류·연도) 3열 행으로 촘촘하게 나열.
@@ -50,7 +60,13 @@ export default function ResultCard({ result, rank, query, topScore, className = 
       {/* audit_type은 source_file명 파싱으로 채워짐(백필 전 문서는 아직 null일 수 있음,
           2026-08-12) — 없으면 조용히 생략 */}
       <div className="result-card-side">
-        {audit_type && <span className="result-card-audit-type">{audit_type}</span>}
+        {audit_type && (
+          <span
+            className={`result-card-audit-type ${AUDIT_TYPE_CLASS[audit_type] || ""}`}
+          >
+            {audit_type}
+          </span>
+        )}
         {relevancePct != null && (
           <span
             className="result-card-relevance"
