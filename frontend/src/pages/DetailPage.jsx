@@ -1786,7 +1786,15 @@ export default function DetailPage() {
         <div className="detail-content">
           <div className="detail-card">
             <p className="detail-breadcrumb">
-              <b>{doc.institution || "기관명 미상"}</b>
+              {/* 2026-08-26(기관 프로필 기능 추가): 이 페이지는 카드 전체가 링크로
+                  감싸여 있지 않아서(ResultCard.jsx와 달리) 그냥 <Link>로 바로 연결 가능 */}
+              {doc.institution ? (
+                <Link to={`/institutions/${encodeURIComponent(doc.institution)}`} className="detail-institution-link">
+                  <b>{doc.institution}</b>
+                </Link>
+              ) : (
+                <b>기관명 미상</b>
+              )}
               {doc.year ? <span className="sep">›</span> : null}
               {doc.year ? `${doc.year}년` : ""}
               {doc.audit_type ? <span className="sep">›</span> : null}

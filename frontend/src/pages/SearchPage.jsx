@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { getYearStats } from "../api.js";
 import DailyCase from "../components/DailyCase.jsx";
 import FilterSidebar from "../components/FilterSidebar.jsx";
@@ -67,6 +67,25 @@ export default function SearchPage({ search }) {
 
   const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef(null);
+  const navigate = useNavigate();
+  // 2026-08-26(나란히 비교 기능 추가): "비교 모드" 버튼을 눌러야 카드에 체크박스가
+  // 나타남(항상 켜두면 지금의 깨끗한 목록 톤과 안 맞는다고 판단, 설계 아티팩트의
+  // "결정이 필요한 것" 항목 참고). selectedIds는 이 화면(세션) 안에서만 의미 있는
+  // 임시 상태라 localStorage 없이 useState로 충분 — 검색어가 바뀌면 초기화(아래 useEffect).
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  function toggleSelect(documentId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(documentId)) next.delete(documentId);
+      else next.add(documentId);
+      return next;
+    });
+  }
+  // 검색어가 바뀌면(새 검색) 이전 선택은 의미가 없어짐 — 조용히 초기화.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchedQuery]);
   // 2026-08-24(피드백 반영): 모바일(≤720px)에서는 필터 사이드바가 기본으로 접혀있음 —
   // 감사유형/기관/연도 세 그룹이 다 펼쳐진 채로 검색 결과보다 위에 쌓이면, 화면을 한참
   // 내려야 결과가 보이는 문제(index.css의 .filter-sidebar 관련 미디어쿼리 참고). 데스크톱
@@ -444,6 +463,19 @@ export default function SearchPage({ search }) {
                         최신순
                       </button>
                     </div>
+                    {/* 2026-08-26(나란히 비교 기능 추가): 상시 노출 체크박스 대신 이
+                        버튼으로 켜야만 카드에 체크박스가 나타남 — 평소 목록은 지금처럼
+                        깨끗하게 유지(설계 아티팩트에서 결정한 방향). */}
+                    <button
+                      type="button"
+                      className={`compare-mode-toggle ${compareMode ? "active" : ""}`}
+                      onClick={() => {
+                        setCompareMode((v) => !v);
+                        setSelectedIds(new Set());
+                      }}
+                    >
+                      {compareMode ? "비교 모드 끄기" : "여러 사례 비교"}
+                    </button>
                   </div>
                   <RelatedLaws data={relatedLaws} />
                   <ul className="result-list">
@@ -454,6 +486,9 @@ export default function SearchPage({ search }) {
                           rank={(page - 1) * PAGE_SIZE + i + 1}
                           query={searchedQuery}
                           topScore={topScore}
+                          selectable={compareMode}
+                          selected={selectedIds.has(result.document_id)}
+                          onToggleSelect={toggleSelect}
                         />
                       </li>
                     ))}
@@ -473,6 +508,20 @@ export default function SearchPage({ search }) {
                         </button>
                       ))}
                     </nav>
+                  )}
+
+                  {/* 2026-08-26(나란히 비교 기능 추가): 2건 이상 선택했을 때만 뜨는
+                      플로팅 바 — 설계 아티팩트의 화면 목업과 동일. */}
+                  {compareMode && selectedIds.size >= 2 && (
+                    <div className="compare-float-bar">
+                      <span>{selectedIds.size}건 선택됨</span>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/compare?ids=${[...selectedIds].join(",")}`)}
+                      >
+                        비교하기 →
+                      </button>
+                    </div>
                   )}
                 </>
               )}

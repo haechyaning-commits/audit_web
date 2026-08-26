@@ -28,8 +28,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from . import db, embedding, repository, summary
 from .schemas import (
+    AuditTypeCount,
     DocumentDetail,
     FilterOptions,
+    InstitutionProfile,
     RelatedLaw,
     SearchResponse,
     SearchResultCard,
@@ -220,6 +222,45 @@ async def get_daily_case() -> SearchResultCard:
         preview_text=build_preview(row["raw_text"]),
         score=0.0,  # "오늘의 사례"는 검색 관련도 개념이 없음 — SearchResultCard 재사용을 위해 0 고정
         vector_similarity=None,
+    )
+
+
+# 2026-08-26(기능 추가): 기관 프로필 미니페이지 — "이 기관이 감사를 얼마나 자주/어떤
+# 종류로 받았나"를 기관명 하나로 바로 조회. 검색(벡터/키워드)이 아니라 단순 집계라
+# 쿼리 4개를 동시에 날림(서로 독립적, repository.py 참고). 존재하지 않는 기관명(오타
+# 등)이면 total=0이라 404.
+@app.get("/institutions/{name}", response_model=InstitutionProfile)
+async def get_institution_profile(name: str) -> InstitutionProfile:
+    pool = db.get_pool()
+    total, year_rows, audit_type_rows, recent_rows = await asyncio.gather(
+        repository.get_institution_total(pool, name),
+        repository.get_institution_years(pool, name),
+        repository.get_institution_audit_types(pool, name),
+        repository.get_institution_recent(pool, name),
+    )
+    if not total:
+        raise HTTPException(status_code=404, detail="해당 기관의 사례를 찾을 수 없습니다")
+    return InstitutionProfile(
+        institution=name,
+        total=total,
+        years=[YearCount(year=r["year"], count=r["count"]) for r in year_rows],
+        audit_types=[
+            AuditTypeCount(audit_type=r["audit_type"], count=r["count"]) for r in audit_type_rows
+        ],
+        recent_cases=[
+            SearchResultCard(
+                document_id=r["id"],
+                title=extract_title(r["raw_text"]),
+                institution=r["institution"],
+                year=r["year"],
+                audit_type=r["audit_type"],
+                confidence=_confidence_label(r["parsing_quality"]),
+                preview_text=build_preview(r["raw_text"]),
+                score=0.0,  # 최신순 나열이라 관련도 개념 없음 — 오늘의 사례와 같은 패턴
+                vector_similarity=None,
+            )
+            for r in recent_rows
+        ],
     )
 
 

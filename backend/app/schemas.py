@@ -84,6 +84,24 @@ class DocumentDetail(BaseModel):
     summary_freeform_failed: bool
 
 
+class AuditTypeCount(BaseModel):
+    audit_type: str
+    count: int
+
+
+class InstitutionProfile(BaseModel):
+    """기관 프로필 미니페이지(GET /institutions/{name}) — "이 기관이 감사를 얼마나
+    자주 받았나 / 어떤 지적을 주로 받나"를 한눈에 보여주는 용도. 검색과 무관하게
+    기관명 하나로 바로 조회(2026-08-26 기능 추가)."""
+    institution: str
+    total: int
+    years: list[YearCount]
+    audit_types: list[AuditTypeCount]
+    # 최신순 상위 몇 건 — 벡터/키워드 검색이 아니라 그냥 연도순 나열이라 score는
+    # 의미가 없음(SearchResultCard 재사용을 위해 0 고정, "오늘의 사례"와 같은 패턴).
+    recent_cases: list[SearchResultCard]
+
+
 class SummaryResponse(BaseModel):
     """POST /documents/{id}/summary 응답 (§4.5 온디맨드 요약 + §4.6 실패 처리).
     "요약보기" 버튼 클릭 시에만 호출됨 — 이미 캐싱된 값이 있으면 재생성 없이 그대로 반환.
