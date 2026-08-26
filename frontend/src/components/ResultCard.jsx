@@ -4,11 +4,17 @@ import highlightMatches from "../highlight.jsx";
 
 // 2026-08-26(디자인 평가 피드백): 지금까지 감사종류 배지가 4종 전부 같은 파란 틴트라,
 // title 없는 문서가 많은 목록에서 행끼리 구분이 잘 안 됐음. 데이터/API 변경 없이 CSS
-// 색상만으로 스캔하기 쉽게 함 — 새 색을 만들지 않고 기존 토큰(success/warn/amend)만
-// 재사용(index.css 참고). 종합감사(가장 흔한 기본형)는 기존 primary 틴트 그대로 둠.
+// 색상만으로 스캔하기 쉽게 함 — 기존 토큰(success/warn/amend) + 신규 info 토큰 재사용
+// (index.css 참고). 종합감사(실사용 데이터 기준 가장 흔한 타입, 약 60%)는 기존 primary
+// 틴트 그대로 둠.
+// 2026-08-26(후속 수정): 실 배포에서 "색이 다 똑같아 보인다" 피드백 확인 — 원인은
+// 성과감사(두 번째로 흔함, 약 4%)가 종합감사와 같은 기본색을 같이 쓰고 있었던 것.
+// info 토큰으로 분리함. 나머지 5종(국민제안감사/물품관리감사/정부합동감사/
+// 대행감사(감사원)/자치_위임사무감사)은 실사용 표본에서 드물게 나와 기본색 유지.
 const AUDIT_TYPE_CLASS = {
   재무감사: "result-card-audit-type-finance",
   복무감사: "result-card-audit-type-conduct",
+  성과감사: "result-card-audit-type-performance",
   특정감사: "result-card-audit-type-special",
 };
 
