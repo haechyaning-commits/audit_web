@@ -33,6 +33,12 @@
   --amend: #8a6d1f;
   --amend-tint: #f6f0de;
 
+  /* 2026-08-26: 감사종류 배지 5번째 색(성과감사) — 실사용 데이터로 보니 종합감사(가장
+     흔함) 다음으로 성과감사가 꽤 나오는데 둘 다 기본(primary) 틴트를 같이 쓰고 있어서
+     "색이 다 똑같다"는 피드백의 실제 원인이었음(ResultCard.jsx 참고). */
+  --info-bg: #e3eef1;
+  --info-text: #1a6b78;
+
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
   --shadow-hero: 0 4px 16px rgba(26, 77, 143, 0.1);
 
@@ -72,6 +78,8 @@
     --warn-text: #e3a94a;
     --amend: #d4b567;
     --amend-tint: #2a2416;
+    --info-bg: #16292c;
+    --info-text: #6fc4d1;
   }
 }
 
@@ -94,6 +102,8 @@
   --warn-text: #e3a94a;
   --amend: #d4b567;
   --amend-tint: #2a2416;
+  --info-bg: #16292c;
+  --info-text: #6fc4d1;
 }
 
 * {
@@ -1085,7 +1095,10 @@ body {
 }
 /* 2026-08-26(디자인 평가 피드백): 감사종류별 색 구분 — 새 색상 값 없이 기존 토큰만
    재사용(신뢰도 배지 success/warn, 개정이력 amend와 같은 팔레트). 종합감사는 위
-   기본(primary 틴트) 그대로 유지. */
+   기본(primary 틴트) 그대로 유지.
+   2026-08-26(후속 수정): 실 배포 데이터로 확인해보니 성과감사가 종합감사 다음으로
+   흔한데 둘 다 기본(primary)을 같이 써서 "색이 똑같다"는 피드백을 받음 — info 토큰으로
+   분리(index.css 최상단 :root 참고). */
 .result-card-audit-type-finance {
   background: var(--success-bg);
   color: var(--success-text);
@@ -1093,6 +1106,10 @@ body {
 .result-card-audit-type-conduct {
   background: var(--warn-bg);
   color: var(--warn-text);
+}
+.result-card-audit-type-performance {
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 .result-card-audit-type-special {
   background: var(--amend-tint);
