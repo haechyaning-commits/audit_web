@@ -121,3 +121,27 @@ def build_source_url(source_file: str | None) -> str | None:
         return None
     encoded = "/".join(quote(segment) for segment in path.split("/"))
     return _SOURCE_REPO_RAW_BASE + encoded
+
+
+# 2026-08-26(기능 추가): 검색 결과 상단 "관련 법령 모아보기" — frontend/src/lawLink.jsx의
+# 낫표(「」) 인용 → 법령 판별 로직을 파이썬으로 그대로 옮김(정규식/접미사 조건 동일하게
+# 유지해야 프론트 상세페이지에서 실제로 링크가 걸리는 것과 여기 집계가 어긋나지 않음).
+# 그 파일의 헤더 주석 참고 — "낫표 안이면 법령명"은 틀린 가정이었고(실 배포 데이터로
+# 확인: 기관 내부 지침/규정/요령이 압도적 다수), 법/법률/시행령/시행규칙/조례로 끝나는
+# 것만 실제 국가 법령으로 신뢰함.
+_LAW_CITATION_RE = re.compile(r"[「｢]([^」｣]{2,60})[」｣]")
+_LAW_SUFFIX_RE = re.compile(r"(법|법률|시행령|시행규칙|조례)$")
+
+
+def extract_law_citations(raw_text: str | None) -> set[str]:
+    """raw_text에서 진짜 국가 법령으로 보이는 낫표 인용만 정규화해서 집합으로 반환
+    (같은 문서 안에서 여러 번 인용돼도 1개로 침 — "관련 법령 모아보기" 집계가 인용
+    횟수가 아니라 "몇 개 문서가 이 법을 언급하는지"를 세는 용도라서)."""
+    if not raw_text:
+        return set()
+    names = set()
+    for m in _LAW_CITATION_RE.finditer(raw_text):
+        normalized = re.sub(r"\s+", " ", m.group(1)).strip()
+        if _LAW_SUFFIX_RE.search(normalized) and not normalized.startswith("○"):
+            names.add(normalized)
+    return names

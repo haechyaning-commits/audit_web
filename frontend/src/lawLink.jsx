@@ -31,7 +31,8 @@ function normalizeCitation(raw) {
   return raw.replace(/\s+/g, " ").trim();
 }
 
-function lawSearchUrl(lawName) {
+// export: RelatedLaws.jsx("관련 법령 모아보기" 칩)도 같은 URL 규칙을 써야 해서 공유.
+export function lawSearchUrl(lawName) {
   return `https://www.law.go.kr/lsSc.do?menuId=1&query=${encodeURIComponent(lawName)}`;
 }
 

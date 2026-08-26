@@ -169,6 +169,22 @@ async def find_matching_institution(pool: asyncpg.Pool, query_text: str) -> str 
         return row["institution"] if row else None
 
 
+# 2026-08-26(기능 추가): "관련 법령 모아보기"용 — 이번 검색의 후보 문서(candidates,
+# 최대 40~100건)의 raw_text를 한 번에 가져와서 main.py가 textutils.extract_law_citations로
+# 집계함. search_candidates가 이미 title_buffer(200자)/preview_buffer(320자)만 잘라서
+# 주는 이유(대역폭)와 달리, 이건 서버 안에서만 쓰고 클라이언트로는 집계 결과(법령명+건수)
+# 몇 개만 내려가므로 전체 raw_text를 가져와도 응답 크기에 영향 없음. document_id 기준
+# PK 조회라 가벼움(인덱스 스캔, 최대 100건).
+_RAW_TEXT_BY_IDS_SQL = "SELECT id, raw_text FROM documents WHERE id = ANY($1::text[]);"
+
+
+async def get_raw_texts(pool: asyncpg.Pool, document_ids: list[str]) -> list[asyncpg.Record]:
+    if not document_ids:
+        return []
+    async with pool.acquire() as conn:
+        return await conn.fetch(_RAW_TEXT_BY_IDS_SQL, document_ids)
+
+
 _FILTER_OPTIONS_SQL = """
 SELECT
     ARRAY(SELECT DISTINCT institution FROM documents

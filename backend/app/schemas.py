@@ -30,14 +30,22 @@ class YearCount(BaseModel):
     count: int
 
 
+class RelatedLaw(BaseModel):
+    """검색 결과 상단 "관련 법령 모아보기"용 — 이 검색의 후보 문서들이 인용한 법령 중
+    빈도순 상위 몇 개(main.py 참고). count는 인용 횟수가 아니라 "몇 개 문서가 이
+    법을 언급하는지"(textutils.extract_law_citations가 문서당 1회로 셈)."""
+    name: str
+    count: int
+
+
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResultCard]
-    # 2026-08-26(기능 추가): 이 검색어가 연도별로 얼마나 나오는지 — results(최대 40~100건,
-    # RRF 후보 풀)를 연도별로 집계한 것. 전체 6.8만 건 중 "이 검색어와 매칭된 문서 전체"의
-    # 정확한 연도 분포가 아니라 "지금 이 검색의 후보 풀 안에서의" 분포임에 유의(주석은
-    # main.py 계산부에 상세).
-    year_distribution: list[YearCount]
+    # 2026-08-26(기능 추가 → 후속 교체): 처음엔 "이 검색어, 연도별 분포" 미니차트였는데,
+    # 사이드바 연도 필터(체크박스, 이미 건수까지 보여주고 클릭도 됨)와 정보가 그대로
+    # 겹친다는 피드백으로 related_laws(관련 법령 모아보기)로 교체함 — 다른 화면에 없는
+    # 새 정보이고, 이 사이트의 실무 도구 성격에 더 맞는다고 판단.
+    related_laws: list[RelatedLaw]
 
 
 class YearStatsResponse(BaseModel):
