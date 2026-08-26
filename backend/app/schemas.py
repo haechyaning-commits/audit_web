@@ -1,4 +1,6 @@
 """API가 주고받는 데이터 형태 (Pydantic 모델) — FastAPI가 이걸로 자동 검증 + Swagger 문서화."""
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -100,6 +102,33 @@ class InstitutionProfile(BaseModel):
     # 최신순 상위 몇 건 — 벡터/키워드 검색이 아니라 그냥 연도순 나열이라 score는
     # 의미가 없음(SearchResultCard 재사용을 위해 0 고정, "오늘의 사례"와 같은 패턴).
     recent_cases: list[SearchResultCard]
+
+
+class ErrorReportCreate(BaseModel):
+    """상세페이지 "오류 신고" 모달 제출값(POST /reports) — 2026-08-26. 처음엔 GitHub 이슈
+    새로 만들기 링크로 연결했는데, "그게 아니라 신고창 뜨고 제출하면 내가 볼 수 있게"라는
+    피드백으로 자체 저장(DB)+관리자 조회(GET /admin/reports)로 교체함. document_id 등
+    메타는 프론트가 이미 알고 있는 값을 그대로 실어 보냄 — 백엔드가 document_id로 다시
+    조회하지 않는 이유는 신고 자체는 원문이 이상하다는 제보라 문서가 이미 지워졌거나
+    document_id를 못 찾는 경우에도 신고는 그대로 접수돼야 하기 때문."""
+    document_id: str | None = None
+    institution: str | None = None
+    year: int | None = None
+    audit_type: str | None = None
+    message: str
+    page_url: str | None = None
+
+
+class ErrorReportOut(BaseModel):
+    """GET /admin/reports 조회용 — 관리자 HTML 페이지 렌더링에만 씀(외부 공개 API 아님)."""
+    id: int
+    document_id: str | None
+    institution: str | None
+    year: int | None
+    audit_type: str | None
+    message: str
+    page_url: str | None
+    created_at: datetime
 
 
 class SummaryResponse(BaseModel):

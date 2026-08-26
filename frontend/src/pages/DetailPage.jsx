@@ -4,6 +4,7 @@ import { buildCasePath } from "../caseUrl.js";
 import { getCaseDetail, getCaseSummary, getSimilarCases } from "../api.js";
 import useDocumentTitle from "../useDocumentTitle.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
+import ReportErrorModal from "../components/ReportErrorModal.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import highlightMatches from "../highlight.jsx";
 import linkifyLawCitations from "../lawLink.jsx";
@@ -31,31 +32,6 @@ const SUMMARY_FIELDS = [
 ];
 
 const SCROLL_TOP_THRESHOLD = 480;
-
-// 2026-08-26(기능 추가: 데이터 오류 신고): 이번 세션에서만 실사용 중 실제 버그를
-// 여러 건 발견했는데(배지 색 구분, 법령 링크 매칭 등), 정작 사용자가 이상한 사례를
-// 발견해도 신고할 통로가 없었음. 별도 백엔드/폼 없이 GitHub 이슈 생성 URL에
-// title/body를 미리 채워 넣는 방식으로 최소 구현 — 신규 인프라 없이 바로 동작함.
-const GITHUB_REPO_URL = "https://github.com/haechyaning-commits/audit_web";
-
-function buildReportIssueUrl(doc, docId) {
-  const title = `[데이터 오류] ${doc.institution || "기관명 미상"} · ${doc.year ? `${doc.year}년` : "연도 미상"} · ${docId}`;
-  const body = [
-    "## 어떤 부분이 이상한가요?",
-    "(예: 감사종류가 잘못 표시됨 / 기관명이 깨져 보임 / 법령 링크가 엉뚱한 곳으로 감 등)",
-    "",
-    "",
-    "---",
-    "### 참고 정보 (자동 입력됨)",
-    `- 문서 ID: ${docId}`,
-    `- 기관: ${doc.institution || "미상"}`,
-    `- 연도: ${doc.year || "미상"}`,
-    `- 감사종류: ${doc.audit_type || "미상"}`,
-    `- 페이지: ${typeof window !== "undefined" ? window.location.href : ""}`,
-  ].join("\n");
-  const params = new URLSearchParams({ title, body, labels: "data-error" });
-  return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
-}
 
 // 원문이 그냥 통짜 텍스트로 나열돼서 보기 힘들다는 피드백(2026-08-12) 대응 — 감사보고서
 // 원문에 자주 나오는 구조 패턴(제목, 번호/가나다 항목, 로마숫자 장 구분, 괄호라벨)만
@@ -1632,6 +1608,7 @@ export default function DetailPage() {
   const navigate = useNavigate();
 
   const [doc, setDoc] = useState(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -1854,12 +1831,11 @@ export default function DetailPage() {
                 </a>
               )}
               <ConfidenceBadge label={doc.confidence} />
-              <a
-                href={buildReportIssueUrl(doc, id)}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
                 className="report-error-link"
-                title="이 사례의 데이터가 잘못됐다면 GitHub 이슈로 신고해 주세요"
+                onClick={() => setReportOpen(true)}
+                title="이 사례의 데이터가 잘못됐다면 신고해 주세요"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
@@ -1871,8 +1847,11 @@ export default function DetailPage() {
                   />
                 </svg>
                 오류 신고
-              </a>
+              </button>
             </div>
+            {reportOpen && (
+              <ReportErrorModal doc={doc} docId={id} onClose={() => setReportOpen(false)} />
+            )}
 
             {/* 검색 결과에서 이어져 들어온 경우(?q= 있음)에만 표시 — 이 사례가 왜 노출됐는지
                 알려주고, 아래 원문에서 일치하는 부분을 하이라이트 처리함 */}

@@ -55,3 +55,16 @@ CREATE INDEX IF NOT EXISTS chunks_tsv_gin_idx
     ON chunks USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS chunks_document_id_idx
     ON chunks (document_id);
+
+-- error_reports: 상세페이지 "오류 신고" 모달 제출값 (2026-08-26) — 백엔드가 시작할 때마다
+-- CREATE TABLE IF NOT EXISTS로 알아서 만듦(repository.py ensure_error_reports_table 참고).
+CREATE TABLE IF NOT EXISTS error_reports (
+    id          SERIAL PRIMARY KEY,
+    document_id TEXT,
+    institution TEXT,
+    year        INT,
+    audit_type  TEXT,
+    message     TEXT NOT NULL,
+    page_url    TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

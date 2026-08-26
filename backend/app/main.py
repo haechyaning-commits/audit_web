@@ -25,11 +25,13 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import HTMLResponse
 
 from . import db, embedding, repository, summary
 from .schemas import (
     AuditTypeCount,
     DocumentDetail,
+    ErrorReportCreate,
     FilterOptions,
     InstitutionProfile,
     RelatedLaw,
@@ -54,10 +56,23 @@ def _confidence_label(parsing_quality: str | None) -> str:
     return CONFIDENCE_LABELS.get(parsing_quality, "일부 참고")
 
 
+# 2026-08-26(데이터 오류 신고 → 관리자 조회): GET /admin/reports 접근을 이 값으로만 제한함.
+# 로그인/계정 시스템이 없는 포트폴리오 프로젝트라 별도 인증 체계 대신 URL에 붙이는
+# 공유 비밀 토큰 방식(예: /admin/reports?token=...)을 씀 — Railway 환경변수로 등록.
+# 값이 비어 있으면(로컬 등) 항상 403으로 막아서, 설정을 깜빡했을 때 실수로 열려있는
+# 상태가 되는 걸 방지함(빈 문자열끼리 비교돼서 통과하는 사고 방지).
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+# 악의적으로 아주 긴 문자열을 반복 제출하는 걸 막는 최소 방어선(신고 폼은 로그인 없이 누구나
+# 씀) — 이 길이를 넘기면 그냥 사용자 입력 실수로 보고 400으로 거절.
+MAX_REPORT_MESSAGE_LEN = 2000
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 모델/커넥션 풀은 앱 시작 시 딱 한 번만 로드 (요청마다 로드하면 지연시간 폭증, §3.3)
     await db.init_pool()
+    await repository.ensure_error_reports_table(db.get_pool())
     await asyncio.to_thread(embedding.load_model)
     # 2026-08-25(성능 개선): 캐시 예열은 await로 기다리지 않고 백그라운드로 던짐 —
     # 예열 문구 4개가 각각 ~15초씩 걸릴 수 있어서 await하면 배포 직후 헬스체크/시작
@@ -414,3 +429,92 @@ async def get_document_summary(document_id: str) -> SummaryResponse:
         summary_freeform=summary_freeform,
         summary_freeform_failed=summary_freeform_failed,
     )
+
+
+@app.post("/reports", status_code=201)
+async def submit_error_report(payload: ErrorReportCreate) -> dict:
+    """상세페이지 "오류 신고" 모달 제출 (2026-08-26) — 처음엔 GitHub 새 이슈 링크로 보냈는데,
+    "그게 아니라 신고창 뜨고 제출하면 내가 볼 수 있게"라는 피드백으로 자체 저장으로 교체함.
+    로그인 없이 누구나 호출 가능한 공개 엔드포인트라 메시지 길이만 최소한으로 검증."""
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="신고 내용을 입력해 주세요.")
+    if len(message) > MAX_REPORT_MESSAGE_LEN:
+        raise HTTPException(
+            status_code=400, detail=f"신고 내용은 {MAX_REPORT_MESSAGE_LEN}자 이내로 작성해 주세요."
+        )
+    pool = db.get_pool()
+    await repository.create_error_report(
+        pool,
+        document_id=payload.document_id,
+        institution=payload.institution,
+        year=payload.year,
+        audit_type=payload.audit_type,
+        message=message,
+        page_url=payload.page_url,
+    )
+    return {"ok": True}
+
+
+def _admin_reports_html(rows: list) -> str:
+    """관리자 전용이라 프론트(React) 없이 백엔드가 직접 HTML을 만들어 반환 — 이 화면 하나
+    때문에 프론트 라우트/빌드를 늘릴 필요가 없다고 판단함(2026-08-26). 신고 내용은 사용자
+    입력값이므로 escape 필수(XSS 방지)."""
+    import html as html_lib
+
+    if not rows:
+        body = "<p>아직 접수된 신고가 없습니다.</p>"
+    else:
+        items = []
+        for r in rows:
+            meta = " · ".join(
+                str(v)
+                for v in [r["institution"], f"{r['year']}년" if r["year"] else None, r["audit_type"]]
+                if v
+            )
+            page_link = (
+                f'<a href="{html_lib.escape(r["page_url"])}" target="_blank" rel="noreferrer">페이지 열기</a>'
+                if r["page_url"]
+                else ""
+            )
+            items.append(
+                f"""
+                <li>
+                  <div class="meta">#{r['id']} · {r['created_at']:%Y-%m-%d %H:%M} ·
+                    문서 {html_lib.escape(r['document_id'] or '미상')}
+                    {f' · {html_lib.escape(meta)}' if meta else ''}
+                    {f' · {page_link}' if page_link else ''}
+                  </div>
+                  <div class="msg">{html_lib.escape(r['message'])}</div>
+                </li>
+                """
+            )
+        body = f"<ul>{''.join(items)}</ul>"
+
+    return f"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>데이터 오류 신고 목록</title>
+<style>
+  body {{ font-family: -apple-system, "Pretendard", sans-serif; max-width: 760px;
+         margin: 40px auto; padding: 0 16px; color: #222; }}
+  h1 {{ font-size: 20px; }}
+  ul {{ list-style: none; padding: 0; }}
+  li {{ border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }}
+  .meta {{ font-size: 12.5px; color: #777; margin-bottom: 6px; }}
+  .msg {{ white-space: pre-wrap; line-height: 1.5; }}
+</style></head>
+<body>
+<h1>데이터 오류 신고 목록 (최근 {len(rows)}건)</h1>
+{body}
+</body></html>"""
+
+
+@app.get("/admin/reports", response_class=HTMLResponse)
+async def admin_reports(token: str = "") -> HTMLResponse:
+    """토큰 기반 관리자 조회 페이지 — 로그인 시스템이 없는 프로젝트 규모에 맞춘 최소 인증
+    (2026-08-26). ADMIN_TOKEN 미설정 시 항상 거부(주석 참고)."""
+    if not ADMIN_TOKEN or token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    pool = db.get_pool()
+    rows = await repository.list_error_reports(pool)
+    return HTMLResponse(_admin_reports_html(rows))
