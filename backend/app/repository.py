@@ -236,6 +236,27 @@ async def get_document(pool: asyncpg.Pool, document_id: str) -> asyncpg.Record |
         return await conn.fetchrow(_GET_DOCUMENT_SQL, document_id)
 
 
+# 2026-08-26(기능 추가): 홈 화면 "오늘의 사례" — id 순으로 정렬해두고 day_seed(호출부에서
+# 날짜로 만듦)를 문서 수로 나눈 나머지를 OFFSET으로 써서 결정적으로 1건을 고름. 순수
+# ORDER BY random()보다 훨씬 싸고(전체 정렬 불필요), get_filter_options/get_year_stats와
+# 같은 이유로 이 규모(6.8만 건)에서는 캐싱 없이 매번 count(*) 한 번 + OFFSET 조회 한 번을
+# 해도 부담 없음.
+_DAILY_CASE_SQL = """
+SELECT id, institution, year, audit_type, raw_text, parsing_quality
+FROM documents
+ORDER BY id
+LIMIT 1 OFFSET $1;
+"""
+
+
+async def get_daily_case(pool: asyncpg.Pool, day_seed: int) -> asyncpg.Record | None:
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("SELECT count(*) FROM documents;")
+        if not total:
+            return None
+        return await conn.fetchrow(_DAILY_CASE_SQL, day_seed % total)
+
+
 # 2026-08-24(피드백 반영): 상세페이지 "유사 사례" 섹션 — 검색(_SEARCH_SQL)과 똑같은
 # 벡터 검색을 재사용하되, "사용자가 입력한 문장" 대신 "지금 보고 있는 이 문서 자체"를
 # 쿼리로 삼음. 쿼리 임베딩을 SQL 밖(파이썬)에서 만드는 것도 search_candidates와 동일한

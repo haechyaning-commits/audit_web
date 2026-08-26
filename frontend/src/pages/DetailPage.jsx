@@ -6,6 +6,22 @@ import useDocumentTitle from "../useDocumentTitle.js";
 import ConfidenceBadge from "../components/ConfidenceBadge.jsx";
 import ResultCard from "../components/ResultCard.jsx";
 import highlightMatches from "../highlight.jsx";
+import linkifyLawCitations from "../lawLink.jsx";
+
+/** 원문 렌더링 공통 경로: 낫표 인용 법령명은 law.go.kr 링크로, 그 나머지(및 링크가 없는
+ * 구간)에는 검색어 있으면 하이라이트까지 적용. linkifyLawCitations가 먼저 나눈 각
+ * 조각 중 문자열인 것만 highlightMatches로 한 번 더 쪼개고, 이미 링크(JSX)로 바뀐
+ * 조각은 그대로 통과시킴 — 법령명 안에 검색어가 우연히 겹쳐도 이중 마킹 안 함. */
+function renderText(text, query) {
+  const linked = linkifyLawCitations(text);
+  return linked.map((part, i) =>
+    typeof part === "string" ? (
+      <span key={i}>{query ? highlightMatches(part, query) : part}</span>
+    ) : (
+      part
+    ),
+  );
+}
 
 const SUMMARY_FIELDS = [
   { key: "summary_point", label: "지적사항" },
@@ -1498,14 +1514,14 @@ function renderRawText(blocks, query) {
                 {rows.map((cells, ri) => (
                   <tr key={ri} className={ri === 0 ? "raw-table-header-row" : undefined}>
                     {cells.map((cell, ci) => (
-                      <td key={ci}>{query ? highlightMatches(cell, query) : cell}</td>
+                      <td key={ci}>{renderText(cell, query)}</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <div>{query ? highlightMatches(b.text, query) : b.text}</div>
+            <div>{renderText(b.text, query)}</div>
           )}
         </details>
       );
@@ -1517,16 +1533,14 @@ function renderRawText(blocks, query) {
       return (
         <div key={i} className="raw-line raw-line-field">
           <b className="raw-line-field-label">{b.label}</b>
-          <span className="raw-line-field-value">
-            {query ? highlightMatches(b.value, query) : b.value}
-          </span>
+          <span className="raw-line-field-value">{renderText(b.value, query)}</span>
         </div>
       );
     }
     if (b.type !== "heading") {
       return (
         <div key={i} className={`raw-line raw-line-${b.type}`}>
-          {query ? highlightMatches(b.text, query) : b.text}
+          {renderText(b.text, query)}
         </div>
       );
     }
@@ -1538,7 +1552,7 @@ function renderRawText(blocks, query) {
         id={id}
         className={`raw-line ${isTitle ? "raw-line-title" : "raw-line-heading"}`}
       >
-        {query ? highlightMatches(b.text, query) : b.text}
+        {renderText(b.text, query)}
       </div>
     );
   });
