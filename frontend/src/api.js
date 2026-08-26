@@ -82,4 +82,10 @@ export function getDailyCase() {
   return request("/documents/daily");
 }
 
+/** 기관 프로필 미니페이지 — 이 기관의 전체 건수/연도별·감사종류별 분포/최신 사례
+ * (GET /institutions/{name}). 존재하지 않는 기관명이면 404. */
+export function getInstitutionProfile(name) {
+  return request(`/institutions/${encodeURIComponent(name)}`);
+}
+
 export { ApiError };

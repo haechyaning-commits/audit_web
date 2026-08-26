@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { buildCaseUrl } from "../caseUrl.js";
 import highlightMatches from "../highlight.jsx";
 
@@ -11,7 +11,9 @@ import highlightMatches from "../highlight.jsx";
 // 성과감사(두 번째로 흔함, 약 4%)가 종합감사와 같은 기본색을 같이 쓰고 있었던 것.
 // info 토큰으로 분리함. 나머지 5종(국민제안감사/물품관리감사/정부합동감사/
 // 대행감사(감사원)/자치_위임사무감사)은 실사용 표본에서 드물게 나와 기본색 유지.
-const AUDIT_TYPE_CLASS = {
+// InstitutionPage.jsx도 같은 색 매핑을 써야 감사종류 배지 색이 화면마다 안 어긋남 —
+// export해서 공유.
+export const AUDIT_TYPE_CLASS = {
   재무감사: "result-card-audit-type-finance",
   복무감사: "result-card-audit-type-conduct",
   성과감사: "result-card-audit-type-performance",
@@ -28,10 +30,24 @@ const AUDIT_TYPE_CLASS = {
  * @param {number} [topScore] - 이 검색의 1위 결과 스코어(상대 관련도 막대 기준값,
  *   없으면 막대 생략) — SearchPage.jsx가 results[0].score를 넘겨줌
  * @param {string} [className]
+ * @param {boolean} [selectable] - true면 왼쪽에 비교용 체크박스 표시(SearchPage.jsx
+ *   "비교 모드" 참고). false/미지정이면 기존과 완전히 동일하게 렌더링.
+ * @param {boolean} [selected]
+ * @param {(documentId: string) => void} [onToggleSelect]
  */
-export default function ResultCard({ result, rank, query, topScore, className = "" }) {
+export default function ResultCard({
+  result,
+  rank,
+  query,
+  topScore,
+  className = "",
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}) {
   const { title, institution, year, audit_type, preview_text, score } = result;
   const to = buildCaseUrl(result, query);
+  const navigate = useNavigate();
   // 2026-08-24(피드백 반영): score 자체(예: 0.031)는 사용자가 봐도 의미를 알기 어려워서,
   // 1위 대비 상대값(%)으로 정규화해서 막대로만 보여줌 — 정확한 스코어 수치를 노출하지
   // 않는 이유는 RRF 점수가 "이 검색어 안에서의 상대적 순위"일 뿐 절대적인 신뢰도가
@@ -40,12 +56,52 @@ export default function ResultCard({ result, rank, query, topScore, className = 
   const relevancePct =
     topScore && score != null ? Math.max(6, Math.round((score / topScore) * 100)) : null;
 
+  // 2026-08-26(기관 프로필 기능 추가): 기관명을 클릭하면 그 기관 프로필로 이동.
+  // 카드 전체가 이미 <Link>라서 그 안에 또 <a>/<Link>를 넣으면 앵커 중첩(잘못된 HTML,
+  // 클릭 동작도 브라우저마다 들쭉날쭉)이 됨 — 그래서 실제 링크 대신 클릭 가능한
+  // <span>(키보드 접근성용 role/tabIndex 포함)으로 만들고, 카드 자체의 네비게이션이
+  // 같이 발동하지 않도록 stopPropagation+preventDefault 후 navigate로 직접 이동.
+  function handleInstitutionClick(e) {
+    if (!institution) return;
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(`/institutions/${encodeURIComponent(institution)}`);
+  }
+  function handleInstitutionKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      handleInstitutionClick(e);
+    }
+  }
+
+  function handleCheckboxClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    onToggleSelect?.(result.document_id);
+  }
+
+  // 카드 왼쪽 34px 슬롯은 하나뿐 — 비교 모드일 땐 체크박스가 번호 대신 그 자리를 씀
+  // (grid-template-columns이 항상 3열로 고정돼 있어서 동시에 둘 다 넣으면 레이아웃이
+  // 깨짐, index.css의 .result-card 참고).
   return (
     <Link to={to} className={`result-card ${className}`}>
-      {rank != null && (
-        <span className="result-card-rank mono" aria-hidden="true">
-          {String(rank).padStart(2, "0")}
+      {selectable ? (
+        <span
+          className="result-card-select"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label="비교에 추가"
+          tabIndex={0}
+          onClick={handleCheckboxClick}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleCheckboxClick(e)}
+        >
+          <input type="checkbox" checked={selected} readOnly tabIndex={-1} />
         </span>
+      ) : (
+        rank != null && (
+          <span className="result-card-rank mono" aria-hidden="true">
+            {String(rank).padStart(2, "0")}
+          </span>
+        )
       )}
       <div className="result-card-body">
         {/* 2026-08-25(베타테스트 피드백 4번): 지금까지 카드에 title이 아예 안 쓰이고
@@ -56,7 +112,20 @@ export default function ResultCard({ result, rank, query, topScore, className = 
             추가로 보여줘서, 있는 문서는 목록에서 바로 스캔 가능하게 함. */}
         {title && <h3 className="result-card-title">{title}</h3>}
         <span className="result-card-institution">
-          {institution || "기관명 미상"}
+          {institution ? (
+            <span
+              className="result-card-institution-link"
+              role="link"
+              tabIndex={0}
+              onClick={handleInstitutionClick}
+              onKeyDown={handleInstitutionKeyDown}
+              title={`${institution} 기관 프로필 보기`}
+            >
+              {institution}
+            </span>
+          ) : (
+            "기관명 미상"
+          )}
           {year ? ` · ${year}년` : ""}
         </span>
         <p className="result-card-preview">

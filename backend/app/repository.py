@@ -185,6 +185,53 @@ async def get_raw_texts(pool: asyncpg.Pool, document_ids: list[str]) -> list[asy
         return await conn.fetch(_RAW_TEXT_BY_IDS_SQL, document_ids)
 
 
+# 2026-08-26(기능 추가): 기관 프로필 미니페이지(GET /institutions/{name}) — "이 기관이
+# 감사를 얼마나 자주/어떤 종류로 받았나"를 기관명 하나로 바로 보여줌. get_filter_options와
+# 같은 이유(6.8만 건 규모, 매 요청 직접 집계해도 부담 없음)로 캐싱 없이 매번 라이브 조회.
+# 쿼리 4개를 asyncio.gather로 동시에 날림(서로 독립적) — main.py에서 gather.
+_INSTITUTION_TOTAL_SQL = "SELECT count(*) AS total FROM documents WHERE institution = $1;"
+_INSTITUTION_YEARS_SQL = """
+SELECT year, count(*) AS count FROM documents
+WHERE institution = $1 AND year IS NOT NULL
+GROUP BY year ORDER BY year;
+"""
+_INSTITUTION_AUDIT_TYPES_SQL = """
+SELECT audit_type, count(*) AS count FROM documents
+WHERE institution = $1 AND audit_type IS NOT NULL
+GROUP BY audit_type ORDER BY count DESC;
+"""
+# 최신순 10건 — 벡터/키워드 검색이 아니라 그냥 연도 내림차순 나열(연도 없는 소수 문서는
+# 맨 뒤로 NULLS LAST). id를 2차 정렬키로 둬서 같은 연도 안에서도 항상 같은 순서가 나오게 함
+# (안 그러면 매 요청 순서가 흔들릴 수 있음 — Postgres가 동순위 행 순서를 보장 안 함).
+_INSTITUTION_RECENT_SQL = """
+SELECT id, institution, year, audit_type, parsing_quality, raw_text
+FROM documents
+WHERE institution = $1
+ORDER BY year DESC NULLS LAST, id DESC
+LIMIT 10;
+"""
+
+
+async def get_institution_total(pool: asyncpg.Pool, institution: str) -> int:
+    async with pool.acquire() as conn:
+        return await conn.fetchval(_INSTITUTION_TOTAL_SQL, institution)
+
+
+async def get_institution_years(pool: asyncpg.Pool, institution: str) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(_INSTITUTION_YEARS_SQL, institution)
+
+
+async def get_institution_audit_types(pool: asyncpg.Pool, institution: str) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(_INSTITUTION_AUDIT_TYPES_SQL, institution)
+
+
+async def get_institution_recent(pool: asyncpg.Pool, institution: str) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(_INSTITUTION_RECENT_SQL, institution)
+
+
 _FILTER_OPTIONS_SQL = """
 SELECT
     ARRAY(SELECT DISTINCT institution FROM documents
