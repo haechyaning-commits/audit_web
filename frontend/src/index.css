@@ -505,6 +505,19 @@ body {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   margin-bottom: 4px;
+  white-space: nowrap;
+}
+.year-chart-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-5);
+  border: 1px solid var(--primary-10);
+  border-radius: 20px;
+  vertical-align: middle;
 }
 .year-chart-bar {
   width: 100%;
@@ -983,6 +996,21 @@ body {
   background: var(--primary-5);
   color: var(--primary-dark);
   white-space: nowrap;
+}
+/* 2026-08-26(디자인 평가 피드백): 감사종류별 색 구분 — 새 색상 값 없이 기존 토큰만
+   재사용(신뢰도 배지 success/warn, 개정이력 amend와 같은 팔레트). 종합감사는 위
+   기본(primary 틴트) 그대로 유지. */
+.result-card-audit-type-finance {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.result-card-audit-type-conduct {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.result-card-audit-type-special {
+  background: var(--amend-tint);
+  color: var(--amend);
 }
 
 /* 배지 */

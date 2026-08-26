@@ -19,7 +19,13 @@ export default function YearChart({ data }) {
       <div className="year-chart-bars">
         {data.map((d) => (
           <div className="year-chart-col" key={d.year}>
-            <span className="year-chart-val">{d.count.toLocaleString()}</span>
+            <span className="year-chart-val">
+              {d.count.toLocaleString()}
+              {/* 2026-08-26(디자인 평가 피드백): 최신연도 막대만 색이 진한데 이유를 설명하는
+                  텍스트가 어디에도 없어서 "왜 하나만 강조돼 있지?"로 보일 수 있었음 —
+                  "이 연도는 아직 집계가 끝나지 않았다"를 배지로 명시 */}
+              {d.year === lastYear && <span className="year-chart-badge">진행중</span>}
+            </span>
             <div
               className={`year-chart-bar ${d.year === lastYear ? "is-latest" : ""}`}
               style={{ height: `${Math.max(6, (d.count / max) * 100)}%` }}

@@ -331,8 +331,8 @@ export default function SearchPage({ search }) {
                     <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.6" />
                   </svg>
                 </span>
-                <span className="stat-card-num">AI 전체 요약 자동 생성</span>
-                <span className="stat-card-label">사례 클릭 시 온디맨드 생성</span>
+                <span className="stat-card-num">AI 4줄 요약 제공</span>
+                <span className="stat-card-label">"요약보기" 클릭 시 AI가 생성</span>
               </div>
             </div>
 
