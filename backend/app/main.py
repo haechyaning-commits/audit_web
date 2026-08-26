@@ -30,13 +30,14 @@ from . import db, embedding, repository, summary
 from .schemas import (
     DocumentDetail,
     FilterOptions,
+    RelatedLaw,
     SearchResponse,
     SearchResultCard,
     SummaryResponse,
     YearCount,
     YearStatsResponse,
 )
-from .textutils import build_preview, build_source_url, extract_title
+from .textutils import build_preview, build_source_url, extract_law_citations, extract_title
 
 logger = logging.getLogger(__name__)
 
@@ -180,17 +181,23 @@ async def search(
         )
         for r in candidates
     ]
-    # 2026-08-26(기능 추가): 검색결과 화면에 "이 검색어가 연도별로 얼마나 나오는지" 미니
-    # 차트를 보여주기 위한 집계. 전체 코퍼스(6.8만 건)를 새로 훑는 별도 쿼리를 만들지
-    # 않고, 이미 가져온 candidates(RRF 후보 풀, 최대 40~100건)를 그대로 집계함 — 그래서
-    # "이 검색어와 매칭될 수 있는 문서 전체"가 아니라 "지금 이 검색에서 실제로 보여주는
-    # 후보들"의 연도 분포임(연도 필터가 걸려 있으면 그 필터가 적용된 후보 기준). year가
-    # NULL인 후보는 집계에서 제외.
-    year_counter = Counter(r["year"] for r in candidates if r["year"] is not None)
-    year_distribution = [
-        YearCount(year=year, count=count) for year, count in sorted(year_counter.items())
+    # 2026-08-26(기능 추가, 2차): "이 검색어, 연도별 분포" 미니차트를 시도했다가 사이드바
+    # 연도 필터(체크박스, 이미 건수 보여주고 클릭도 됨)와 정보가 겹친다는 피드백으로
+    # "관련 법령 모아보기"로 교체함 — 후보 문서(candidates)들의 raw_text를 한 번 더
+    # 가져와(repository.get_raw_texts, PK 조회라 가벼움) 실제 법령으로 보이는 낫표 인용만
+    # 집계(textutils.extract_law_citations — 법/법률/시행령/시행규칙/조례로 끝나는 것만,
+    # DetailPage.jsx의 법령 하이퍼링크와 같은 기준). count는 인용 "횟수"가 아니라 "몇 개
+    # 문서가 이 법을 언급하는지"(문서당 중복 제거) — 한 문서가 같은 법을 열 번 인용해도
+    # 1로 침, 그래야 이 검색어 전반에 걸쳐 실제로 자주 등장하는 법령이 상위에 옴.
+    candidate_ids = [r["document_id"] for r in candidates]
+    raw_rows = await repository.get_raw_texts(pool, candidate_ids)
+    law_counter = Counter()
+    for row in raw_rows:
+        law_counter.update(extract_law_citations(row["raw_text"]))
+    related_laws = [
+        RelatedLaw(name=name, count=count) for name, count in law_counter.most_common(8)
     ]
-    return SearchResponse(query=q, results=results, year_distribution=year_distribution)
+    return SearchResponse(query=q, results=results, related_laws=related_laws)
 
 
 # 2026-08-26(기능 추가): 홈 화면 "오늘의 사례" — 매 새로고침마다 바뀌면 "오늘의"라는

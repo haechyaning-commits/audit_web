@@ -677,46 +677,57 @@ body {
   color: #fff;
 }
 
-/* 2026-08-26(기능 추가): 검색 결과 상단 "이 검색어, 연도별 분포" 미니차트 — 홈 화면
-   YearChart보다 훨씬 작게(높이 절반 이하), 결과 목록 진입을 방해하지 않는 보조 정보 톤. */
-.year-trend {
+/* 2026-08-26(기능 교체): 검색 결과 상단 "이 검색어, 연도별 분포" 미니차트 — 사이드바
+   연도 필터(체크박스, 이미 건수 보여주고 클릭도 됨)와 정보가 겹친다는 피드백으로
+   "관련 법령 모아보기"(아래 .related-laws)로 교체함. */
+.related-laws {
   margin-bottom: 18px;
-  padding: 10px 14px 8px;
+  padding: 12px 16px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
 }
-.year-trend-title {
-  margin: 0 0 8px;
+.related-laws-title {
+  margin: 0 0 10px;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
 }
-.year-trend-bars {
+.related-laws-chips {
   display: flex;
-  align-items: flex-end;
-  gap: 5px;
-  height: 40px;
+  flex-wrap: wrap;
+  gap: 7px;
 }
-.year-trend-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.related-laws-chip {
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  height: 100%;
-  min-width: 0;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid var(--primary-10);
+  border-radius: 999px;
+  background: var(--primary-5);
+  color: var(--primary-dark);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
 }
-.year-trend-bar {
-  width: 100%;
-  max-width: 18px;
-  border-radius: 2px 2px 0 0;
+.related-laws-chip:hover {
+  border-color: var(--primary);
   background: var(--primary-10);
 }
-.year-trend-year {
-  margin-top: 3px;
-  font-size: 9px;
+.related-laws-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
 }
 
 /* 2026-08-24(FR5 2차): 기관/연도/감사유형 필터 — 고정 사이드바형(체크박스 목록).

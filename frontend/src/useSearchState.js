@@ -15,10 +15,10 @@ import { addRecentSearch, clearRecentSearches, getRecentSearches } from "./recen
  */
 export default function useSearchState() {
   const [results, setResults] = useState(null); // null = 아직 검색 안 함
-  // 2026-08-26(기능 추가): 이 검색어의 연도별 분포(YearTrendChart용) — /search 응답에
-  // 새로 추가된 year_distribution 필드를 results와 별도로 보관. results처럼 카드 배열이
-  // 아니라 화면 우측 미니차트 하나에만 쓰이는 부가 데이터라 분리해둠.
-  const [yearDistribution, setYearDistribution] = useState(null);
+  // 2026-08-26(기능 교체): 처음엔 연도별 분포였다가 "관련 법령 모아보기"로 교체(연도
+  // 분포는 사이드바 필터와 정보가 겹쳐서). /search 응답의 related_laws 필드를 results와
+  // 별도로 보관 — results처럼 카드 배열이 아니라 화면 상단 칩 목록 하나에만 쓰임.
+  const [relatedLaws, setRelatedLaws] = useState(null);
   const [searchedQuery, setSearchedQuery] = useState(""); // 실제로 검색이 실행된 검색어 (하이라이트용)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -50,7 +50,7 @@ export default function useSearchState() {
   // "/"에서도 그대로 남아있는 문제가 있었음.
   const resetSearch = useCallback(() => {
     setResults(null);
-    setYearDistribution(null);
+    setRelatedLaws(null);
     setSearchedQuery("");
     setError(null);
     setAppliedFilters({});
@@ -84,7 +84,7 @@ export default function useSearchState() {
       // 알아서 뒤이어 반영됨).
       if (isStale()) return;
       setResults(data.results);
-      setYearDistribution(data.year_distribution);
+      setRelatedLaws(data.related_laws);
       setSearchedQuery(trimmed);
       setAppliedFilters(filters);
       setRecentSearches(addRecentSearch(trimmed));
@@ -99,7 +99,7 @@ export default function useSearchState() {
       if (isStale()) return;
       setError(err.message || "검색 중 오류가 발생했습니다.");
       setResults(null);
-      setYearDistribution(null);
+      setRelatedLaws(null);
     } finally {
       // 낡은 요청이 뒤늦게 끝났다고 loading을 false로 내리면, 그 사이 시작된 최신 요청이
       // 아직 진행 중인데도 로딩 스피너가 사라지는 깜빡임이 생김 — 최신 요청일 때만 내림.
@@ -114,7 +114,7 @@ export default function useSearchState() {
 
   return {
     results,
-    yearDistribution,
+    relatedLaws,
     baseResults,
     searchedQuery,
     loading,
