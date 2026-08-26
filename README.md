@@ -7,7 +7,7 @@
 감사실 실무자가 궁금한 사안을 자연어로 입력하면, RAG(검색+생성)로 유사한 공공감사 사례를 자동 추천하고 4줄 요약까지 보여주는 검색 서비스입니다.
 
 - 프론트엔드(검색 화면): https://audit-web-phi.vercel.app
-- 백엔드 API: https://auditweb-production-77db.up.railway.app (Railway 무료 티어 특성상 공개 도메인이 재배포될 때마다 바뀜 — GitHub 연동을 재연결할 때마다 새 도메인이 발급되는 게 원인. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것. `/health`, `/search?q=`, `/filters`, `/stats/years`, `/documents/{id}`, `GET /documents/{id}/similar`, `POST /documents/{id}/summary` 엔드포인트가 있음)
+- 백엔드 API: https://auditweb-production-dc51.up.railway.app (2026-08-26 갱신 — Railway 무료 티어 특성상 공개 도메인이 재배포될 때마다 바뀜 — GitHub 연동을 재연결할 때마다 새 도메인이 발급되는 게 원인. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것. `/health`, `/search?q=`, `/filters`, `/stats/years`, `/documents/{id}`, `GET /documents/{id}/similar`, `POST /documents/{id}/summary` 엔드포인트가 있음)
 
 ---
 
