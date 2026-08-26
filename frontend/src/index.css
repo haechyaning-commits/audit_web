@@ -39,6 +39,13 @@
   --info-bg: #e3eef1;
   --info-text: #1a6b78;
 
+  /* 2026-08-26(후속): 특정감사에 --amend(금빛 갈색)를 재사용했더니 --warn(주황)과
+     색상환에서 너무 가까워서(둘 다 노랑~주황 계열) 배지가 똑같아 보인다는 피드백 —
+     --amend는 원래 의도(개정이력류 날짜 태그)가 따로 있어서 그 색을 바꾸는 대신,
+     확실히 떨어진 보라 계열로 전용 토큰을 새로 만듦. */
+  --special-bg: #f2e7f7;
+  --special-text: #7a3d99;
+
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
   --shadow-hero: 0 4px 16px rgba(26, 77, 143, 0.1);
 
@@ -80,6 +87,8 @@
     --amend-tint: #2a2416;
     --info-bg: #16292c;
     --info-text: #6fc4d1;
+    --special-bg: #2c2033;
+    --special-text: #cc9fe6;
   }
 }
 
@@ -104,6 +113,8 @@
   --amend-tint: #2a2416;
   --info-bg: #16292c;
   --info-text: #6fc4d1;
+  --special-bg: #2c2033;
+  --special-text: #cc9fe6;
 }
 
 * {
@@ -1093,12 +1104,14 @@ body {
   color: var(--primary-dark);
   white-space: nowrap;
 }
-/* 2026-08-26(디자인 평가 피드백): 감사종류별 색 구분 — 새 색상 값 없이 기존 토큰만
-   재사용(신뢰도 배지 success/warn, 개정이력 amend와 같은 팔레트). 종합감사는 위
-   기본(primary 틴트) 그대로 유지.
-   2026-08-26(후속 수정): 실 배포 데이터로 확인해보니 성과감사가 종합감사 다음으로
-   흔한데 둘 다 기본(primary)을 같이 써서 "색이 똑같다"는 피드백을 받음 — info 토큰으로
-   분리(index.css 최상단 :root 참고). */
+/* 2026-08-26(디자인 평가 피드백): 감사종류별 색 구분 — 기존 토큰(success/warn) +
+   신규 토큰(info/special)으로 5종 전부 색상환에서 떨어뜨림. 종합감사는 기본(primary
+   틴트) 유지.
+   2026-08-26(후속 수정 1): 실 배포 데이터로 확인해보니 성과감사가 종합감사 다음으로
+   흔한데 둘 다 기본(primary)을 같이 써서 "색이 똑같다"는 피드백 — info 토큰으로 분리.
+   2026-08-26(후속 수정 2): 특정감사에 재사용했던 --amend(금빛 갈색)가 --warn(주황)과
+   색상환에서 너무 가까워(둘 다 노랑~주황 계열) 또 "똑같다"는 피드백 — 보라 계열
+   전용 토큰(--special-*)으로 교체, 확실히 떨어뜨림. */
 .result-card-audit-type-finance {
   background: var(--success-bg);
   color: var(--success-text);
@@ -1112,8 +1125,8 @@ body {
   color: var(--info-text);
 }
 .result-card-audit-type-special {
-  background: var(--amend-tint);
-  color: var(--amend);
+  background: var(--special-bg);
+  color: var(--special-text);
 }
 
 /* 배지 */
