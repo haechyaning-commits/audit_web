@@ -438,3 +438,62 @@ async def save_freeform_summary(
     저장. 실패 캐싱 이유는 save_summary와 동일(§4.6)."""
     async with pool.acquire() as conn:
         await conn.execute(_SAVE_FREEFORM_SUMMARY_SQL, document_id, freeform_text, failed)
+
+
+# 2026-08-26(기능 추가: 데이터 오류 신고): 상세페이지 "오류 신고" 모달 제출값 저장 + 관리자
+# 조회. documents/chunks와 달리 이 테이블은 scripts/schema.sql을 손으로 다시 실행 안 해도
+# 되게, 앱 시작 시(lifespan, main.py) CREATE TABLE IF NOT EXISTS로 매번 확인만 하고 넘어감
+# — 기존 테이블 구조를 바꾸는 ALTER가 아니라 완전히 새 테이블 추가라 안전함.
+_CREATE_ERROR_REPORTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS error_reports (
+    id          SERIAL PRIMARY KEY,
+    document_id TEXT,
+    institution TEXT,
+    year        INT,
+    audit_type  TEXT,
+    message     TEXT NOT NULL,
+    page_url    TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+"""
+
+
+async def ensure_error_reports_table(pool: asyncpg.Pool) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(_CREATE_ERROR_REPORTS_TABLE_SQL)
+
+
+_INSERT_ERROR_REPORT_SQL = """
+INSERT INTO error_reports (document_id, institution, year, audit_type, message, page_url)
+VALUES ($1, $2, $3, $4, $5, $6);
+"""
+
+
+async def create_error_report(
+    pool: asyncpg.Pool,
+    document_id: str | None,
+    institution: str | None,
+    year: int | None,
+    audit_type: str | None,
+    message: str,
+    page_url: str | None,
+) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            _INSERT_ERROR_REPORT_SQL, document_id, institution, year, audit_type, message, page_url
+        )
+
+
+# 최신순, 최대 200건 — 관리자 페이지가 무한정 길어지지 않게 컷. 그 이상 쌓이면(신고가
+# 그 정도로 많다는 뜻이라 오히려 좋은 신호) 나중에 페이지네이션 추가하면 됨.
+_LIST_ERROR_REPORTS_SQL = """
+SELECT id, document_id, institution, year, audit_type, message, page_url, created_at
+FROM error_reports
+ORDER BY created_at DESC
+LIMIT 200;
+"""
+
+
+async def list_error_reports(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(_LIST_ERROR_REPORTS_SQL)

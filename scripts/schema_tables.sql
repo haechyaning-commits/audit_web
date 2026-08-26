@@ -58,3 +58,17 @@ CREATE TABLE IF NOT EXISTS chunks (
     tsv             tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
+
+-- error_reports: 상세페이지 "오류 신고" 모달 제출값 (2026-08-26) — documents/chunks와 달리
+-- 백엔드가 시작할 때마다 CREATE TABLE IF NOT EXISTS로 알아서 만듦(backend/app/repository.py
+-- ensure_error_reports_table 참고). 이 파일에는 로컬 테스트/문서화 목적으로만 같이 적어둠.
+CREATE TABLE IF NOT EXISTS error_reports (
+    id          SERIAL PRIMARY KEY,
+    document_id TEXT,
+    institution TEXT,
+    year        INT,
+    audit_type  TEXT,
+    message     TEXT NOT NULL,
+    page_url    TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

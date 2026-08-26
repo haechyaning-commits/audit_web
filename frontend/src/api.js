@@ -13,10 +13,14 @@ class ApiError extends Error {
   }
 }
 
-async function request(path, { method = "GET" } = {}) {
+async function request(path, { method = "GET", body } = {}) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { method });
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   } catch {
     // 네트워크 자체가 끊긴 경우 (서버 안 켜짐, CORS 차단 등)
     throw new ApiError("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.", 0);
@@ -86,6 +90,14 @@ export function getDailyCase() {
  * (GET /institutions/{name}). 존재하지 않는 기관명이면 404. */
 export function getInstitutionProfile(name) {
   return request(`/institutions/${encodeURIComponent(name)}`);
+}
+
+/** 상세페이지 "오류 신고" 모달 제출 (POST /reports) — 2026-08-26. 처음엔 GitHub 새 이슈
+ * 링크로 보냈는데 "그게 아니라 신고창 뜨고 제출하면 내가 볼 수 있게"라는 피드백으로
+ * 자체 저장(백엔드 DB) 방식으로 교체함. payload: { document_id, institution, year,
+ * audit_type, message, page_url } */
+export function submitErrorReport(payload) {
+  return request("/reports", { method: "POST", body: payload });
 }
 
 export { ApiError };
