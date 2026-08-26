@@ -30,21 +30,8 @@ export const AUDIT_TYPE_CLASS = {
  * @param {number} [topScore] - 이 검색의 1위 결과 스코어(상대 관련도 막대 기준값,
  *   없으면 막대 생략) — SearchPage.jsx가 results[0].score를 넘겨줌
  * @param {string} [className]
- * @param {boolean} [selectable] - true면 왼쪽에 비교용 체크박스 표시(SearchPage.jsx
- *   "비교 모드" 참고). false/미지정이면 기존과 완전히 동일하게 렌더링.
- * @param {boolean} [selected]
- * @param {(documentId: string) => void} [onToggleSelect]
  */
-export default function ResultCard({
-  result,
-  rank,
-  query,
-  topScore,
-  className = "",
-  selectable = false,
-  selected = false,
-  onToggleSelect,
-}) {
+export default function ResultCard({ result, rank, query, topScore, className = "" }) {
   const { title, institution, year, audit_type, preview_text, score } = result;
   const to = buildCaseUrl(result, query);
   const navigate = useNavigate();
@@ -73,35 +60,12 @@ export default function ResultCard({
     }
   }
 
-  function handleCheckboxClick(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    onToggleSelect?.(result.document_id);
-  }
-
-  // 카드 왼쪽 34px 슬롯은 하나뿐 — 비교 모드일 땐 체크박스가 번호 대신 그 자리를 씀
-  // (grid-template-columns이 항상 3열로 고정돼 있어서 동시에 둘 다 넣으면 레이아웃이
-  // 깨짐, index.css의 .result-card 참고).
   return (
     <Link to={to} className={`result-card ${className}`}>
-      {selectable ? (
-        <span
-          className="result-card-select"
-          role="checkbox"
-          aria-checked={selected}
-          aria-label="비교에 추가"
-          tabIndex={0}
-          onClick={handleCheckboxClick}
-          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleCheckboxClick(e)}
-        >
-          <input type="checkbox" checked={selected} readOnly tabIndex={-1} />
+      {rank != null && (
+        <span className="result-card-rank mono" aria-hidden="true">
+          {String(rank).padStart(2, "0")}
         </span>
-      ) : (
-        rank != null && (
-          <span className="result-card-rank mono" aria-hidden="true">
-            {String(rank).padStart(2, "0")}
-          </span>
-        )
       )}
       <div className="result-card-body">
         {/* 2026-08-25(베타테스트 피드백 4번): 지금까지 카드에 title이 아예 안 쓰이고
