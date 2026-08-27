@@ -21,3 +21,4 @@ torch==2.13.0+cpu
 openai==2.53.0
 pydantic==2.13.4
 python-dotenv==1.2.2
+sentry-sdk==2.68.1

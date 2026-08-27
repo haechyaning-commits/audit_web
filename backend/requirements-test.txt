@@ -16,6 +16,7 @@ pgvector==0.5.0
 openai==2.53.0
 pydantic==2.13.4
 python-dotenv==1.2.2
+sentry-sdk==2.68.1
 numpy
 
 # 테스트 전용 도구 — requirements.txt(프로덕션 배포)에는 없음.

@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 # `uvicorn app.main:app`으로 실행 가능
 load_dotenv()
 
+import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -45,6 +46,26 @@ from .schemas import (
 from .textutils import build_preview, build_source_url, extract_law_citations, extract_title
 
 logger = logging.getLogger(__name__)
+
+# 2026-08-27(완성도 점검 후속): 프로덕션에서 뭐가 터져도 사용자가 오류 신고(POST /reports)를
+# 넣기 전엔 알 방법이 전혀 없었음 — Sentry 연동으로 예외를 자동 캡처함.
+# SENTRY_DSN이 비어있으면(로컬 개발, 이 값을 아직 안 받은 배포 등) sentry_sdk.init()이
+# 만드는 client의 transport가 None이 돼서 실제로는 아무 데도 전송하지 않는 완전한
+# no-op으로 동작함 — 직접 실측 확인(2026-08-27, client.transport is None). 그래서
+# "DSN 있으면 켜고 없으면 끄기"를 별도 분기 없이 항상 그냥 호출해도 안전함(설정을
+# 깜빡해도 에러가 나거나 요청이 막히지 않고, 그냥 모니터링만 안 되는 상태로 남음 —
+# ADMIN_TOKEN처럼 "안전하지 않은 쪽으로 열리는" 실패가 아니라서 부담 없이 이렇게 둠).
+sentry_sdk.init(
+    dsn=os.environ.get("SENTRY_DSN", ""),
+    environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+    # 트래픽이 적은 포트폴리오 규모 프로젝트라 성능 트레이싱보다 에러 캡처가 우선 —
+    # 트레이스 샘플링은 기본 꺼둠(0.0), 필요해지면 환경변수로 켤 수 있게만 해둠.
+    traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0")),
+    # 로그인 시스템이 없어 사용자 식별 정보 자체를 안 다루지만, 신고 폼 메시지(자유
+    # 텍스트)에 사용자가 실수로 개인정보를 적을 가능성은 있어 기본값 그대로 꺼둠
+    # (요청 헤더/쿠키 등 부가 정보도 함께 전송 안 함).
+    send_default_pii=False,
+)
 
 CONFIDENCE_LABELS = {
     "standard": "신뢰도 높음",

@@ -17,11 +17,22 @@ monkeypatch로 스텁 처리한 성공 경로만 다룸 — 실제 SQL/벡터 �
 from datetime import datetime
 
 import pytest
+import sentry_sdk
 from fastapi.testclient import TestClient
 
 from app import main
 
 client = TestClient(main.app)
+
+
+def test_sentry_is_noop_when_dsn_unset():
+    # main.py 주석의 핵심 주장을 직접 검증: SENTRY_DSN이 비어있으면(conftest.py가
+    # 이 환경변수를 안 채움) sentry_sdk.init()이 만든 client의 transport가 None이라
+    # capture_exception 등을 호출해도 실제로 아무 데도 전송하지 않는 완전한 no-op임.
+    # 이 값이 SENTRY_DSN=""로 실제 채워지면(conftest.py가 안 그러므로 여기선 항상 미설정)
+    # transport가 생기는 게 정상 — 이 테스트는 "미설정 시 안전한가"만 확인함.
+    client_ = sentry_sdk.get_client()
+    assert client_.transport is None
 
 
 @pytest.fixture(autouse=True)
