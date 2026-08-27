@@ -4,6 +4,11 @@ name: CI
 # 백엔드는 torch/sentence-transformers처럼 무거운 의존성 설치 + 실 DB 연결이 필요해서
 # 여기선(GitHub Actions 무료 러너, 시간 제한) 문법 체크만 함 — 실제 동작 검증(TestClient
 # 등)은 별도 작업으로 남겨둠. 지금은 "빌드 깨진 채로 커밋되는 것"만 막는 게 목표.
+#
+# 2026-08-27: splitIntoBlocks() Vitest 유닛테스트(frontend/src/pages/splitIntoBlocks.test.js,
+# PR #46)를 추가했는데 정작 이 워크플로에 npm run test가 없어서 CI가 초록불이어도 테스트가
+# 실제로 돌아간다는 보장이 없었음(로컬에서만 수동 실행) — lint/build 사이에 추가해서
+# 앞으로 이 파싱 로직에 회귀가 생기면 CI가 바로 잡아내게 함.
 on:
   push:
     branches: [main]
@@ -24,6 +29,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm run test
       - run: npm run build
 
   backend-syntax:
