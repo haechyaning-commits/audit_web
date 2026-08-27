@@ -1,6 +1,14 @@
 # 이 파일의 모든 버전은 추측이 아니라, 실제로 설치 + import 테스트를 통과한 값입니다
 # (fastapi 앱 구동, asyncpg+pgvector 비동기 DB 연결, sentence-transformers 임베딩 로드까지 검증).
 #
+# kiwipiepy(§3.6, 2026-08-27 코드 샌드박스 세션에서 격리된 venv로 설치+토큰화 실측
+# 검증 — 시스템 mecab 등 별도 apt 의존성 없이 pip 설치만으로 동작 확인, 모듈 docstring
+# 참고): sentence-transformers/torch와 달리 이 하나만 별도로 pip install해서 확인함.
+# 사전 데이터(kiwipiepy_model)가 ~105MB로 같이 딸려옴 — TOKENIZER_ENABLED가 꺼져있어도
+# 빌드 시점에 항상 설치됨(Kiwi() 인스턴스 생성 자체만 지연 로드, 패키지 설치는 아님).
+# torch(수백 MB~1GB대)에 비하면 배포 용량에 큰 영향은 없음.
+#
+
 # numpy는 별도로 안 적어둠 — torch/sentence-transformers가 이미 의존성으로 끌고 오고,
 # 여기 실제로 설치+테스트해본 값이 아니라서 임의로 버전을 새로 고정하지 않음
 # (2026-08-24, repository.py의 유사 사례 검색(centroid 계산)에서 직접 import해서 씀).
@@ -21,3 +29,4 @@ torch==2.13.0+cpu
 openai==2.53.0
 pydantic==2.13.4
 python-dotenv==1.2.2
+kiwipiepy==0.23.2

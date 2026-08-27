@@ -2,6 +2,66 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔧 2026-08-27 (1차) — 리랭커·한국어 형태소 토큰화·오프라인 품질평가: 코드 준비 완료 (실행은 미완)
+
+8/31 마감(D-4) 시점에 development-plan.md가 "시간 남으면 추가"로 미뤄뒀던 스트레치 3종
+(architecture.md §3.4 리랭커, §3.6 형태소 토큰화, §5.3 오프라인 품질평가)을 진행 가능한지
+질문받아 착수. **이 세션은 DB(Railway)/실제 데이터 접근이 없어서, 과거 세션들과 같은
+이유로 "코드/스크립트는 전부 준비하되 실행·실측은 DB 접근 있는 세션 몫으로 남김"** 원칙으로
+진행함.
+
+### 실제로 한 것 (코드, 이 저장소에 커밋됨)
+- **`backend/app/tokenizer.py`(신규)**: kiwipiepy 래퍼. `tokenize()`(온라인 쿼리용),
+  `tokenize_batch()`(배치 백필용, num_workers 병렬화). **격리된 venv에 실제로
+  `pip install kiwipiepy` 후 토큰화 실측**: `"예산낭비가 심각한 수의계약 특혜"` →
+  `예산(NNG) 낭비(NNG) 가(JKS) 심각(XR) 하(XSA) ㄴ(ETM) 수의(NNG) 계약(NNG) 특혜(NNG)` —
+  조사("가")·어미가 실제로 분리되는 것 확인(§3.6이 지적한 문제가 kiwipiepy로 실제
+  해결됨을 확인). 배치 처리량도 실측: num_workers=2 기준 2,000건 약 3초.
+- **`backend/app/reranker.py`(신규)**: bge-reranker-v2-m3 CrossEncoder 래퍼(embedding.py와
+  동일한 "앱 시작 시 1회 로드" 패턴). 모델 자체는 다운로드/실측 안 함(torch+가중치
+  수백 MB~1GB대라 이 세션 예산상 보류).
+- **`backend/app/repository.py`**: `rerank()`를 실제 재채점 로직으로 교체 — 상위
+  `RERANK_TOP_N`(기본 20)건만 크로스인코더로 재정렬하고 나머지는 원래 RRF 순서 그대로
+  뒤에 이어붙임(원안은 20→10 압축이었으나, 2026-08-12에 검색 결과가 40건
+  그리드+페이지네이션으로 바뀐 뒤라 그 전제와 안 맞아 절충함). 재정렬 후 프론트
+  상대 관련도 막대가 깨지지 않도록 score 필드도 리랭커 점수 기준으로 다시 채움. 리랭커
+  예외/타임아웃 시 RRF 순위로 폴백(§3.4 설계대로).
+- **`backend/app/main.py`**: `RERANKER_ENABLED`/`TOKENIZER_ENABLED` 환경변수(기본 둘 다
+  `false`) 추가 — 꺼져 있으면 기존 배포와 100% 동일하게 동작(모델 로드 자체를 안 함).
+  켜져 있을 때만 startup에서 모델 로드 + 검색 요청에서 토큰화/재채점 수행. 둘 다
+  CPU 연산이라 embedding.encode_query와 같은 이유로 `asyncio.to_thread`로 스레드에 넘김.
+- **`backend/requirements.txt`/`.env.example`**: kiwipiepy==0.23.2 추가(실측 검증된
+  버전), 새 환경변수 두 개 문서화.
+- **`scripts/tsv_text_migration.sql`(신규)**: `chunks.tsv_text` 컬럼 추가 →
+  `scripts/backfill_tsv_text.py` 실행 → `tsv` 생성 컬럼을 `tsv_text` 기준으로 교체 +
+  GIN 재생성, 순서와 각 단계의 서비스 영향을 상세 주석으로 정리.
+- **`scripts/backfill_tsv_text.py`(신규)**: 기존 chunks.text 전체(96,355건 안팎)를
+  형태소 토큰화해서 tsv_text로 채우는 배치 스크립트. DRY_RUN 우선 확인 → 실제 반영
+  패턴(backfill_source_file.py와 동일), 배치 실패 시 건별 재시도+스킵.
+- **`scripts/eval_search_quality.py`(신규) + `scripts/eval_set_template.jsonl`(신규)**:
+  §5.3 오프라인 품질평가 하네스 — vector_only/text_only/rrf_hybrid/
+  rrf_hybrid_tokenized/rrf_plus_rerank 모드별 Recall@10·Recall@40·MRR 비교표 출력.
+  프로덕션과 동일한 `repository.search_candidates`/`repository.rerank`를 그대로 재사용해서
+  평가 로직이 실제 서비스 로직과 갈라지지 않게 함. eval set(쿼리-정답 쌍)은 이 세션이
+  실제 데이터를 볼 수 없어 쿼리 24개만 채워두고 `relevant_document_ids`는 빈 배열로
+  남김(DB 접근 있는 사람이 채워야 함, 템플릿 파일 안에 채우는 방법 상세 기술).
+- **`scripts/measure_model_memory.py`(신규)**: §3.5 임베딩+리랭커 동시 로드 RSS 실측
+  스크립트. torch 설치가 이 세션 예산상 부담이라 실행은 안 하고 준비만 함.
+
+### 안 한 것 / 다음 세션(DB·Railway 접근 있는 곳)에서 할 일
+1. **`scripts/tsv_text_migration.sql` STEP 1 실행 → `backfill_tsv_text.py`로 실제
+   백필 → STEP 2 실행**(tsv 재색인) — 끝나야 `TOKENIZER_ENABLED=true`가 의미가 있음
+   (순서 어기면 색인/쿼리 토큰화 기준이 어긋나서 오히려 매칭이 나빠짐, tokenizer.py
+   모듈 docstring 참고).
+2. **`scripts/measure_model_memory.py` 실행**(§3.5) — 실측 RSS가 Railway 플랜 상한을
+   넘는지 확인. 넘으면 §3.5 대응 순서(리랭커 양자화 → 플랜 상향 → lazy load)를 따를 것.
+   이게 끝나야 `RERANKER_ENABLED=true`를 켤 수 있음.
+3. **`scripts/eval_set_template.jsonl`을 `eval_set.jsonl`로 복사해서 실제
+   `relevant_document_ids` 채우기** → `scripts/eval_search_quality.py`로 실측 →
+   RRF vs 벡터/키워드 단독 vs (RRF+토큰화) vs (RRF+리랭커) 비교표를 §5.3에 반영.
+4. 위 세 가지가 다 끝난 뒤 Railway `RERANKER_ENABLED`/`TOKENIZER_ENABLED` 환경변수를
+   `true`로 켜고 재배포 — 이 세션이 만든 코드는 이 순서를 지키면 재작업 없이 그대로 얹힘.
+
 ## ✅ 2026-08-26 (7차) — 오류 신고: GitHub 링크 → 자체 신고 모달로 교체
 
 6차에서 만든 "오류 신고" 버튼이 GitHub 새 이슈 링크로 바로 이동하는 방식이었는데,

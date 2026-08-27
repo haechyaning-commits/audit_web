@@ -1,0 +1,47 @@
+// 검색 품질 오프라인 eval set 템플릿 (architecture.md §5.3, §3.6 — 2026-08-27)
+//
+// 이 파일 자체는 실행되지 않음(파일명이 eval_set.jsonl이 아니라 _template) — 이 파일을
+// scripts/eval_set.jsonl로 복사한 뒤 relevant_document_ids를 실제 값으로 채워서 쓸 것.
+// (이 세션은 DB 접근이 없어 진짜 document_id를 채울 수 없었음 — query만 미리 골라둠.)
+//
+// 채우는 방법(§5.3 "수작업으로 20~30개 쿼리-정답 쌍 구성"):
+//   1) 배포된 검색(/search?q=... 또는 실제 웹 UI)에 아래 query를 그대로 넣어봄
+//   2) 결과 중 "이건 정말 이 검색어에 맞는 사례다"라고 사람이 봐도 확신할 수 있는
+//      문서 1~3개를 고름(너무 관대하게 다 넣지 말 것 — 애매한 건 빼는 게 metric이 더
+//      의미 있음). 상세페이지 URL(/cases/{document_id}/...)에서 document_id를 그대로 복사.
+//   3) relevant_document_ids 배열에 그 id(들)를 채움. 정말 못 찾겠으면(그 검색어로
+//      마땅한 사례가 DB에 없음) 그 줄은 지우고 다른 쿼리로 교체할 것 — 정답이 하나도
+//      없는 쿼리는 Recall이 항상 0이라 비교에 쓸모가 없음.
+//
+// 아래 쿼리 구성 의도:
+//   - 처음 4개(★): frontend EXAMPLE_QUERIES/embedding.py prewarm 쿼리와 동일 — 실사용자가
+//     가장 많이 누를 검색어라 우선순위 높음.
+//   - "조사 결합형"이라고 표시한 것들: 핵심 단어에 조사/어미가 그대로 붙은 자연어 문장 —
+//     형태소 토큰화 적용 전/후 효과가 가장 크게 갈릴 것으로 예상되는 케이스(§3.6 변경이유,
+//     "예산낭비가"처럼 실측 확인된 패턴). text_only vs text_only_tokenized 비교에 집중.
+//   - "짧은 키워드형": 조사가 거의 안 붙어 원래도 키워드 검색이 어느 정도 되는 케이스 —
+//     토큰화 효과가 상대적으로 작을 걸로 예상되는 대조군.
+{"query": "수의계약 특혜", "relevant_document_ids": [], "note": "★ example query"}
+{"query": "출장비를 부풀려 청구한 사례", "relevant_document_ids": [], "note": "★ example query, 조사 결합형"}
+{"query": "보조금 부정수급", "relevant_document_ids": [], "note": "★ example query"}
+{"query": "직장 상사가 부하직원을 괴롭힌 사례", "relevant_document_ids": [], "note": "★ example query, 조사 결합형"}
+{"query": "예산낭비가 심각한 사업 집행", "relevant_document_ids": [], "note": "조사 결합형 (§3.6 실측 사례와 동일 패턴)"}
+{"query": "허위 서류를 꾸며서 계약한 사례", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "뇌물을 받아서 징계받은 공무원", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "공사 감리를 부실하게 한 경우", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "개인정보가 유출된 사고", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "성희롱 가해자에 대한 조치가 미흡했던 사례", "relevant_document_ids": [], "note": "조사 결합형, 긴 문장"}
+{"query": "안전관리를 소홀히 해서 발생한 사고", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "채용 비리", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "음주운전 징계", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "허위 출장", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "겸직 위반", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "예산 집행 부적정", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "갑질 신고", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "공금횡령", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "감사원 처분 요구를 이행하지 않은 기관", "relevant_document_ids": [], "note": "조사 결합형, 도메인 특화 표현"}
+{"query": "계약 상대자를 특정 업체로 미리 정해놓고 입찰한 사례", "relevant_document_ids": [], "note": "긴 자연어 문장, 조사/어미 다수"}
+{"query": "국가보조금을 다른 용도로 사용한 경우", "relevant_document_ids": [], "note": "조사 결합형"}
+{"query": "직원이 근무시간에 사적인 용무를 본 사례", "relevant_document_ids": [], "note": "조사 결합형, 긴 문장"}
+{"query": "재산등록 누락", "relevant_document_ids": [], "note": "짧은 키워드형 (대조군)"}
+{"query": "학교", "relevant_document_ids": [], "note": "기관 유형만 있는 매우 짧은 쿼리 — 관련성 낮은 결과 다수 예상, 벡터/키워드 leg 간 차이 관찰용"}
