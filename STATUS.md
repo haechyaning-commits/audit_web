@@ -2,6 +2,41 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-27 (2차) — chunks.tsv_text 백필 실제 완료(코랩) + backfill/eval 스크립트 보강
+
+8/27 1차에서 준비한 코드를 사용자가 코랩(DB 접근 가능한 환경)에서 실제로 실행함.
+
+- **`scripts/tsv_text_migration.sql` STEP 1 실행 완료** — `chunks.tsv_text` 컬럼 추가.
+- **`scripts/backfill_tsv_text.py` 실행 완료 — 92,136건 전부 처리, 실패 0건.**
+  DRY_RUN 샘플 검토 결과 조사/어미 분리는 잘 되는 것 확인("일상감사시행"→"일상 감사
+  시행" 등). 다만 두 가지 오분석 패턴 발견: ① 원본 데이터의 "글자 사이 공백" 서식
+  ("제 목 :", "내 용" 등, 기존 wordbreak 이슈와 연결)으로 "제"→"저"(대명사+속격조사
+  오분석), "내"→"나" 등 헤더 라벨이 잘못 분석됨 — 거의 모든 청크에 공통이라 변별력
+  없는 노이즈로 판단, 차단 안 함. ② "저탄장" 같은 사전 미등재 도메인 복합명사가
+  "저/탄/장"으로 과분해됨 — 실측 결과 조사가 붙어도 항상 동일하게 분해되는 걸 확인해서
+  (배치·쿼리 동일 함수 사용 원칙 덕분에) 매칭 자체는 안 깨지고 정밀도만 낮아지는
+  정도로 확인(§3.6 참고). 필요하면 나중에 `Kiwi.add_user_word()`로 도메인 사전 보강 가능.
+- **`scripts/backfill_tsv_text.py`에 재개(resume) 기능 + `TEST_LIMIT` 추가**(중간에
+  "얼마나 더 걸리냐"는 질문 나온 뒤 보강): `tsv_text IS NULL`인 행만 처리하도록 바꿔서
+  중단 후 재실행 시 이미 끝난 행은 자동으로 건너뜀. `TEST_LIMIT`으로 소량 먼저 돌려서
+  코랩↔Railway 네트워크 왕복까지 포함한 실제 처리율을 실측하고 전체 소요시간을 정확히
+  가늠할 수 있게 함(이전엔 로컬 kiwipiepy 연산 속도만으로 추정해서 실제보다 훨씬
+  빠르게 예측했던 실수 보완).
+- **`scripts/eval_search_quality.py` 버그 수정**: `text_only_tokenized` 모드가 저장된
+  `chunks.tsv`(재색인 STEP 2 전이면 여전히 원문 기준) 컬럼을 그대로 썼던 걸, `tsv_text`
+  컬럼으로 그 자리에서 `to_tsvector`를 만들어 비교하도록 고침 — 이제 STEP 2(재색인)를
+  하기 전에도 "형태소 토큰화 적용 후" 키워드 검색 효과를 정확히 미리 잴 수 있음.
+  `rrf_hybrid_tokenized`는 여전히 프로덕션 SQL(저장된 tsv 컬럼)을 그대로 재사용하므로
+  STEP 2 이후에만 유효 — 그 전까지는 `text_only_tokenized`로 키워드 leg만 먼저 검증할 것.
+
+### 다음
+1. `scripts/eval_set_template.jsonl` → `eval_set.jsonl` 복사 후 실제 정답 문서 id 채우기
+2. `TOKENIZER_ENABLED=true python scripts/eval_search_quality.py --modes vector_only,text_only,text_only_tokenized,rrf_hybrid`
+   로 "형태소 토큰화 적용 전/후" 키워드 검색 효과를 STEP 2 재색인 전에 먼저 확인
+3. 결과가 좋으면 `tsv_text_migration.sql` STEP 2(재색인) 실행 → `TOKENIZER_ENABLED=true`로
+   Railway 재배포
+4. 리랭커는 아직 미착수 — `scripts/measure_model_memory.py`(§3.5 메모리 실측)부터
+
 ## 🔧 2026-08-27 (1차) — 리랭커·한국어 형태소 토큰화·오프라인 품질평가: 코드 준비 완료 (실행은 미완)
 
 8/31 마감(D-4) 시점에 development-plan.md가 "시간 남으면 추가"로 미뤄뒀던 스트레치 3종

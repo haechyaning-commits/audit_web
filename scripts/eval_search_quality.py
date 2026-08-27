@@ -18,9 +18,14 @@
 #       --eval-set scripts/eval_set.jsonl
 #
 # 리랭커까지 비교하려면 먼저 RERANKER_ENABLED=true로 이 스크립트를 실행(모델을 이
-# 프로세스에 직접 로드함 — 별도 서버 필요 없음). 형태소 토큰화 전/후 비교는
-# chunks.tsv_text가 이미 백필돼 있어야 "적용 후" 항목이 의미가 있음(scripts/
-# backfill_tsv_text.py, scripts/tsv_text_migration.sql 먼저 실행).
+# 프로세스에 직접 로드함 — 별도 서버 필요 없음).
+#
+# 형태소 토큰화 전/후 비교(2026-08-27 2차 수정): chunks.tsv_text가 백필돼 있어야
+# "적용 후" 항목이 의미 있음(scripts/backfill_tsv_text.py 먼저 실행). text_only_tokenized
+# 모드는 tsv_text로 그 자리에서 tsvector를 만들어 비교하므로 tsv_text_migration.sql의
+# STEP 2(재색인) 전에도 정확하게 동작함 — 백필만 끝났으면 바로 써도 됨. 반면
+# rrf_hybrid_tokenized는 저장된 chunks.tsv 컬럼을 쓰는 프로덕션 코드를 그대로 재사용하므로
+# STEP 2까지 끝난 뒤에만 유효함(run_mode() 주석 참고).
 # ------------------------------------------------------------------
 import argparse
 import asyncio
@@ -68,6 +73,27 @@ FROM ranked
 ORDER BY document_id, rank ASC;
 """
 
+# text_only_tokenized 전용 — 저장된 tsv 컬럼(아직 tsv_text_migration.sql STEP 2 전이면
+# text 기준 그대로)을 안 쓰고, tsv_text 컬럼으로 그 자리에서 to_tsvector를 만들어 비교함.
+# 이렇게 해야 "재색인(STEP 2)을 실제로 하기 전"에도 "형태소 토큰화 적용 후"가 어떨지
+# 미리 정확하게 잴 수 있음 — STEP 2 전에 저장된 tsv로 이 모드를 돌리면 "쿼리만 토큰화하고
+# 색인은 원문 그대로"인 상태가 돼서(§3.6이 경고하는 바로 그 잘못된 조합) 비교가 무의미해짐.
+_TEXT_ONLY_TOKENIZED_SQL = """
+WITH ranked AS (
+    SELECT id AS chunk_id, document_id,
+           ROW_NUMBER() OVER (
+               ORDER BY ts_rank(to_tsvector('simple', tsv_text), plainto_tsquery('simple', $1)) DESC
+           ) AS rank
+    FROM chunks
+    WHERE tsv_text IS NOT NULL
+      AND to_tsvector('simple', tsv_text) @@ plainto_tsquery('simple', $1)
+    LIMIT 200
+)
+SELECT DISTINCT ON (document_id) document_id, rank
+FROM ranked
+ORDER BY document_id, rank ASC;
+"""
+
 
 async def _vector_only(pool, query_vector: list[float]) -> list[str]:
     async with pool.acquire() as conn:
@@ -81,6 +107,12 @@ async def _text_only(pool, query_text: str) -> list[str]:
     return [r["document_id"] for r in sorted(rows, key=lambda r: r["rank"])]
 
 
+async def _text_only_tokenized(pool, query_tokens: str) -> list[str]:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_TEXT_ONLY_TOKENIZED_SQL, query_tokens)
+    return [r["document_id"] for r in sorted(rows, key=lambda r: r["rank"])]
+
+
 async def run_mode(pool, mode: str, query: str, query_vector: list[float]) -> list[str]:
     """모드 이름 → document_id 랭킹 리스트(위가 1등)."""
     if mode == "vector_only":
@@ -89,11 +121,18 @@ async def run_mode(pool, mode: str, query: str, query_vector: list[float]) -> li
         return await _text_only(pool, query)
     if mode == "text_only_tokenized":
         query_tokens = tokenizer.tokenize(query)
-        return await _text_only(pool, query_tokens or query)
+        # _text_only_tokenized_SQL이 tsv_text로 그 자리에서 tsvector를 만들어서 비교하므로
+        # tsv_text_migration.sql STEP 2(재색인) 전에도 유효하게 "적용 후" 효과를 잴 수 있음.
+        return await _text_only_tokenized(pool, query_tokens or query)
     if mode == "rrf_hybrid":
         candidates = await repository.search_candidates(pool, query_vector, query, limit=40)
         return [c["document_id"] for c in candidates]
     if mode == "rrf_hybrid_tokenized":
+        # 주의: 이 모드는 repository.search_candidates()를 그대로 재사용하는데, 거기 SQL은
+        # 저장된 chunks.tsv 컬럼을 씀 — STEP 2(재색인)가 끝나서 tsv가 tsv_text 기준으로
+        # 바뀐 뒤에만 유효한 비교임. STEP 2 전에 이 모드를 돌리면 "쿼리만 토큰화, 색인은
+        # 원문 그대로"인 잘못된 조합이 됨 — 지금은 text_only_tokenized로 키워드 leg만
+        # 먼저 검증하고, STEP 2 이후에 이 모드로 하이브리드 전체 효과를 재확인할 것.
         query_tokens = tokenizer.tokenize(query)
         candidates = await repository.search_candidates(
             pool, query_vector, query_tokens or query, limit=40
@@ -148,15 +187,20 @@ async def main() -> None:
         raise SystemExit(f"{eval_path}에 eval 케이스가 없습니다.")
     print(f"eval set: {len(eval_cases)}개 쿼리")
 
-    any_tokenized_index_mode = any("tokenized" in m for m in modes if m != "rrf_plus_rerank")
-    if any_tokenized_index_mode and not TOKENIZER_ENABLED:
+    any_tokenized_mode = any("tokenized" in m for m in modes if m != "rrf_plus_rerank")
+    if any_tokenized_mode and not TOKENIZER_ENABLED:
         print(
             "경고: *_tokenized 모드가 포함돼 있는데 TOKENIZER_ENABLED가 꺼져 있습니다 — "
             "형태소 분석기를 이 프로세스에도 로드해야 하므로 TOKENIZER_ENABLED=true로 "
-            "다시 실행하세요(단, chunks.tsv_text 백필이 아직 안 끝났다면 이 모드의 결과는 "
-            "'적용 후' 효과를 보여주지 못함 — tokenizer.py 모듈 docstring 참고)."
+            "다시 실행하세요."
         )
         return
+    if "rrf_hybrid_tokenized" in modes:
+        print(
+            "참고: rrf_hybrid_tokenized는 chunks.tsv가 tsv_text 기준으로 재색인된 뒤에만 "
+            "유효합니다(tsv_text_migration.sql STEP 2). 그 전이라면 text_only_tokenized로 "
+            "키워드 leg 효과만 먼저 확인하세요 — 이건 STEP 2 없이도 정확합니다."
+        )
     if "rrf_plus_rerank" in modes and not RERANKER_ENABLED:
         print(
             "경고: rrf_plus_rerank 모드가 포함돼 있는데 RERANKER_ENABLED가 꺼져 있습니다 — "
