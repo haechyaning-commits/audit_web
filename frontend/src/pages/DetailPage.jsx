@@ -1062,6 +1062,18 @@ function splitIntoBlocks(text) {
     // 2026-08-24: HWP 표 손실 복구가 되살린 "셀 | 셀" 형태(looksLikePipeTable 참고)도
     // table로 재분류 — 캡션("[표 N]") 없이 body/bullet 어느 쪽으로 흘러들어왔든 상관없이
     // 이 신호만으로 판정(파이프 문자는 이 말뭉치 산문에 정상적으로 나올 일이 없어 안전).
+    //
+    // 2026-08-27: 각주("footnote" 타입)도 표와 똑같은 문제가 있었음 — 짧은 각주
+    // 정의문("1) OOO처-682(2016.2.24.)『...』 참조")은 "다."류 문장종결 없이 끝나서
+    // FOOTNOTE_LINE_CLOSED_RE/looksLikeClosedFootnoteStart 어느 쪽에도 안 걸려
+    // 문단이 안 닫히고, 뒤이어 오는 완전히 무관한 실제 본문(여러 문장, "...판단된다."
+    // "...인정된다." "...명시하고 있다." 등 "다."로 끝나는 정상 문장들)이 다음 헤딩을
+    // 만날 때까지 전부 그 각주 문단에 흡수돼 작은 글씨로 나오는 버그를 실제
+    // 스크린샷(원본 PDF ↔ 웹페이지 비교, "1) 2)만 작게 나와야 하는데 본문도 작은
+    // 글씨로 나온다")으로 확인함. 지금까지 확인된 진짜 각주는 전부 문장종결 없이
+    // 끝나는 한 줄짜리(임/함/음/됨) 또는 용어설명형(영문+쉼표+명사구)이라 완결된
+    // 한국어 문장("...다.")이 여러 번 반복될 일이 없음 — table과 같은 신호
+    // (looksLikeRealProse)로 안전하게 body로 되돌림.
     const isLeadingCover =
       blocks.length === 0 && paraType === "body" && looksLikeCoverBlock(para);
     const paraJoined = para.join(" ");
@@ -1069,7 +1081,8 @@ function splitIntoBlocks(text) {
       (paraType === "bullet" && looksLikeFlattenedTable(paraJoined)) ||
       looksLikePipeTable(paraJoined)
         ? "table"
-        : paraType === "table" && looksLikeRealProse(paraJoined)
+        : (paraType === "table" || paraType === "footnote") &&
+            looksLikeRealProse(paraJoined)
           ? "body"
           : isLeadingCover
             ? "cover"
