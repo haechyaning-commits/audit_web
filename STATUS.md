@@ -2,6 +2,64 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## ✅ 2026-08-27 (1차) — 각주 렌더링 버그 수정 + 테스트/CI 인프라 처음 도입 (PR #46~#50)
+
+사용자가 원본 PDF와 웹페이지를 나란히 비교한 스크린샷으로 실제 버그를 제보 →
+그 수정을 계기로 "더 완성도 높이려면 실무에서 뭘 하는지" 질문을 받아서, 이 세션
+안에서 할 수 있는 항목들을 순서대로 진행함. 커밋마다 별도 PR로 올려서 순차 병합
+(#46 → #47 → #48 → #49 → #50, 전부 main에 병합 완료).
+
+- **각주 흡수 버그 수정(#46)**: `DetailPage.jsx`의 `splitIntoBlocks`가 짧은 각주
+  정의("1) OOO처-682(2016.2.24.)「...」 참조"처럼 문장종결 없이 끝나는 줄) 뒤에
+  완전히 무관한 정상 본문(여러 "...다." 문장)이 곧바로 이어지면, 다음 헤딩을 만날
+  때까지 그 본문 전체를 같은 각주 문단으로 계속 흡수해서 작은 글씨로 렌더링하던
+  버그. `table` 타입에만 있던 안전장치(`looksLikeRealProse`로 "사실은 진짜 산문이면
+  되돌리기")를 `footnote` 타입에도 적용해서 수정.
+- **이 프로젝트 첫 자동화 테스트 도입(#46~#48)**:
+  - 프론트: `splitIntoBlocks()`를 named export로 노출하고 Vitest 유닛테스트
+    14건 추가(`frontend/src/pages/splitIntoBlocks.test.js`) — 각주/붙임목록/
+    법령인용라벨/로마숫자소제목/표지블록 등 STATUS.md에 실제 문서로 검증된 기록이
+    남아있는 휴리스틱들 재현.
+  - CI(`ci.yml`)에 `npm run test`가 아예 없어서 테스트를 추가해도 CI가 실제로
+    돌리지 않는다는 걸 발견 → `frontend` 잡에 추가.
+  - 백엔드: 지금까지 `py_compile`(문법 체크)뿐이라 `/reports`/`/admin/reports`
+    같은 입력검증·인가 로직이 전혀 검증 안 되고 있었음. `app/embedding.py`가
+    torch/sentence-transformers를 모듈 최상단이 아니라 `load_model()` 함수
+    안에서만 import하도록 리팩터링해서(요 하나로 `app.main` 자체는 가벼워짐),
+    무거운 ML 의존성 설치 없이 CI에서 pytest를 돌릴 수 있게 함
+    (`backend/requirements-test.txt`, 설치 ~10~15초). `backend/tests/`에
+    `TestClient` 기반 테스트 18~21건 추가, CI에 `backend-test` 잡 신규.
+    TestClient(app)를 `with` 없이 쓰면 lifespan이 안 돌아서 실제 Postgres/모델
+    없이도 안전하게 테스트 가능하다는 특성을 그대로 이용함.
+- **`/reports` rate limiting(#49)**: 로그인 없이 누구나 무제한 호출 가능하던
+  공개 신고 엔드포인트에 IP당 슬라이딩 윈도우(10분 5회, 초과 시 429) 추가.
+  Redis 없이 프로세스 메모리로 구현(uvicorn 단일 워커 전제와 동일 근거).
+  `X-Forwarded-For` 우선 사용.
+- **에러 모니터링(Sentry) 연동(#50)**: `sentry_sdk.init()`을 앱 생성 전 호출.
+  `SENTRY_DSN` 미설정 시 `client.transport is None`이 돼서 완전한 no-op으로
+  동작함을 직접 실측 확인 — 설정을 깜빡해도 안전(요청이 막히지 않음, ADMIN_TOKEN
+  과 반대 방향의 안전한 실패). `.env.example`에 `SENTRY_DSN`/`SENTRY_ENVIRONMENT`
+  안내 추가.
+- **GitHub 브랜치 보호 규칙 확인**: API로 `list_branches` 조회해보니 `main`이
+  `protected: false` — CI가 다 갖춰져도 강제되고 있진 않음. 이 세션이 쓰는
+  GitHub MCP 서버엔 브랜치 보호 규칙을 설정하는 도구가 없어서(조회만 가능)
+  사용자가 직접 Settings → Branches에서 켜야 함.
+
+### 🔜 다음 계획
+1. **GitHub 브랜치 보호 규칙 켜기** — `haechyaning-commits/audit_web` Settings →
+   Branches → `main`에 "Require status checks to pass before merging" 추가,
+   `frontend`/`backend-syntax`/`backend-test` 세 잡을 필수 체크로 지정.
+2. **`SENTRY_DSN`을 실제로 발급받아 Railway 프로덕션에 등록** — sentry.io에서
+   프로젝트 생성 후 DSN 값을 Railway 백엔드 환경변수에 추가(비워두면 계속 no-op).
+3. **`ADMIN_TOKEN`을 Railway 프로덕션에 실제로 등록** — 여러 세션째 이월된 항목,
+   값 안 넣으면 `/admin/reports`가 계속 403이라 신고함이 쌓여도 확인 불가.
+4. **DB 마이그레이션 도구(Alembic) 도입** — 지금은 `error_reports` 테이블을 앱
+   시작 시 `CREATE TABLE IF NOT EXISTS`로 즉석 생성하는 임시방편(7차 참고). 프로덕션
+   DB 접근 가능한 세션에서 실제 스키마 상태를 기준으로 baseline을 만들어야 안전
+   — 이번 세션은 DB 접근이 없어 보류함.
+5. `scripts/audit_dept_anon_symbol_leak_scope.py`를 실제 프로덕션 DB 접근 가능한
+   환경에서 실행 — 여러 차례 이월된 항목, 계속 대기 중.
+
 ## ✅ 2026-08-26 (7차) — 오류 신고: GitHub 링크 → 자체 신고 모달로 교체
 
 6차에서 만든 "오류 신고" 버튼이 GitHub 새 이슈 링크로 바로 이동하는 방식이었는데,
