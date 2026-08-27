@@ -2,6 +2,46 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔧 2026-08-27 (4차) — 리랭커 §3.5 메모리 실측 완료 + main 병합
+
+`claude/reranker-korean-morpheme-tokenization-62utvo` 브랜치(1~3차 작업)를 main에
+병합. main이 그 사이 별도 세션(PR #46~#51)에서 각주 버그 수정, 테스트/CI 인프라,
+Sentry 연동, `/reports` rate limiting을 먼저 반영해둔 상태라 함께 합침 — 코드 변경
+자체는 겹치는 부분 없이 전부 자동/수동으로 깔끔히 합쳐짐(STATUS.md만 텍스트 충돌).
+
+- **§3.5 임베딩+리랭커 동시 로드 메모리 실측(코랩, CPU)**: 시작 103MB → BGE-m3 로드 후
+  2,381MB → +리랭커 로드 후 3,147MB → 쿼리 인코딩+리랭커 추론 1회 후 **3,819MB**.
+  사전 추정치(FP16 기준 ~2.5~3GB)보다 높게 나왔는데, 코드가 dtype을 지정 안 해서
+  기본값 FP32로 로드되기 때문(§3.5 표는 FP16 가정) — CPU에서는 FP16이 잘 가속 안 돼서
+  당장 강제하진 않음. **Railway 플랜은 Hobby(서비스당 48GB 한도, 공식 문서 확인)라
+  3.8GB는 한도의 8% 수준 — 메모리 리스크 해소.**
+- **`reranker.py`/`tokenizer.py`를 main의 CI 설계에 맞게 수정**: main이 새로 도입한
+  `backend-test` CI 잡이 `app.embedding`을 무거운 의존성(torch/sentence-transformers)
+  없이도 import 가능하게 리팩터링해뒀는데(PR #48), 이 브랜치의 reranker.py/tokenizer.py는
+  각각 sentence_transformers/kiwipiepy를 모듈 최상단에서 import하고 있어서 그대로
+  병합하면 CI가 깨질 뻔함 — `load_model()` 안으로 지연 임포트하도록 수정(embedding.py와
+  동일 패턴), 격리 venv에서 `app.main` import 실제 검증 완료.
+- **§5.3 eval(rrf_hybrid vs rrf_hybrid_tokenized)**: 24개 쿼리 기준 R@10 37.5%→41.67%.
+  다만 이 측정 시점에 `TOKENIZER_ENABLED`가 아직 꺼진 채 STEP 2(재색인)만 먼저
+  끝나있어서, 실사용 `rrf_hybrid` 자체가 "색인은 토큰화·쿼리는 원문"인 어긋난 상태로
+  측정됨(두 실행 사이 `rrf_hybrid` 자체 수치가 달라진 이유) — 이 사실을 계기로
+  `TOKENIZER_ENABLED=true` 배포를 늦출 이유가 없다고 판단, 바로 배포함(아래).
+- **`TOKENIZER_ENABLED=true` Railway 배포 완료** — 정상 동작 확인.
+- **리랭커 eval(`rrf_plus_rerank`)은 미완**: eval_set.jsonl이 코랩 런타임 리셋
+  두 번(torch/torchvision/torchaudio 버전 안 맞아 재설치 반복) 때문에 두 번 유실됨 —
+  다음 세션에서 다시 채우거나, 아래 "다음" 참고.
+
+### 다음 (내일 이어서 할 것)
+1. **eval_set.jsonl 다시 채우기** — 코랩 런타임 리셋으로 두 번 유실됨. 이번엔 채운
+   즉시 이 저장소에 커밋해서 유실 방지할 것(코랩이 GitHub push 인증이 없으면, 코랩
+   출력을 세션에 붙여넣어 대신 커밋하는 방법도 가능 — 이번 세션에서 그렇게 진행 중이었음).
+2. **`RERANKER_ENABLED=true python scripts/eval_search_quality.py --modes rrf_hybrid,rrf_plus_rerank`**
+   로 리랭커 실제 효과 확인 (메모리는 이미 안전 확인됨 — 남은 건 이 eval뿐)
+3. 결과 괜찮으면 Railway `RERANKER_ENABLED=true` 배포 → §3.4/§3.6/§5.3 스트레치 3종
+   전부 완료
+4. (선택) "저탄장" 같은 도메인 미등재 복합명사 과분해 문제 — eval로 실제 영향 있다고
+   확인되면 `Kiwi.add_user_word()`로 사용자 사전 보강 검토(2차 기록 참고)
+
 ## 🔴✅ 2026-08-27 (3차) — tsv 재색인(STEP 2) 중 DiskFull 장애 발생·복구, 트리거 방식으로 전환
 
 STEP 2(chunks.tsv를 tsv_text 기준 생성 컬럼으로 교체)를 원안대로 실행하다가 Railway에서
@@ -132,6 +172,64 @@ STEP 2(chunks.tsv를 tsv_text 기준 생성 컬럼으로 교체)를 원안대로
    RRF vs 벡터/키워드 단독 vs (RRF+토큰화) vs (RRF+리랭커) 비교표를 §5.3에 반영.
 4. 위 세 가지가 다 끝난 뒤 Railway `RERANKER_ENABLED`/`TOKENIZER_ENABLED` 환경변수를
    `true`로 켜고 재배포 — 이 세션이 만든 코드는 이 순서를 지키면 재작업 없이 그대로 얹힘.
+
+## ✅ 2026-08-27 (1차, 별도 세션) — 각주 렌더링 버그 수정 + 테스트/CI 인프라 처음 도입 (PR #46~#50)
+
+사용자가 원본 PDF와 웹페이지를 나란히 비교한 스크린샷으로 실제 버그를 제보 →
+그 수정을 계기로 "더 완성도 높이려면 실무에서 뭘 하는지" 질문을 받아서, 이 세션
+안에서 할 수 있는 항목들을 순서대로 진행함. 커밋마다 별도 PR로 올려서 순차 병합
+(#46 → #47 → #48 → #49 → #50, 전부 main에 병합 완료).
+
+- **각주 흡수 버그 수정(#46)**: `DetailPage.jsx`의 `splitIntoBlocks`가 짧은 각주
+  정의("1) OOO처-682(2016.2.24.)「...」 참조"처럼 문장종결 없이 끝나는 줄) 뒤에
+  완전히 무관한 정상 본문(여러 "...다." 문장)이 곧바로 이어지면, 다음 헤딩을 만날
+  때까지 그 본문 전체를 같은 각주 문단으로 계속 흡수해서 작은 글씨로 렌더링하던
+  버그. `table` 타입에만 있던 안전장치(`looksLikeRealProse`로 "사실은 진짜 산문이면
+  되돌리기")를 `footnote` 타입에도 적용해서 수정.
+- **이 프로젝트 첫 자동화 테스트 도입(#46~#48)**:
+  - 프론트: `splitIntoBlocks()`를 named export로 노출하고 Vitest 유닛테스트
+    14건 추가(`frontend/src/pages/splitIntoBlocks.test.js`) — 각주/붙임목록/
+    법령인용라벨/로마숫자소제목/표지블록 등 STATUS.md에 실제 문서로 검증된 기록이
+    남아있는 휴리스틱들 재현.
+  - CI(`ci.yml`)에 `npm run test`가 아예 없어서 테스트를 추가해도 CI가 실제로
+    돌리지 않는다는 걸 발견 → `frontend` 잡에 추가.
+  - 백엔드: 지금까지 `py_compile`(문법 체크)뿐이라 `/reports`/`/admin/reports`
+    같은 입력검증·인가 로직이 전혀 검증 안 되고 있었음. `app/embedding.py`가
+    torch/sentence-transformers를 모듈 최상단이 아니라 `load_model()` 함수
+    안에서만 import하도록 리팩터링해서(요 하나로 `app.main` 자체는 가벼워짐),
+    무거운 ML 의존성 설치 없이 CI에서 pytest를 돌릴 수 있게 함
+    (`backend/requirements-test.txt`, 설치 ~10~15초). `backend/tests/`에
+    `TestClient` 기반 테스트 18~21건 추가, CI에 `backend-test` 잡 신규.
+    TestClient(app)를 `with` 없이 쓰면 lifespan이 안 돌아서 실제 Postgres/모델
+    없이도 안전하게 테스트 가능하다는 특성을 그대로 이용함.
+- **`/reports` rate limiting(#49)**: 로그인 없이 누구나 무제한 호출 가능하던
+  공개 신고 엔드포인트에 IP당 슬라이딩 윈도우(10분 5회, 초과 시 429) 추가.
+  Redis 없이 프로세스 메모리로 구현(uvicorn 단일 워커 전제와 동일 근거).
+  `X-Forwarded-For` 우선 사용.
+- **에러 모니터링(Sentry) 연동(#50)**: `sentry_sdk.init()`을 앱 생성 전 호출.
+  `SENTRY_DSN` 미설정 시 `client.transport is None`이 돼서 완전한 no-op으로
+  동작함을 직접 실측 확인 — 설정을 깜빡해도 안전(요청이 막히지 않음, ADMIN_TOKEN
+  과 반대 방향의 안전한 실패). `.env.example`에 `SENTRY_DSN`/`SENTRY_ENVIRONMENT`
+  안내 추가.
+- **GitHub 브랜치 보호 규칙 확인**: API로 `list_branches` 조회해보니 `main`이
+  `protected: false` — CI가 다 갖춰져도 강제되고 있진 않음. 이 세션이 쓰는
+  GitHub MCP 서버엔 브랜치 보호 규칙을 설정하는 도구가 없어서(조회만 가능)
+  사용자가 직접 Settings → Branches에서 켜야 함.
+
+### 🔜 다음 계획
+1. **GitHub 브랜치 보호 규칙 켜기** — `haechyaning-commits/audit_web` Settings →
+   Branches → `main`에 "Require status checks to pass before merging" 추가,
+   `frontend`/`backend-syntax`/`backend-test` 세 잡을 필수 체크로 지정.
+2. **`SENTRY_DSN`을 실제로 발급받아 Railway 프로덕션에 등록** — sentry.io에서
+   프로젝트 생성 후 DSN 값을 Railway 백엔드 환경변수에 추가(비워두면 계속 no-op).
+3. **`ADMIN_TOKEN`을 Railway 프로덕션에 실제로 등록** — 여러 세션째 이월된 항목,
+   값 안 넣으면 `/admin/reports`가 계속 403이라 신고함이 쌓여도 확인 불가.
+4. **DB 마이그레이션 도구(Alembic) 도입** — 지금은 `error_reports` 테이블을 앱
+   시작 시 `CREATE TABLE IF NOT EXISTS`로 즉석 생성하는 임시방편(7차 참고). 프로덕션
+   DB 접근 가능한 세션에서 실제 스키마 상태를 기준으로 baseline을 만들어야 안전
+   — 이번 세션은 DB 접근이 없어 보류함.
+5. `scripts/audit_dept_anon_symbol_leak_scope.py`를 실제 프로덕션 DB 접근 가능한
+   환경에서 실행 — 여러 차례 이월된 항목, 계속 대기 중.
 
 ## ✅ 2026-08-26 (7차) — 오류 신고: GitHub 링크 → 자체 신고 모달로 교체
 

@@ -30,3 +30,4 @@ openai==2.53.0
 pydantic==2.13.4
 python-dotenv==1.2.2
 kiwipiepy==0.23.2
+sentry-sdk==2.68.1

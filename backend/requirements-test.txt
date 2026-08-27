@@ -1,0 +1,24 @@
+# CI(backend-test 잡)와 로컬 pytest 실행용 — requirements.txt의 부분집합 + 테스트 도구.
+#
+# torch/sentence-transformers(임베딩 모델)는 일부러 뺐음: 설치에만 GB 단위 다운로드와
+# 수 분이 걸려서(requirements.txt 주석 참고), "CI가 빨리 도는지"가 이 저장소의 기존
+# 설계 원칙(ci.yml 상단 주석 — "무거운 의존성 설치... 여기선 안 함")과 충돌함. 대신
+# app/embedding.py가 torch/sentence-transformers를 load_model() 함수 안에서만
+# import하도록 리팩터링해서(2026-08-27), 이 함수를 실제로 호출하지 않는 한(=임베딩
+# 모델이 필요 없는 라우트: /health, /reports, /admin/reports의 입력검증·인가 로직 등)
+# 이 패키지들 없이도 app.main을 정상적으로 import하고 테스트할 수 있음.
+#
+# 버전은 requirements.txt와 동일하게 맞춰둠 — 그쪽 버전을 올릴 때 이 파일도 같이
+# 확인할 것(자동 동기화는 아님, 수동 관리).
+fastapi==0.141.1
+asyncpg==0.31.0
+pgvector==0.5.0
+openai==2.53.0
+pydantic==2.13.4
+python-dotenv==1.2.2
+sentry-sdk==2.68.1
+numpy
+
+# 테스트 전용 도구 — requirements.txt(프로덕션 배포)에는 없음.
+pytest
+httpx

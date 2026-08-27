@@ -10,7 +10,8 @@ import asyncio
 import hashlib
 import logging
 import os
-from collections import Counter
+import time
+from collections import Counter, defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -22,7 +23,8 @@ from dotenv import load_dotenv
 # `uvicorn app.main:app`으로 실행 가능
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+import sentry_sdk
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
@@ -44,6 +46,26 @@ from .schemas import (
 from .textutils import build_preview, build_source_url, extract_law_citations, extract_title
 
 logger = logging.getLogger(__name__)
+
+# 2026-08-27(완성도 점검 후속): 프로덕션에서 뭐가 터져도 사용자가 오류 신고(POST /reports)를
+# 넣기 전엔 알 방법이 전혀 없었음 — Sentry 연동으로 예외를 자동 캡처함.
+# SENTRY_DSN이 비어있으면(로컬 개발, 이 값을 아직 안 받은 배포 등) sentry_sdk.init()이
+# 만드는 client의 transport가 None이 돼서 실제로는 아무 데도 전송하지 않는 완전한
+# no-op으로 동작함 — 직접 실측 확인(2026-08-27, client.transport is None). 그래서
+# "DSN 있으면 켜고 없으면 끄기"를 별도 분기 없이 항상 그냥 호출해도 안전함(설정을
+# 깜빡해도 에러가 나거나 요청이 막히지 않고, 그냥 모니터링만 안 되는 상태로 남음 —
+# ADMIN_TOKEN처럼 "안전하지 않은 쪽으로 열리는" 실패가 아니라서 부담 없이 이렇게 둠).
+sentry_sdk.init(
+    dsn=os.environ.get("SENTRY_DSN", ""),
+    environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+    # 트래픽이 적은 포트폴리오 규모 프로젝트라 성능 트레이싱보다 에러 캡처가 우선 —
+    # 트레이스 샘플링은 기본 꺼둠(0.0), 필요해지면 환경변수로 켤 수 있게만 해둠.
+    traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0")),
+    # 로그인 시스템이 없어 사용자 식별 정보 자체를 안 다루지만, 신고 폼 메시지(자유
+    # 텍스트)에 사용자가 실수로 개인정보를 적을 가능성은 있어 기본값 그대로 꺼둠
+    # (요청 헤더/쿠키 등 부가 정보도 함께 전송 안 함).
+    send_default_pii=False,
+)
 
 CONFIDENCE_LABELS = {
     "standard": "신뢰도 높음",
@@ -75,6 +97,47 @@ MAX_REPORT_MESSAGE_LEN = 2000
 #   scripts/backfill_tsv_text.py로 실제 배치 백필+재색인을 끝낸 뒤에만 켤 것.
 RERANKER_ENABLED = os.environ.get("RERANKER_ENABLED", "false").lower() == "true"
 TOKENIZER_ENABLED = os.environ.get("TOKENIZER_ENABLED", "false").lower() == "true"
+
+# 2026-08-27: /reports가 로그인 없이 누구나 무제한으로 호출 가능한 공개 엔드포인트라
+# 남용 방지가 전혀 없었음(완성도 점검 후속 조치) — IP당 슬라이딩 윈도우 방식으로 최소한의
+# 속도 제한을 둠. Redis 같은 외부 저장소 없이 프로세스 메모리 dict로 충분한 이유:
+# db.py의 uvicorn 단일 워커 전제(§5.2)와 동일 — 워커가 여러 개면 카운터가 워커별로
+# 갈라져 우회가 쉬워지지만, 이 프로젝트는 이미 단일 워커를 전제하고 있어서 문제없음.
+# 값은 임의 추정치 — 실사용 신고 빈도를 보고 나중에 조정 가능(정상 사용자가 실수로
+# 두세 번 다시 제출하는 정도는 걸리지 않게 넉넉히 둠).
+REPORT_RATE_LIMIT = 5
+REPORT_RATE_WINDOW_SECONDS = 600  # 10분
+
+# IP -> 최근 제출 시각(단조시계) 큐. 정상 사용량에서는 IP당 큐 길이가 REPORT_RATE_LIMIT을
+# 넘지 않고, 오래된 항목은 요청마다 정리되므로 메모리 사용량이 유계로 유지됨 — 다만 한 번이라도
+# 신고를 넣은 IP는 그 뒤로 다시 안 넣어도 빈 큐 형태로 dict에 계속 남음(포트폴리오 프로젝트
+# 규모에서 무시할 수준, 실사용 트래픽 보고 필요하면 주기적 정리 추가 가능).
+_report_submission_times: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    """Railway 등 리버스 프록시 뒤에서는 request.client.host가 프록시 자신의 주소를
+    가리킬 수 있어서, X-Forwarded-For가 있으면 그 첫 번째 값(원 클라이언트)을 우선
+    사용함 — 신뢰할 수 있는 프록시 계층이 이 헤더를 정리해준다는 전제(일반적인 PaaS
+    환경 가정). 남용 방지용 소프트 제한이라 헤더 위조 자체를 막는 강한 보안 경계는
+    아님(로그인 시스템이 없는 이 프로젝트 규모에 맞는 절충)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_report_rate_limit(request: Request) -> None:
+    ip = _client_ip(request)
+    now = time.monotonic()
+    window = _report_submission_times[ip]
+    while window and now - window[0] > REPORT_RATE_WINDOW_SECONDS:
+        window.popleft()
+    if len(window) >= REPORT_RATE_LIMIT:
+        raise HTTPException(
+            status_code=429, detail="신고를 너무 자주 보내고 있습니다. 잠시 후 다시 시도해 주세요."
+        )
+    window.append(now)
 
 
 @asynccontextmanager
@@ -454,10 +517,13 @@ async def get_document_summary(document_id: str) -> SummaryResponse:
 
 
 @app.post("/reports", status_code=201)
-async def submit_error_report(payload: ErrorReportCreate) -> dict:
+async def submit_error_report(payload: ErrorReportCreate, request: Request) -> dict:
     """상세페이지 "오류 신고" 모달 제출 (2026-08-26) — 처음엔 GitHub 새 이슈 링크로 보냈는데,
     "그게 아니라 신고창 뜨고 제출하면 내가 볼 수 있게"라는 피드백으로 자체 저장으로 교체함.
-    로그인 없이 누구나 호출 가능한 공개 엔드포인트라 메시지 길이만 최소한으로 검증."""
+    로그인 없이 누구나 호출 가능한 공개 엔드포인트라 메시지 길이 검증에 더해 IP당 속도
+    제한도 둠(2026-08-27, _enforce_report_rate_limit 주석 참고) — 잘못된 입력이라도
+    DB에 닿기 전에 막아야 하는 남용 방지 목적이라 메시지 검증보다 먼저 검사함."""
+    _enforce_report_rate_limit(request)
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="신고 내용을 입력해 주세요.")

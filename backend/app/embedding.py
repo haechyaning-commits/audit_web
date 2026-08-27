@@ -4,16 +4,28 @@
 배치(Colab GPU)와 달리 검색 시점엔 실시간으로 인코딩해야 함. 모델을 요청마다 새로 불러오면
 지연시간이 폭증하므로, 앱 시작 시 딱 한 번만 로드해서 재사용.
 """
+from __future__ import annotations
+
 import os
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-import torch
-from sentence_transformers import SentenceTransformer
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 _model: SentenceTransformer | None = None
 
 
 def load_model() -> None:
+    # 2026-08-27: torch/sentence-transformers import를 여기 안으로 옮김(모듈 최상단이
+    # 아니라) — CI(backend-test 잡)가 이 모듈이 속한 main.py를 가볍게 import해서
+    # /admin/reports 토큰 검증, /reports 입력 검증처럼 모델이 필요 없는 경로를
+    # 테스트할 수 있게 하기 위함. 이 함수(실제 임베딩 로딩)를 호출하지 않는 한
+    # torch/sentence-transformers가 설치돼 있을 필요조차 없어짐 — Railway
+    # 배포(requirements.txt에 둘 다 설치됨)에서는 지금까지와 동일하게 동작.
+    import torch
+    from sentence_transformers import SentenceTransformer
+
     global _model
     if _model is not None:
         return
