@@ -117,4 +117,69 @@ describe("splitIntoBlocks", () => {
     expect(blocks[0].type).toBe("body");
     expect(blocks[1]).toMatchObject({ type: "caption", text: "자료: ○○ 제출자료 재구성" });
   });
+
+  it('"붙임 : ..." 뒤에 이어지는 짧은 번호 항목들은 각자 heading으로 승격되지 않고 하나의 body로 흡수됨', () => {
+    // ATTACHMENT_LABEL_RE 주석 참고 — "붙임"을 문단 경계 라벨로 인정하고, 그 뒤
+    // 이어지는 짧은 번호 항목("2. 확인서" 등)은 새 소제목이 아니라 첨부 목록의
+    // 계속되는 항목이므로 inAttachmentList로 heading 승격을 막아야 함.
+    const text = "붙임 : 1. 문답서\n2. 확인서\n3. 진술서";
+    const blocks = splitIntoBlocks(text);
+    expect(blocks[0]).toMatchObject({ type: "heading", text: "붙임", isTitle: false });
+    expect(blocks[1]).toMatchObject({
+      type: "body",
+      text: "1. 문답서 2. 확인서 3. 진술서",
+    });
+  });
+
+  it('"N) 법령 「...」 \'인용문...\'"처럼 번호+법령라벨 뒤에 줄바꿈 없이 인용문이 붙으면 라벨/인용문을 분리함', () => {
+    // splitLawCitationHeading 주석 참고 — 라벨(번호+법령명+조항)만 heading으로,
+    // 뒤이은 실제 인용문은 별도 body로 떼어내야 함(안 그러면 인용문까지 통째로 굵어짐).
+    const text =
+      "1) 법령 「공직자윤리법」 제3조(청렴의무) '공직유관단체인 우리 공사는 청렴하게 직무를 수행하여야 한다.'";
+    const blocks = splitIntoBlocks(text);
+    expect(blocks[0]).toMatchObject({
+      type: "heading",
+      text: "1) 법령 「공직자윤리법」 제3조(청렴의무)",
+    });
+    expect(blocks[1]).toMatchObject({
+      type: "body",
+      text: "'공직유관단체인 우리 공사는 청렴하게 직무를 수행하여야 한다.'",
+    });
+  });
+
+  it("ⅰ)/ⅱ)/ⅲ)... 로마숫자 소제목을 heading으로 분류함", () => {
+    // ROMAN_NUMERAL_HEADING_RE 주석 참고 — 가/나/다·1./2./3.과 같은 급의 짧은
+    // 소제목으로 다뤄야 함(예전엔 어떤 헤딩 패턴에도 안 걸려 그냥 body였음).
+    const text = "나. 관계 법령 및 판단 기준\nⅰ) 내규 준수 관련\nⅱ) 금품 수수 관련";
+    const blocks = splitIntoBlocks(text);
+    expect(blocks.map((b) => ({ type: b.type, text: b.text }))).toEqual([
+      { type: "heading", text: "나. 관계 법령 및 판단 기준" },
+      { type: "heading", text: "ⅰ) 내규 준수 관련" },
+      { type: "heading", text: "ⅱ) 금품 수수 관련" },
+    ]);
+  });
+
+  it("연속된 각주 참조(1)/2)/3))는 각각 독립된 footnote 블록으로 정확히 순서대로 인식됨", () => {
+    const text = [
+      "관련 규정에 따라 권한을 위임1)하였고, 정산 업무를 위탁2)하였으며, 이후 절차를 간소화3)하였다.",
+      "",
+      "1) 총무처장에게 예산 집행 권한을 위임함",
+      "2) 회계법인에 정산 업무를 위탁함",
+      "3) 내부 규정 개정으로 절차를 간소화함",
+    ].join("\n");
+    const blocks = splitIntoBlocks(text);
+    expect(blocks.map((b) => b.type)).toEqual(["body", "footnote", "footnote", "footnote"]);
+    expect(blocks[1].text).toBe("1) 총무처장에게 예산 집행 권한을 위임함");
+    expect(blocks[2].text).toBe("2) 회계법인에 정산 업무를 위탁함");
+    expect(blocks[3].text).toBe("3) 내부 규정 개정으로 절차를 간소화함");
+  });
+
+  it("문서 맨 앞 표지 블록(뱃지/제목/날짜/기관명이 줄바꿈으로만 나열)은 cover 타입으로 줄바꿈을 보존함", () => {
+    // looksLikeCoverBlock 주석 참고 — 마지막 줄이 문장종결로 안 끝나야 표지로 인식.
+    const text = "복무감사\n2020. 10월 복무감사결과 보고서\n2020. 10.\n한국철도공사\n감사실";
+    const blocks = splitIntoBlocks(text);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("cover");
+    expect(blocks[0].text).toBe(text);
+  });
 });
