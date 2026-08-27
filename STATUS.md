@@ -2,6 +2,42 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
+## 🔴✅ 2026-08-27 (3차) — tsv 재색인(STEP 2) 중 DiskFull 장애 발생·복구, 트리거 방식으로 전환
+
+STEP 2(chunks.tsv를 tsv_text 기준 생성 컬럼으로 교체)를 원안대로 실행하다가 Railway에서
+장애 발생 → 원인 진단 → 다른 방식으로 우회 성공.
+
+### 장애
+- `DROP INDEX chunks_tsv_gin_idx` → `ALTER TABLE chunks DROP COLUMN tsv`까지는 성공했으나,
+  바로 다음 `ALTER TABLE chunks ADD COLUMN tsv tsvector GENERATED ALWAYS AS (...) STORED`
+  (92,136건 전체를 한 번에 재작성)에서
+  `DiskFull: could not resize shared memory segment ... No space left on device` 에러로 실패.
+  `max_parallel_workers_per_gather = 0`으로 병렬 처리를 꺼도 동일 에러 재현 — 진짜 디스크
+  공간이 아니라 **Railway 컨테이너의 `/dev/shm` 한도**로 추정(관리형 DB라 이 한도 자체를
+  늘릴 방법 없음).
+- **이 사이 chunks.tsv 컬럼이 아예 없는 상태였음 — 그동안 실사용 키워드 검색(text_search
+  leg)이 전부 실패했을 것**(벡터 검색은 영향 없어서 사이트 자체가 죽진 않았음). 장애
+  지속 시간: STEP 2 착수~트리거 방식 복구까지 대화 흐름 기준 짧은 시간(정확한 분 단위는
+  미기록).
+
+### 복구 — "한 번에 전체 재작성" 대신 배치+트리거로 우회
+1. `tsv`를 GENERATED 컬럼이 아니라 **일반 tsvector 컬럼**으로 추가(즉시 끝남, 재작성 없음)
+2. `chunks_tsv_trigger()` 함수 + `BEFORE INSERT OR UPDATE` 트리거 등록 — 앞으로 들어오거나
+   바뀌는 행은 자동으로 `tsv = to_tsvector('simple', COALESCE(tsv_text, text))`로 채워짐
+   (GENERATED 컬럼과 최종 동작 동일, 한 행씩 계산해서 DiskFull 회피)
+3. 기존 92,136건은 `backfill_tsv_text.py`와 같은 패턴(2,000건씩 배치 UPDATE)으로 채움 —
+   문제없이 완료
+4. `max_parallel_maintenance_workers = 0`으로 GIN 인덱스 재생성 — 성공
+5. 확인 쿼리(`plainto_tsquery('simple', '예산 낭비')`)로 정상 매칭 확인 — **복구 완료**
+
+### 반영한 문서
+- `scripts/tsv_text_migration.sql` STEP 2를 트리거 방식으로 교체, DiskFull 경위 주석 추가
+
+### 다음
+- `TOKENIZER_ENABLED=true python scripts/eval_search_quality.py --modes rrf_hybrid,rrf_hybrid_tokenized`
+  로 최종 하이브리드 효과 재확인 (STEP 2가 실제로 끝났으니 이제 유효한 비교)
+- 괜찮으면 Railway `TOKENIZER_ENABLED=true` 배포
+
 ## ✅ 2026-08-27 (2차) — chunks.tsv_text 백필 실제 완료(코랩) + backfill/eval 스크립트 보강
 
 8/27 1차에서 준비한 코드를 사용자가 코랩(DB 접근 가능한 환경)에서 실제로 실행함.
