@@ -11,11 +11,21 @@ RSS가 ~2.5~3GB로 추정되는데, 이게 Railway 배포 티어 메모리 상�
 못 했으므로, 코드는 준비하되 명시적으로 환경변수를 켜기 전까지는 기존 배포에 아무
 영향도 안 주게(모델 로드 자체를 안 함) 만들어둠 — §3.5의 1번 항목(실측)을 먼저 하고
 켤 것.
+
+2026-08-27(main 병합 시 반영): sentence_transformers import를 load_model() 안으로
+옮김 — main에 새로 생긴 backend-test CI(embedding.py 참고)가 torch/sentence-transformers
+없이 app.main을 import해서 테스트하는 전제라, 이 모듈도 같은 패턴을 따라야 CI가 깨지지
+않음. RERANKER_ENABLED가 꺼져 있으면(기본값) load_model()이 아예 호출 안 되므로
+sentence_transformers가 설치돼 있을 필요조차 없어짐.
 """
+from __future__ import annotations
+
 import logging
 import os
+from typing import TYPE_CHECKING
 
-from sentence_transformers import CrossEncoder
+if TYPE_CHECKING:
+    from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +46,7 @@ def load_model() -> None:
     if _model is not None:
         return
     import torch
+    from sentence_transformers import CrossEncoder
 
     # embedding.py와 동일한 이유(컨테이너 CPU 코어 수 오탐지로 인한 스레드 경합 방지)
     torch.set_num_threads(int(os.environ.get("TORCH_NUM_THREADS", "2")))

@@ -23,10 +23,20 @@ embedding.py와 동일한 패턴: 모델(Kiwi)은 프로세스당 한 번만 로
 - 그 전까지는 TOKENIZER_ENABLED가 켜져 있어도 색인 쪽(tsv)은 여전히 원문(text) 기준이라,
   쿼리만 형태소 토큰으로 바꾸면 오히려 매칭이 줄어들 수 있음(위 "해결" 문단 참고) —
   그래서 기본값은 꺼짐(false)으로 두고, 마이그레이션이 실제로 끝난 뒤에만 켤 것.
-"""
-import os
 
-from kiwipiepy import Kiwi
+2026-08-27(main 병합 시 반영): kiwipiepy import를 load_model() 안으로 옮김 — main에
+새로 생긴 backend-test CI(embedding.py 참고)가 무거운/선택적 의존성 없이 app.main을
+import해서 테스트하는 전제라, 이 모듈도 같은 패턴을 따름. TOKENIZER_ENABLED가
+꺼져 있으면(기본값) load_model()이 아예 호출 안 되므로 kiwipiepy가 설치돼 있을
+필요조차 없어짐.
+"""
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kiwipiepy import Kiwi
 
 _kiwi: Kiwi | None = None
 
@@ -39,6 +49,8 @@ def load_model() -> None:
     global _kiwi
     if _kiwi is not None:
         return
+    from kiwipiepy import Kiwi
+
     _kiwi = Kiwi(num_workers=int(os.environ.get("KIWI_NUM_WORKERS", "1")))
 
 
