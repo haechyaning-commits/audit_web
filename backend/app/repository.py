@@ -4,26 +4,38 @@
 db.py(연결 방법)와 분리한 이유: "DB에 어떻게 연결하는지"와 "무슨 쿼리를 날리는지"가 섞이면
 연결 방식이 바뀔 때(예: Railway→다른 곳)마다 쿼리 코드까지 같이 건드려야 해서 분리함.
 
-- 리랭커(§3.4)는 스트레치 목표라 아직 없음 — rerank()는 지금은 아무것도 안 하고 그대로
-  통과시키는 자리만 만들어둠. 나중에 bge-reranker-v2-m3 붙일 때 이 함수 내용만 채우면 되고
-  검색 흐름 전체를 다시 안 뜯어도 됨.
-- 한국어 형태소 토큰화(kiwipiepy, §3.6)도 스트레치 목표라, 지금은 검색어 원문을 그대로
-  plainto_tsquery에 넘김 (정확 매칭이 약해질 수 있으나 벡터 검색이 하이브리드의 절반을
-  담당하므로 검색 자체가 안 되는 수준은 아님).
+- 리랭커(§3.4, reranker.py)와 한국어 형태소 토큰화(kiwipiepy, §3.6, tokenizer.py)는
+  둘 다 2026-08-27에 코드는 준비됐지만 기본값은 꺼짐(RERANKER_ENABLED/TOKENIZER_ENABLED
+  둘 다 false) — 각각 배포 전 필요한 전제 작업(§3.5 메모리 실측, chunks.tsv_text 배치
+  백필+재색인, scripts/backfill_tsv_text.py 참고)이 DB/Railway 접근 있는 세션에서 아직
+  안 끝났기 때문. rerank()는 reranker.is_loaded()가 False면(기본값) 그대로 통과시키는
+  no-op으로 동작해서, 이 파일이 배포돼 있어도 두 플래그를 켜기 전까지는 기존 동작과
+  100% 동일함.
+- text_search 쪽 $2(plainto_tsquery에 들어갈 문자열)는 원문 그대로일 수도, main.py가
+  tokenizer.tokenize()로 형태소 토큰화한 값일 수도 있음 — 이 SQL은 어느 쪽이 들어오든
+  신경 안 씀(호출부 책임). TOKENIZER_ENABLED가 꺼져 있으면 항상 원문 그대로 들어옴.
 """
+import logging
 from typing import Any
 
 import asyncpg
 import numpy as np
 
+from . import reranker
+
+logger = logging.getLogger(__name__)
+
 # RRF(§3.1) + document 단위 dedup(§3.2) — 원래는 리랭커 입력용으로 top 20을 뽑아서
-# top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있어 지금은 top 40을 그대로
-# 최종 결과로 반환함(main.py의 search_candidates(..., limit=40) 호출과 짝을 맞춤,
-# 프론트 2열×N줄 그리드 표시 + 페이지네이션). 2026-08-12: 20건은 너무 적다는 피드백으로
-# 40건으로 늘림 — vector_search/text_search 후보 풀도 50→100으로 같이 늘려서, dedup 후에도
-# 40건을 채울 수 있을 만큼 후보가 남게 함(안 늘리면 소수 문서에 청크가 몰린 검색어에서
-# dedup 후 40건에 못 미칠 수 있음). 나중에 리랭커 붙이면 LIMIT을 더 키우고 rerank()에서
-# 압축하는 구조로 바꾸면 됨.
+# top 10으로 압축할 계획이었으나, 리랭커가 스트레치로 빠져있는 동안 top 40을 그대로
+# 최종 결과로 반환하는 쪽으로 굳어짐(main.py의 search_candidates(..., limit=40) 호출과
+# 짝을 맞춤, 프론트 2열×N줄 그리드 표시 + 페이지네이션). 2026-08-12: 20건은 너무 적다는
+# 피드백으로 40건으로 늘림 — vector_search/text_search 후보 풀도 50→100으로 같이 늘려서,
+# dedup 후에도 40건을 채울 수 있을 만큼 후보가 남게 함(안 늘리면 소수 문서에 청크가 몰린
+# 검색어에서 dedup 후 40건에 못 미칠 수 있음).
+# 2026-08-27: 리랭커(reranker.py) 코드 준비 완료 — 다만 LIMIT을 키워서 20→10으로
+# 압축하는 원안 대신, 이 40건 중 상위 RERANK_TOP_N건만 재정렬하고 나머지는 그대로 뒤에
+# 잇는 방식을 택함(rerank() 참고) — 이미 페이지네이션이 40건을 전제로 하고 있어서 원안대로
+# 하면 뒷페이지에 보여줄 결과가 부족해짐.
 # 2026-08-24: 기관/연도 필터(FR5, v1.1로 미뤄뒀던 것) 추가 — filtered_docs CTE로
 # 후보 문서 id를 먼저 좁혀두고, vector_search/text_search 둘 다 그 안에서만 순위를
 # 매기게 함. 필터를 "다 뽑은 뒤에" 걸면(WHERE를 최종 SELECT에만 두면) 상위 100건
@@ -276,13 +288,49 @@ async def get_year_stats(pool: asyncpg.Pool) -> tuple[int, list[asyncpg.Record]]
         return total_row["total"], years
 
 
-def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[asyncpg.Record]:
+def rerank(candidates: list[asyncpg.Record], query_text: str) -> list[Any]:
     """
-    스트레치 목표(§3.4) — bge-reranker-v2-m3로 20건 재채점 후 top 10 반환 예정.
-    지금은 RRF+dedup 순위를 그대로 통과시킴 (no-op). 함수 시그니처를 미리 맞춰둬서
-    나중에 여기 안만 채우면 main.py/search_candidates 쪽은 안 건드려도 됨.
+    §3.4 — bge-reranker-v2-m3로 상위 RERANK_TOP_N건(기본 20)만 재채점해서 재정렬하고,
+    나머지는 원래 RRF+dedup 순서 그대로 뒤에 이어붙임(reranker.RERANK_TOP_N 주석 참고 —
+    2열 그리드+페이지네이션 도입 이후로 top 10만 남기던 원안에서 절충함).
+
+    reranker.is_loaded()가 False(RERANKER_ENABLED 기본값 꺼짐, 또는 §3.5 메모리 실측
+    전)면 그냥 candidates를 그대로 통과시키는 no-op — main.py는 이 함수를 항상 똑같이
+    호출하면 되고, 켜고 끄는 건 환경변수 하나로 끝남.
+
+    리랭커 재채점 텍스트는 search_candidates가 이미 SQL에서 가져온 preview_buffer(매치된
+    청크의 앞 320자)를 재사용함 — 청크 전체 원문을 다시 조회하는 추가 DB 왕복을 피하기
+    위한 선택. 320자 절단이 리랭커 정확도에 영향을 주는지는 §5.3 오프라인 eval로 실측
+    필요(scripts/eval_search_quality.py) — 문제로 확인되면 chunk_id로 전체 원문을 별도
+    조회하도록 바꾸면 됨(§3.4 원안).
     """
-    return candidates
+    if not candidates or not reranker.is_loaded():
+        return candidates
+
+    top_n = reranker.RERANK_TOP_N
+    head, tail = candidates[:top_n], candidates[top_n:]
+    if len(head) <= 1:
+        return candidates
+
+    texts = [c["preview_buffer"] for c in head]
+    try:
+        scores = reranker.score_pairs(query_text, texts)
+    except Exception:
+        # 리랭커 타임아웃/예외 시 폴백(§3.4) — RRF+dedup 결과를 그대로 반환해서 검색
+        # 자체가 죽는 상황은 구조적으로 방지.
+        logger.exception("리랭커 재채점 실패 — RRF+dedup 순위로 폴백")
+        return candidates
+
+    reordered = sorted(zip(scores, head), key=lambda pair: pair[0], reverse=True)
+    # 프론트(ResultCard.jsx)는 results[0].score를 "1등"으로 놓고 나머지를 그 대비
+    # 상대 비율(%)로 막대를 그림 — 재정렬만 하고 원래 RRF score를 그대로 두면, 1등이
+    # 바뀐 뒤에도 옛 score가 남아 막대 비율이 뒤틀림(새 1등이 100%가 안 되거나 다른
+    # 항목이 100%를 넘김). 크로스인코더 점수(임의 범위, 음수 포함 가능)로 score 필드를
+    # 다시 채우되, 최솟값을 0으로 맞추는 시프트만 적용(순서엔 영향 없음, 막대 계산만
+    # 정상 범위로 보정) — asyncpg.Record는 불변이라 dict로 바꿔서 필드만 덮어씀.
+    min_score = min(scores)
+    new_head = [{**dict(record), "score": score - min_score} for score, record in reordered]
+    return new_head + list(tail)
 
 
 _GET_DOCUMENT_SQL = """

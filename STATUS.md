@@ -2,7 +2,178 @@
 
 > 대화창이 바뀌어도 여기부터 이어서 보면 됨. 최신 항목이 맨 위.
 
-## ✅ 2026-08-27 (1차) — 각주 렌더링 버그 수정 + 테스트/CI 인프라 처음 도입 (PR #46~#50)
+## 🔧 2026-08-27 (4차) — 리랭커 §3.5 메모리 실측 완료 + main 병합
+
+`claude/reranker-korean-morpheme-tokenization-62utvo` 브랜치(1~3차 작업)를 main에
+병합. main이 그 사이 별도 세션(PR #46~#51)에서 각주 버그 수정, 테스트/CI 인프라,
+Sentry 연동, `/reports` rate limiting을 먼저 반영해둔 상태라 함께 합침 — 코드 변경
+자체는 겹치는 부분 없이 전부 자동/수동으로 깔끔히 합쳐짐(STATUS.md만 텍스트 충돌).
+
+- **§3.5 임베딩+리랭커 동시 로드 메모리 실측(코랩, CPU)**: 시작 103MB → BGE-m3 로드 후
+  2,381MB → +리랭커 로드 후 3,147MB → 쿼리 인코딩+리랭커 추론 1회 후 **3,819MB**.
+  사전 추정치(FP16 기준 ~2.5~3GB)보다 높게 나왔는데, 코드가 dtype을 지정 안 해서
+  기본값 FP32로 로드되기 때문(§3.5 표는 FP16 가정) — CPU에서는 FP16이 잘 가속 안 돼서
+  당장 강제하진 않음. **Railway 플랜은 Hobby(서비스당 48GB 한도, 공식 문서 확인)라
+  3.8GB는 한도의 8% 수준 — 메모리 리스크 해소.**
+- **`reranker.py`/`tokenizer.py`를 main의 CI 설계에 맞게 수정**: main이 새로 도입한
+  `backend-test` CI 잡이 `app.embedding`을 무거운 의존성(torch/sentence-transformers)
+  없이도 import 가능하게 리팩터링해뒀는데(PR #48), 이 브랜치의 reranker.py/tokenizer.py는
+  각각 sentence_transformers/kiwipiepy를 모듈 최상단에서 import하고 있어서 그대로
+  병합하면 CI가 깨질 뻔함 — `load_model()` 안으로 지연 임포트하도록 수정(embedding.py와
+  동일 패턴), 격리 venv에서 `app.main` import 실제 검증 완료.
+- **§5.3 eval(rrf_hybrid vs rrf_hybrid_tokenized)**: 24개 쿼리 기준 R@10 37.5%→41.67%.
+  다만 이 측정 시점에 `TOKENIZER_ENABLED`가 아직 꺼진 채 STEP 2(재색인)만 먼저
+  끝나있어서, 실사용 `rrf_hybrid` 자체가 "색인은 토큰화·쿼리는 원문"인 어긋난 상태로
+  측정됨(두 실행 사이 `rrf_hybrid` 자체 수치가 달라진 이유) — 이 사실을 계기로
+  `TOKENIZER_ENABLED=true` 배포를 늦출 이유가 없다고 판단, 바로 배포함(아래).
+- **`TOKENIZER_ENABLED=true` Railway 배포 완료** — 정상 동작 확인.
+- **리랭커 eval(`rrf_plus_rerank`)은 미완**: eval_set.jsonl이 코랩 런타임 리셋
+  두 번(torch/torchvision/torchaudio 버전 안 맞아 재설치 반복) 때문에 두 번 유실됨 —
+  다음 세션에서 다시 채우거나, 아래 "다음" 참고.
+
+### 다음 (내일 이어서 할 것)
+1. **eval_set.jsonl 다시 채우기** — 코랩 런타임 리셋으로 두 번 유실됨. 이번엔 채운
+   즉시 이 저장소에 커밋해서 유실 방지할 것(코랩이 GitHub push 인증이 없으면, 코랩
+   출력을 세션에 붙여넣어 대신 커밋하는 방법도 가능 — 이번 세션에서 그렇게 진행 중이었음).
+2. **`RERANKER_ENABLED=true python scripts/eval_search_quality.py --modes rrf_hybrid,rrf_plus_rerank`**
+   로 리랭커 실제 효과 확인 (메모리는 이미 안전 확인됨 — 남은 건 이 eval뿐)
+3. 결과 괜찮으면 Railway `RERANKER_ENABLED=true` 배포 → §3.4/§3.6/§5.3 스트레치 3종
+   전부 완료
+4. (선택) "저탄장" 같은 도메인 미등재 복합명사 과분해 문제 — eval로 실제 영향 있다고
+   확인되면 `Kiwi.add_user_word()`로 사용자 사전 보강 검토(2차 기록 참고)
+
+## 🔴✅ 2026-08-27 (3차) — tsv 재색인(STEP 2) 중 DiskFull 장애 발생·복구, 트리거 방식으로 전환
+
+STEP 2(chunks.tsv를 tsv_text 기준 생성 컬럼으로 교체)를 원안대로 실행하다가 Railway에서
+장애 발생 → 원인 진단 → 다른 방식으로 우회 성공.
+
+### 장애
+- `DROP INDEX chunks_tsv_gin_idx` → `ALTER TABLE chunks DROP COLUMN tsv`까지는 성공했으나,
+  바로 다음 `ALTER TABLE chunks ADD COLUMN tsv tsvector GENERATED ALWAYS AS (...) STORED`
+  (92,136건 전체를 한 번에 재작성)에서
+  `DiskFull: could not resize shared memory segment ... No space left on device` 에러로 실패.
+  `max_parallel_workers_per_gather = 0`으로 병렬 처리를 꺼도 동일 에러 재현 — 진짜 디스크
+  공간이 아니라 **Railway 컨테이너의 `/dev/shm` 한도**로 추정(관리형 DB라 이 한도 자체를
+  늘릴 방법 없음).
+- **이 사이 chunks.tsv 컬럼이 아예 없는 상태였음 — 그동안 실사용 키워드 검색(text_search
+  leg)이 전부 실패했을 것**(벡터 검색은 영향 없어서 사이트 자체가 죽진 않았음). 장애
+  지속 시간: STEP 2 착수~트리거 방식 복구까지 대화 흐름 기준 짧은 시간(정확한 분 단위는
+  미기록).
+
+### 복구 — "한 번에 전체 재작성" 대신 배치+트리거로 우회
+1. `tsv`를 GENERATED 컬럼이 아니라 **일반 tsvector 컬럼**으로 추가(즉시 끝남, 재작성 없음)
+2. `chunks_tsv_trigger()` 함수 + `BEFORE INSERT OR UPDATE` 트리거 등록 — 앞으로 들어오거나
+   바뀌는 행은 자동으로 `tsv = to_tsvector('simple', COALESCE(tsv_text, text))`로 채워짐
+   (GENERATED 컬럼과 최종 동작 동일, 한 행씩 계산해서 DiskFull 회피)
+3. 기존 92,136건은 `backfill_tsv_text.py`와 같은 패턴(2,000건씩 배치 UPDATE)으로 채움 —
+   문제없이 완료
+4. `max_parallel_maintenance_workers = 0`으로 GIN 인덱스 재생성 — 성공
+5. 확인 쿼리(`plainto_tsquery('simple', '예산 낭비')`)로 정상 매칭 확인 — **복구 완료**
+
+### 반영한 문서
+- `scripts/tsv_text_migration.sql` STEP 2를 트리거 방식으로 교체, DiskFull 경위 주석 추가
+
+### 다음
+- `TOKENIZER_ENABLED=true python scripts/eval_search_quality.py --modes rrf_hybrid,rrf_hybrid_tokenized`
+  로 최종 하이브리드 효과 재확인 (STEP 2가 실제로 끝났으니 이제 유효한 비교)
+- 괜찮으면 Railway `TOKENIZER_ENABLED=true` 배포
+
+## ✅ 2026-08-27 (2차) — chunks.tsv_text 백필 실제 완료(코랩) + backfill/eval 스크립트 보강
+
+8/27 1차에서 준비한 코드를 사용자가 코랩(DB 접근 가능한 환경)에서 실제로 실행함.
+
+- **`scripts/tsv_text_migration.sql` STEP 1 실행 완료** — `chunks.tsv_text` 컬럼 추가.
+- **`scripts/backfill_tsv_text.py` 실행 완료 — 92,136건 전부 처리, 실패 0건.**
+  DRY_RUN 샘플 검토 결과 조사/어미 분리는 잘 되는 것 확인("일상감사시행"→"일상 감사
+  시행" 등). 다만 두 가지 오분석 패턴 발견: ① 원본 데이터의 "글자 사이 공백" 서식
+  ("제 목 :", "내 용" 등, 기존 wordbreak 이슈와 연결)으로 "제"→"저"(대명사+속격조사
+  오분석), "내"→"나" 등 헤더 라벨이 잘못 분석됨 — 거의 모든 청크에 공통이라 변별력
+  없는 노이즈로 판단, 차단 안 함. ② "저탄장" 같은 사전 미등재 도메인 복합명사가
+  "저/탄/장"으로 과분해됨 — 실측 결과 조사가 붙어도 항상 동일하게 분해되는 걸 확인해서
+  (배치·쿼리 동일 함수 사용 원칙 덕분에) 매칭 자체는 안 깨지고 정밀도만 낮아지는
+  정도로 확인(§3.6 참고). 필요하면 나중에 `Kiwi.add_user_word()`로 도메인 사전 보강 가능.
+- **`scripts/backfill_tsv_text.py`에 재개(resume) 기능 + `TEST_LIMIT` 추가**(중간에
+  "얼마나 더 걸리냐"는 질문 나온 뒤 보강): `tsv_text IS NULL`인 행만 처리하도록 바꿔서
+  중단 후 재실행 시 이미 끝난 행은 자동으로 건너뜀. `TEST_LIMIT`으로 소량 먼저 돌려서
+  코랩↔Railway 네트워크 왕복까지 포함한 실제 처리율을 실측하고 전체 소요시간을 정확히
+  가늠할 수 있게 함(이전엔 로컬 kiwipiepy 연산 속도만으로 추정해서 실제보다 훨씬
+  빠르게 예측했던 실수 보완).
+- **`scripts/eval_search_quality.py` 버그 수정**: `text_only_tokenized` 모드가 저장된
+  `chunks.tsv`(재색인 STEP 2 전이면 여전히 원문 기준) 컬럼을 그대로 썼던 걸, `tsv_text`
+  컬럼으로 그 자리에서 `to_tsvector`를 만들어 비교하도록 고침 — 이제 STEP 2(재색인)를
+  하기 전에도 "형태소 토큰화 적용 후" 키워드 검색 효과를 정확히 미리 잴 수 있음.
+  `rrf_hybrid_tokenized`는 여전히 프로덕션 SQL(저장된 tsv 컬럼)을 그대로 재사용하므로
+  STEP 2 이후에만 유효 — 그 전까지는 `text_only_tokenized`로 키워드 leg만 먼저 검증할 것.
+
+### 다음
+1. `scripts/eval_set_template.jsonl` → `eval_set.jsonl` 복사 후 실제 정답 문서 id 채우기
+2. `TOKENIZER_ENABLED=true python scripts/eval_search_quality.py --modes vector_only,text_only,text_only_tokenized,rrf_hybrid`
+   로 "형태소 토큰화 적용 전/후" 키워드 검색 효과를 STEP 2 재색인 전에 먼저 확인
+3. 결과가 좋으면 `tsv_text_migration.sql` STEP 2(재색인) 실행 → `TOKENIZER_ENABLED=true`로
+   Railway 재배포
+4. 리랭커는 아직 미착수 — `scripts/measure_model_memory.py`(§3.5 메모리 실측)부터
+
+## 🔧 2026-08-27 (1차) — 리랭커·한국어 형태소 토큰화·오프라인 품질평가: 코드 준비 완료 (실행은 미완)
+
+8/31 마감(D-4) 시점에 development-plan.md가 "시간 남으면 추가"로 미뤄뒀던 스트레치 3종
+(architecture.md §3.4 리랭커, §3.6 형태소 토큰화, §5.3 오프라인 품질평가)을 진행 가능한지
+질문받아 착수. **이 세션은 DB(Railway)/실제 데이터 접근이 없어서, 과거 세션들과 같은
+이유로 "코드/스크립트는 전부 준비하되 실행·실측은 DB 접근 있는 세션 몫으로 남김"** 원칙으로
+진행함.
+
+### 실제로 한 것 (코드, 이 저장소에 커밋됨)
+- **`backend/app/tokenizer.py`(신규)**: kiwipiepy 래퍼. `tokenize()`(온라인 쿼리용),
+  `tokenize_batch()`(배치 백필용, num_workers 병렬화). **격리된 venv에 실제로
+  `pip install kiwipiepy` 후 토큰화 실측**: `"예산낭비가 심각한 수의계약 특혜"` →
+  `예산(NNG) 낭비(NNG) 가(JKS) 심각(XR) 하(XSA) ㄴ(ETM) 수의(NNG) 계약(NNG) 특혜(NNG)` —
+  조사("가")·어미가 실제로 분리되는 것 확인(§3.6이 지적한 문제가 kiwipiepy로 실제
+  해결됨을 확인). 배치 처리량도 실측: num_workers=2 기준 2,000건 약 3초.
+- **`backend/app/reranker.py`(신규)**: bge-reranker-v2-m3 CrossEncoder 래퍼(embedding.py와
+  동일한 "앱 시작 시 1회 로드" 패턴). 모델 자체는 다운로드/실측 안 함(torch+가중치
+  수백 MB~1GB대라 이 세션 예산상 보류).
+- **`backend/app/repository.py`**: `rerank()`를 실제 재채점 로직으로 교체 — 상위
+  `RERANK_TOP_N`(기본 20)건만 크로스인코더로 재정렬하고 나머지는 원래 RRF 순서 그대로
+  뒤에 이어붙임(원안은 20→10 압축이었으나, 2026-08-12에 검색 결과가 40건
+  그리드+페이지네이션으로 바뀐 뒤라 그 전제와 안 맞아 절충함). 재정렬 후 프론트
+  상대 관련도 막대가 깨지지 않도록 score 필드도 리랭커 점수 기준으로 다시 채움. 리랭커
+  예외/타임아웃 시 RRF 순위로 폴백(§3.4 설계대로).
+- **`backend/app/main.py`**: `RERANKER_ENABLED`/`TOKENIZER_ENABLED` 환경변수(기본 둘 다
+  `false`) 추가 — 꺼져 있으면 기존 배포와 100% 동일하게 동작(모델 로드 자체를 안 함).
+  켜져 있을 때만 startup에서 모델 로드 + 검색 요청에서 토큰화/재채점 수행. 둘 다
+  CPU 연산이라 embedding.encode_query와 같은 이유로 `asyncio.to_thread`로 스레드에 넘김.
+- **`backend/requirements.txt`/`.env.example`**: kiwipiepy==0.23.2 추가(실측 검증된
+  버전), 새 환경변수 두 개 문서화.
+- **`scripts/tsv_text_migration.sql`(신규)**: `chunks.tsv_text` 컬럼 추가 →
+  `scripts/backfill_tsv_text.py` 실행 → `tsv` 생성 컬럼을 `tsv_text` 기준으로 교체 +
+  GIN 재생성, 순서와 각 단계의 서비스 영향을 상세 주석으로 정리.
+- **`scripts/backfill_tsv_text.py`(신규)**: 기존 chunks.text 전체(96,355건 안팎)를
+  형태소 토큰화해서 tsv_text로 채우는 배치 스크립트. DRY_RUN 우선 확인 → 실제 반영
+  패턴(backfill_source_file.py와 동일), 배치 실패 시 건별 재시도+스킵.
+- **`scripts/eval_search_quality.py`(신규) + `scripts/eval_set_template.jsonl`(신규)**:
+  §5.3 오프라인 품질평가 하네스 — vector_only/text_only/rrf_hybrid/
+  rrf_hybrid_tokenized/rrf_plus_rerank 모드별 Recall@10·Recall@40·MRR 비교표 출력.
+  프로덕션과 동일한 `repository.search_candidates`/`repository.rerank`를 그대로 재사용해서
+  평가 로직이 실제 서비스 로직과 갈라지지 않게 함. eval set(쿼리-정답 쌍)은 이 세션이
+  실제 데이터를 볼 수 없어 쿼리 24개만 채워두고 `relevant_document_ids`는 빈 배열로
+  남김(DB 접근 있는 사람이 채워야 함, 템플릿 파일 안에 채우는 방법 상세 기술).
+- **`scripts/measure_model_memory.py`(신규)**: §3.5 임베딩+리랭커 동시 로드 RSS 실측
+  스크립트. torch 설치가 이 세션 예산상 부담이라 실행은 안 하고 준비만 함.
+
+### 안 한 것 / 다음 세션(DB·Railway 접근 있는 곳)에서 할 일
+1. **`scripts/tsv_text_migration.sql` STEP 1 실행 → `backfill_tsv_text.py`로 실제
+   백필 → STEP 2 실행**(tsv 재색인) — 끝나야 `TOKENIZER_ENABLED=true`가 의미가 있음
+   (순서 어기면 색인/쿼리 토큰화 기준이 어긋나서 오히려 매칭이 나빠짐, tokenizer.py
+   모듈 docstring 참고).
+2. **`scripts/measure_model_memory.py` 실행**(§3.5) — 실측 RSS가 Railway 플랜 상한을
+   넘는지 확인. 넘으면 §3.5 대응 순서(리랭커 양자화 → 플랜 상향 → lazy load)를 따를 것.
+   이게 끝나야 `RERANKER_ENABLED=true`를 켤 수 있음.
+3. **`scripts/eval_set_template.jsonl`을 `eval_set.jsonl`로 복사해서 실제
+   `relevant_document_ids` 채우기** → `scripts/eval_search_quality.py`로 실측 →
+   RRF vs 벡터/키워드 단독 vs (RRF+토큰화) vs (RRF+리랭커) 비교표를 §5.3에 반영.
+4. 위 세 가지가 다 끝난 뒤 Railway `RERANKER_ENABLED`/`TOKENIZER_ENABLED` 환경변수를
+   `true`로 켜고 재배포 — 이 세션이 만든 코드는 이 순서를 지키면 재작업 없이 그대로 얹힘.
+
+## ✅ 2026-08-27 (1차, 별도 세션) — 각주 렌더링 버그 수정 + 테스트/CI 인프라 처음 도입 (PR #46~#50)
 
 사용자가 원본 PDF와 웹페이지를 나란히 비교한 스크린샷으로 실제 버그를 제보 →
 그 수정을 계기로 "더 완성도 높이려면 실무에서 뭘 하는지" 질문을 받아서, 이 세션

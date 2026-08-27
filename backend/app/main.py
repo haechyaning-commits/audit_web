@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 
-from . import db, embedding, repository, summary
+from . import db, embedding, repository, reranker, summary, tokenizer
 from .schemas import (
     AuditTypeCount,
     DocumentDetail,
@@ -89,6 +89,15 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 # 씀) — 이 길이를 넘기면 그냥 사용자 입력 실수로 보고 400으로 거절.
 MAX_REPORT_MESSAGE_LEN = 2000
 
+# 2026-08-27: 리랭커(§3.4)/형태소 토큰화(§3.6) 코드 준비 — 둘 다 기본값 꺼짐.
+# - RERANKER_ENABLED: bge-reranker-v2-m3를 임베딩 모델과 동시에 로드하는 게 Railway
+#   메모리 상한을 넘길 위험이 있어(§3.5) 실측 전엔 켜지 않음.
+# - TOKENIZER_ENABLED: chunks.tsv가 아직 원문(text) 기준으로 색인돼 있어서, 쿼리만
+#   형태소 토큰화하면 오히려 매칭이 어긋남(tokenizer.py 모듈 docstring 참고) —
+#   scripts/backfill_tsv_text.py로 실제 배치 백필+재색인을 끝낸 뒤에만 켤 것.
+RERANKER_ENABLED = os.environ.get("RERANKER_ENABLED", "false").lower() == "true"
+TOKENIZER_ENABLED = os.environ.get("TOKENIZER_ENABLED", "false").lower() == "true"
+
 # 2026-08-27: /reports가 로그인 없이 누구나 무제한으로 호출 가능한 공개 엔드포인트라
 # 남용 방지가 전혀 없었음(완성도 점검 후속 조치) — IP당 슬라이딩 윈도우 방식으로 최소한의
 # 속도 제한을 둠. Redis 같은 외부 저장소 없이 프로세스 메모리 dict로 충분한 이유:
@@ -137,6 +146,10 @@ async def lifespan(app: FastAPI):
     await db.init_pool()
     await repository.ensure_error_reports_table(db.get_pool())
     await asyncio.to_thread(embedding.load_model)
+    if RERANKER_ENABLED:
+        await asyncio.to_thread(reranker.load_model)
+    if TOKENIZER_ENABLED:
+        await asyncio.to_thread(tokenizer.load_model)
     # 2026-08-25(성능 개선): 캐시 예열은 await로 기다리지 않고 백그라운드로 던짐 —
     # 예열 문구 4개가 각각 ~15초씩 걸릴 수 있어서 await하면 배포 직후 헬스체크/시작
     # 시간이 크게 늘어나 배포 자체가 불안정해질 위험이 있음(embedding.py 주석 참고).
@@ -230,17 +243,26 @@ async def search(
     )
     # debug_score일 땐 컷오프 지점을 보려고 후보 풀 끝(100건)까지 넉넉히 봄
     search_limit = 100 if debug_score else 40
+    # §3.6: TOKENIZER_ENABLED가 켜져 있을 때만 형태소 토큰으로 바꿔서 text_search
+    # leg(plainto_tsquery)에 넘김 — 꺼져 있으면(기본값) 지금까지처럼 원문 그대로.
+    # tokenize()가 빈 문자열을 반환하면(검색어가 전부 조사/어미뿐인 극단적 케이스)
+    # plainto_tsquery('')는 아무것도 매치 안 되는 빈 tsquery가 되어 text_search leg만
+    # 조용히 0건이 되고 벡터 검색은 정상 동작 — 검색 자체가 죽지는 않음.
+    query_tokens = await asyncio.to_thread(tokenizer.tokenize, q) if TOKENIZER_ENABLED else q
     candidates = await repository.search_candidates(
         pool,
         query_vector,
-        q,
+        query_tokens,
         limit=search_limit,
         institution=institution,
         year=year,
         audit_type=audit_type,
         boost_institution=boost_institution,
     )
-    candidates = repository.rerank(candidates, q)  # 지금은 no-op, 스트레치 목표(§3.4) 자리
+    # §3.4: RERANKER_ENABLED가 꺼져 있으면(기본값) repository.rerank가 no-op이라
+    # to_thread로 넘겨도 사실상 비용이 없음 — CPU 연산(크로스인코더 추론)이라
+    # encode_query와 같은 이유로 스레드에 넘겨서 이벤트 루프를 안 막음.
+    candidates = await asyncio.to_thread(repository.rerank, candidates, q)
 
     results = [
         SearchResultCard(
