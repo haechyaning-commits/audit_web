@@ -960,7 +960,10 @@ function parsePipeTableRows(text) {
  * 으로 렌더링하면 원래 한 문장이 짧은 조각으로 뚝뚝 끊겨 보임(2026-08-12 피드백).
  * 그래서 헤딩/불릿 줄이나 빈 줄(진짜 문단 구분)을 만나기 전까지 이어지는 일반 줄들은
  * 공백으로 합쳐서 하나의 문단으로 흘러가게 함. */
-function splitIntoBlocks(text) {
+// export: frontend/src/pages/splitIntoBlocks.test.js가 이 순수 함수만 떼어내
+// 유닛테스트로 검증함(2026-08-27) — 컴포넌트(default export)는 그대로 두고
+// 이 함수만 named export로 노출, 동작 변경 없음.
+export function splitIntoBlocks(text) {
   // 문서 전체에서 "숫자)" 형태로 붙어 나온 각주 참조 번호를 미리 수집(각주 판별용,
   // FOOTNOTE_REF_RE 주석 참고).
   const footnoteNums = new Set();
