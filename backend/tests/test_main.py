@@ -16,11 +16,22 @@ monkeypatch로 스텁 처리한 성공 경로만 다룸 — 실제 SQL/벡터 �
 """
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import main
 
 client = TestClient(main.app)
+
+
+@pytest.fixture(autouse=True)
+def _reset_report_rate_limit():
+    # /reports 속도 제한 상태(main._report_submission_times)는 모듈 전역이라 테스트끼리
+    # 공유됨 — 초기화 안 하면 앞선 테스트에서 쌓인 호출 횟수가 뒤 테스트(특히
+    # test_reports_enforces_rate_limit)에 영향을 줘서 실행 순서에 따라 결과가 달라지는
+    # flaky한 테스트가 됨. 매 테스트 시작 전 항상 깨끗한 상태로 리셋.
+    main._report_submission_times.clear()
+    yield
 
 
 def test_health_ok():
@@ -52,6 +63,29 @@ def test_reports_rejects_message_over_max_length():
     resp = client.post("/reports", json={"message": "x" * 2001})
     assert resp.status_code == 400
     assert "2000자" in resp.json()["detail"]
+
+
+def test_reports_enforces_rate_limit_per_ip():
+    # REPORT_RATE_LIMIT(5)번까지는 정상 처리(입력 자체는 계속 무효라 400이지만, 429가
+    # 아니라는 게 핵심), 그 다음 요청부터 429로 거절돼야 함. TestClient의 기본 클라이언트
+    # 주소는 매 호출 동일("testclient")이라 같은 IP로 반복 호출한 것과 같은 효과.
+    for _ in range(main.REPORT_RATE_LIMIT):
+        resp = client.post("/reports", json={"message": "   "})
+        assert resp.status_code == 400  # 메시지 자체는 비어서 무효(속도 제한과는 무관)
+
+    resp = client.post("/reports", json={"message": "정상적인 신고 내용입니다."})
+    assert resp.status_code == 429
+
+
+def test_reports_rate_limit_is_scoped_per_ip():
+    # 다른 IP(X-Forwarded-For로 구분)는 한도를 공유하지 않아야 함.
+    for _ in range(main.REPORT_RATE_LIMIT):
+        client.post("/reports", json={"message": "   "}, headers={"X-Forwarded-For": "1.1.1.1"})
+
+    resp = client.post(
+        "/reports", json={"message": "   "}, headers={"X-Forwarded-For": "2.2.2.2"}
+    )
+    assert resp.status_code == 400  # 429가 아니라 평소처럼 메시지 검증 단계에서 거절
 
 
 def test_admin_reports_rejects_missing_token():

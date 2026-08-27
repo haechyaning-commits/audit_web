@@ -10,7 +10,8 @@ import asyncio
 import hashlib
 import logging
 import os
-from collections import Counter
+import time
+from collections import Counter, defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -22,7 +23,7 @@ from dotenv import load_dotenv
 # `uvicorn app.main:app`으로 실행 가능
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
@@ -66,6 +67,47 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 # 악의적으로 아주 긴 문자열을 반복 제출하는 걸 막는 최소 방어선(신고 폼은 로그인 없이 누구나
 # 씀) — 이 길이를 넘기면 그냥 사용자 입력 실수로 보고 400으로 거절.
 MAX_REPORT_MESSAGE_LEN = 2000
+
+# 2026-08-27: /reports가 로그인 없이 누구나 무제한으로 호출 가능한 공개 엔드포인트라
+# 남용 방지가 전혀 없었음(완성도 점검 후속 조치) — IP당 슬라이딩 윈도우 방식으로 최소한의
+# 속도 제한을 둠. Redis 같은 외부 저장소 없이 프로세스 메모리 dict로 충분한 이유:
+# db.py의 uvicorn 단일 워커 전제(§5.2)와 동일 — 워커가 여러 개면 카운터가 워커별로
+# 갈라져 우회가 쉬워지지만, 이 프로젝트는 이미 단일 워커를 전제하고 있어서 문제없음.
+# 값은 임의 추정치 — 실사용 신고 빈도를 보고 나중에 조정 가능(정상 사용자가 실수로
+# 두세 번 다시 제출하는 정도는 걸리지 않게 넉넉히 둠).
+REPORT_RATE_LIMIT = 5
+REPORT_RATE_WINDOW_SECONDS = 600  # 10분
+
+# IP -> 최근 제출 시각(단조시계) 큐. 정상 사용량에서는 IP당 큐 길이가 REPORT_RATE_LIMIT을
+# 넘지 않고, 오래된 항목은 요청마다 정리되므로 메모리 사용량이 유계로 유지됨 — 다만 한 번이라도
+# 신고를 넣은 IP는 그 뒤로 다시 안 넣어도 빈 큐 형태로 dict에 계속 남음(포트폴리오 프로젝트
+# 규모에서 무시할 수준, 실사용 트래픽 보고 필요하면 주기적 정리 추가 가능).
+_report_submission_times: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    """Railway 등 리버스 프록시 뒤에서는 request.client.host가 프록시 자신의 주소를
+    가리킬 수 있어서, X-Forwarded-For가 있으면 그 첫 번째 값(원 클라이언트)을 우선
+    사용함 — 신뢰할 수 있는 프록시 계층이 이 헤더를 정리해준다는 전제(일반적인 PaaS
+    환경 가정). 남용 방지용 소프트 제한이라 헤더 위조 자체를 막는 강한 보안 경계는
+    아님(로그인 시스템이 없는 이 프로젝트 규모에 맞는 절충)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_report_rate_limit(request: Request) -> None:
+    ip = _client_ip(request)
+    now = time.monotonic()
+    window = _report_submission_times[ip]
+    while window and now - window[0] > REPORT_RATE_WINDOW_SECONDS:
+        window.popleft()
+    if len(window) >= REPORT_RATE_LIMIT:
+        raise HTTPException(
+            status_code=429, detail="신고를 너무 자주 보내고 있습니다. 잠시 후 다시 시도해 주세요."
+        )
+    window.append(now)
 
 
 @asynccontextmanager
@@ -432,10 +474,13 @@ async def get_document_summary(document_id: str) -> SummaryResponse:
 
 
 @app.post("/reports", status_code=201)
-async def submit_error_report(payload: ErrorReportCreate) -> dict:
+async def submit_error_report(payload: ErrorReportCreate, request: Request) -> dict:
     """상세페이지 "오류 신고" 모달 제출 (2026-08-26) — 처음엔 GitHub 새 이슈 링크로 보냈는데,
     "그게 아니라 신고창 뜨고 제출하면 내가 볼 수 있게"라는 피드백으로 자체 저장으로 교체함.
-    로그인 없이 누구나 호출 가능한 공개 엔드포인트라 메시지 길이만 최소한으로 검증."""
+    로그인 없이 누구나 호출 가능한 공개 엔드포인트라 메시지 길이 검증에 더해 IP당 속도
+    제한도 둠(2026-08-27, _enforce_report_rate_limit 주석 참고) — 잘못된 입력이라도
+    DB에 닿기 전에 막아야 하는 남용 방지 목적이라 메시지 검증보다 먼저 검사함."""
+    _enforce_report_rate_limit(request)
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="신고 내용을 입력해 주세요.")
