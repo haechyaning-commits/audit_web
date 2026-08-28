@@ -182,4 +182,49 @@ describe("splitIntoBlocks", () => {
     expect(blocks[0].type).toBe("cover");
     expect(blocks[0].text).toBe(text);
   });
+
+  // 2026-08-26 이식분(한국보훈복지의료공단 2016, ea4d4db3f17c9d7a 사용자 제보 —
+  // 원래는 병합된 적 없는 브랜치에서만 수정됐다가 2026-08-28에 뒤늦게 main에 이식됨,
+  // STATUS.md 참고) — NUMBERED_TITLE_RE 주석 참고.
+  it('번호 붙은 제목 줄("1. 제 목 : ...")을 heading + isTitle로 인식함', () => {
+    const blocks = splitIntoBlocks("1. 제 목 : 근무지 내 출장여비 지급업무 부적정\n\n이하 본문입니다.");
+    expect(blocks[0]).toMatchObject({
+      type: "heading",
+      text: "1. 제 목 : 근무지 내 출장여비 지급업무 부적정",
+      isTitle: true,
+    });
+  });
+
+  it('"[표 N]와 같이" 문장 중간 참조를 표 캡션으로 오인하지 않음(진짜 캡션은 계속 인식)', () => {
+    // TABLE_REF_PARTICLE_SRC 주석 참고.
+    const refBlocks = splitIntoBlocks("[표 2]와 같이 출장여비를 과다하게 지급한 사실이 있다.");
+    expect(refBlocks[0].type).toBe("body");
+
+    const captionBlocks = splitIntoBlocks("[표 2] 근무지 내 출장여비 현황\n\n다음과 같다.");
+    expect(captionBlocks[0]).toMatchObject({ type: "heading", text: "[표 2] 근무지 내 출장여비 현황" });
+  });
+
+  it("표 문단 누적 중 접속부사로 시작하는 문장을 만나면 본문으로 분리함", () => {
+    // CONNECTIVE_OPENER_RE 주석 참고 — 표 데이터 뒤에 경계 없이 서술 문단이 바로 이어 붙는 경우.
+    const text = ["[표 1] 출장 내역", "소속 직급 성명 사유", "총무과 5급 홍길동 출장", "그런데, 이는 부적절하다."].join(
+      "\n"
+    );
+    const blocks = splitIntoBlocks(text);
+    expect(blocks.map((b) => b.type)).toEqual(["heading", "table", "body"]);
+    expect(blocks[2].text).toBe("그런데, 이는 부적절하다.");
+  });
+
+  it('"관련자" 헤딩은 바로 다음 줄이 표 헤더 행일 때만 표로 인식함', () => {
+    // RELATED_PERSON_HEADING_RE/looksLikeRelatedPersonTableStart 주석 참고 — 대부분의
+    // "관련자"는 표가 아니라 인물 한 줄만 뒤따르므로 헤딩만 보고 무조건 표 취급하면 안 됨.
+    const tableText = ["감사 결과는 다음과 같다.", "", "3. 관련자", "소 속 직 급 성 명 비고", "총무과 5급 홍길동 경고"].join(
+      "\n"
+    );
+    const tableBlocks = splitIntoBlocks(tableText);
+    expect(tableBlocks.map((b) => b.type)).toEqual(["body", "heading", "table"]);
+
+    const personText = ["감사 결과는 다음과 같다.", "", "3. 관련자", "홍길동(경고)"].join("\n");
+    const personBlocks = splitIntoBlocks(personText);
+    expect(personBlocks.map((b) => b.type)).toEqual(["body", "heading", "body"]);
+  });
 });

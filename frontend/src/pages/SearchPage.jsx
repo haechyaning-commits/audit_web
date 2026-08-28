@@ -80,6 +80,11 @@ export default function SearchPage({ search }) {
   // (재검색 캐시 히트처럼 원래 빠른 경우엔 안 보이게) 안내 문구를 추가로 보여줘서
   // "느리지만 정상 동작 중"이라는 기대치를 맞춰줌 — 실제 지연을 없애진 못하지만
   // 체감 이탈은 줄일 수 있는 임시 완화책.
+  // 2026-08-26(문구 수정): 안내 문구 자체에는 "AI가 새로 분석 중"이라는 원인을 못 박지
+  // 않음 — 이 타이머는 "2.5초 넘게 걸리면 아마 캐시 미스일 것"이라는 추측일 뿐, 실제로
+  // 느린 이유가 항상 AI 인코딩이라고 프론트가 확인할 방법은 없음(네트워크 지연 등 다른
+  // 이유로 느려질 수도 있음). 사용자에게는 원인 대신 "정상 동작 중이니 기다려도 된다"는
+  // 결과만 전달.
   const [showSlowHint, setShowSlowHint] = useState(false);
   useEffect(() => {
     if (!loading) {
@@ -387,7 +392,7 @@ export default function SearchPage({ search }) {
                     {showSlowHint && (
                       <span className="search-slow-hint">
                         {" "}
-                        처음 입력하신 문장은 AI가 새로 분석하고 있어요 — 최대 15초 정도 걸릴 수 있어요.
+                        지금 정상적으로 검색 중이에요 — 최대 15초 정도 걸릴 수 있으니 조금만 기다려주세요.
                       </span>
                     )}
                   </p>
