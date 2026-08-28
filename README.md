@@ -1,17 +1,15 @@
 # 공공감사데이터 RAG 검색 포트폴리오
 
-> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일의 작업 로그(시행착오 포함)는 [`STATUS.md`](STATUS.md) 참고.
+> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일의 작업 로그(시행착오 포함, 사실상의 변경 이력)는 [`STATUS.md`](STATUS.md) 참고.
 
-## 한 줄 소개
+## 📖 프로젝트 소개
 
 감사실 실무자가 궁금한 사안을 자연어로 입력하면, RAG(검색+생성)로 유사한 공공감사 사례를 자동 추천하고 4줄 요약까지 보여주는 검색 서비스입니다.
 
-- 프론트엔드(검색 화면): https://audit-web-phi.vercel.app
-- 백엔드 API: https://auditweb-production-dc51.up.railway.app (2026-08-26 갱신 — Railway 무료 티어 특성상 공개 도메인이 재배포될 때마다 바뀜 — GitHub 연동을 재연결할 때마다 새 도메인이 발급되는 게 원인. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것. `/health`, `/search?q=`, `/filters`, `/stats/years`, `/documents/{id}`, `GET /documents/{id}/similar`, `POST /documents/{id}/summary` 엔드포인트가 있음)
+- 🔗 프론트엔드(검색 화면): https://audit-web-phi.vercel.app
+- 🔗 백엔드 API: https://auditweb-production-dc51.up.railway.app (2026-08-26 갱신 — Railway 무료 티어 특성상 GitHub 연동을 재연결할 때마다 공개 도메인이 바뀜. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것)
 
----
-
-## 왜 만들었나
+### 왜 만들었나
 
 "이런 사안, 예전에 어떻게 처리됐지?"라는 질문이 실무에서 자주 나오는데, 정작 과거 감사 사례를 찾으려면 문서를 하나씩 열어보는 것 말고는 뾰족한 방법이 없었습니다. 원문 자체도 정형화된 서류 양식(제목/관계기관/처분요구 등 라벨 뒤에 내용이 이어지는 구조)이라 사람이 읽기엔 익숙하지만, 키워드 검색만으로는 "출장비 정산 관련 지적 사례" 같은 자연어 질문에 맞는 결과를 찾기 어려웠습니다.
 
@@ -21,27 +19,126 @@
 
 ---
 
-## 스크린샷
+## 📸 스크린샷
 
 작업이 다 마무리되면 실제 검색화면/상세페이지 스크린샷을 첨부할 예정입니다.
 
 ---
 
-## 핵심 기능
+## ✨ 주요 기능
 
 **실제로 동작하는 것**:
-- 자연어 질문 입력 → 하이브리드 검색(벡터 검색 + 키워드 검색을 RRF로 융합, 키워드 검색은 한국어 형태소 토큰화(kiwipiepy) 적용 — 조사/어미 분리로 정확 매칭 개선, 2026-08-27 배포) → 문서(사례) 단위로 중복 제거해 Top-40 카드를 2열 그리드+페이지네이션으로 표시
-- 검색어와 실제로 매치된 청크에서 미리보기 발췌(문장/어절 경계에 맞춰 자르고 검색어 하이라이팅)
-- 카드 클릭 → 상세페이지. 원문은 즉시 로딩되고, **4줄 구조화 요약(지적사항/원인/조치/결과) + 자유형 요약**은 "요약보기" 버튼을 눌렀을 때만 온디맨드 생성(LLM 호출을 원문 로딩과 분리해서 상세페이지 진입 자체는 지연 없음). 최초 생성 후에는 DB에 캐싱해서 재조회 시 API 재호출 없음
-- 파싱 품질에 따른 신뢰도 배지("신뢰도 높음" / "일부 참고"), 요약 생성이 재시도까지 실패한 문서는 `summary_failed`로 캐싱해서 매번 재시도하며 비용 낭비하지 않음
-- 원본 파일(PDF/HWP) GitHub 링크 제공 — 표/그림처럼 텍스트로 온전히 안 남는 정보의 근본적인 우회로
-- SEO/공유 친화적 URL(`/cases/{id}/{제목-slug}`), law.go.kr 스타일의 관공서 톤 UI, 연도별 사례 분포 막대그래프
+- 🔍 자연어 질문 입력 → 하이브리드 검색(벡터 검색 + 키워드 검색을 RRF로 융합, 키워드 검색은 한국어 형태소 토큰화(kiwipiepy) 적용 — 조사/어미 분리로 정확 매칭 개선, 2026-08-27 배포) → 문서(사례) 단위로 중복 제거해 Top-40 카드를 2열 그리드+페이지네이션으로 표시
+- 🎯 검색어와 실제로 매치된 청크에서 미리보기 발췌(문장/어절 경계에 맞춰 자르고 검색어 하이라이팅)
+- 📝 카드 클릭 → 상세페이지. 원문은 즉시 로딩되고, **4줄 구조화 요약(지적사항/원인/조치/결과) + 자유형 요약**은 "요약보기" 버튼을 눌렀을 때만 온디맨드 생성(LLM 호출을 원문 로딩과 분리해서 상세페이지 진입 자체는 지연 없음). 최초 생성 후에는 DB에 캐싱해서 재조회 시 API 재호출 없음
+- 🏷 파싱 품질에 따른 신뢰도 배지("신뢰도 높음" / "일부 참고"), 요약 생성이 재시도까지 실패한 문서는 `summary_failed`로 캐싱해서 매번 재시도하며 비용 낭비하지 않음
+- 📎 원본 파일(PDF/HWP) GitHub 링크 제공 — 표/그림처럼 텍스트로 온전히 안 남는 정보의 근본적인 우회로
+- 🏢 기관 프로필 미니페이지, 오늘의 사례, 연도별 사례 분포 막대그래프
+- 🔗 SEO/공유 친화적 URL(`/cases/{id}/{제목-slug}`), law.go.kr 스타일의 관공서 톤 UI, 다크모드
+- 🐛 데이터 오류 신고 기능(로그인 없이 제출, 관리자 전용 토큰 페이지에서 조회)
 
 **의도적으로 안 넣은 것**: 리랭커(크로스인코더 2차 재채점) — 설계·코드는 완성했고 메모리 실측(§3.5)도 안전권으로 확인됐지만, 오프라인 eval 결과 검색 품질이 오히려 나빠져서(아래 "검색 품질은 어떻게 검증했나" 참고) 적용하지 않기로 결정했습니다. 한국어 형태소 토큰화·정식 검색품질 평가(eval set)는 이미 적용/측정 완료(위 참고). 그 대신 이 시간의 상당 부분을 **원본 데이터 파싱 품질**에 투자했습니다 — 아래 "데이터 품질 문제 대응" 참고.
 
 ---
 
-## 아키텍처
+## 🛠 기술 스택
+
+| 레이어 | 선택 | 왜 |
+|---|---|---|
+| 프론트엔드 | React (Vite) | SSR/SEO가 필요 없는 단순 SPA 구조라 가볍게 |
+| 백엔드 | FastAPI (Python) | 검색에 쓰는 AI 모델(BGE-m3)들이 전부 Python 라이브러리라 같은 프로세스에서 상시 로드하기 위해. 라우트는 전부 async로 통일해 DB(asyncpg)/OpenAI 호출은 진짜 비동기로, CPU 연산인 임베딩 인코딩만 `asyncio.to_thread`로 분리 |
+| DB | PostgreSQL + pgvector | 벡터검색 + 키워드검색 + 메타데이터를 DB 하나로 통합 |
+| 임베딩 모델 | BGE-m3 | 오픈소스, 다국어(한국어) 지원 우수, 1회성 배치라 API 반복 비용 없음 |
+| 한국어 형태소 분석 | kiwipiepy | 키워드 검색 leg의 조사/어미 분리(§3.6) |
+| 요약 생성 | OpenAI gpt-4o-mini | 온디맨드 생성(버튼 클릭 시)+DB 캐싱이라 저비용 모델로 충분 |
+| 에러 모니터링 | Sentry | DSN 미설정 시 완전한 no-op(안전한 기본값) |
+| CI | GitHub Actions | 커밋/PR마다 lint+테스트+빌드 자동 확인 |
+| 배포 | Vercel(프론트) + Railway(백엔드/DB) | 개인 프로젝트 규모에 맞는 무료/최소 비용 티어 |
+
+(상세 근거는 `docs/architecture.md` §5.7 참고. 인증/구독/결제 시스템은 없음 — 로그인 없는 공개 검색 서비스)
+
+---
+
+## 🚀 빠른 시작
+
+### 사전 요구사항
+
+- Node.js 18 이상 (프론트엔드)
+- Python 3.11 (백엔드, `backend/.python-version` 참고)
+- `DATABASE_URL`(운영 DB) — 이 저장소엔 원본 데이터(감사 사례 약 7.3만 건)가 들어있지 않고, 이미 채워진 Railway Postgres에 원격으로 붙어서 씀. 데이터 없이 처음부터 새로 채우려면 [`scripts/`](scripts) 참고(파싱→청킹→임베딩 전체 배치)
+- (요약 기능 테스트 시) OpenAI API 키
+
+### 설치 방법
+
+1. **저장소 클론**
+   ```bash
+   git clone https://github.com/haechyaning-commits/audit_web.git
+   cd audit_web
+   ```
+
+2. **백엔드 설정 및 실행**
+   ```bash
+   cd backend
+   python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\Activate.ps1
+   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+
+   cp .env.example .env   # DATABASE_URL, OPENAI_API_KEY 등 채워넣기(아래 "환경 변수" 참고)
+   uvicorn app.main:app --reload
+   ```
+   `http://localhost:8000/docs`에서 Swagger UI로 바로 테스트 가능.
+
+3. **프론트엔드 설정 및 실행** (새 터미널)
+   ```bash
+   cd frontend
+   npm install
+   cp .env.example .env   # 기본값 http://localhost:8000 그대로면 수정 불필요
+   npm run dev
+   ```
+
+4. **브라우저에서 확인**
+   ```
+   http://localhost:5173
+   ```
+   백엔드 CORS가 `localhost:5173`(Vite 기본 포트)을 기본 허용하므로 포트를 바꾸지 않으면 별도 설정 없이 바로 연동됩니다.
+
+더 자세한 코드 구조 설명은 [`backend/README.md`](backend/README.md), [`frontend/README.md`](frontend/README.md) 참고.
+
+---
+
+## 📁 폴더 구조
+
+```
+audit_web/
+├── backend/                # FastAPI 백엔드
+│   ├── app/
+│   │   ├── main.py          # 라우트 전체 + lifespan(DB 풀/모델 로드)
+│   │   ├── db.py             # asyncpg 커넥션 풀
+│   │   ├── repository.py     # 실제 검색 SQL (벡터+키워드 RRF 융합)
+│   │   ├── embedding.py      # BGE-m3 쿼리 인코딩
+│   │   ├── reranker.py       # 크로스인코더 재채점 (기본 꺼짐, no-op)
+│   │   ├── tokenizer.py      # 한국어 형태소 토큰화 (kiwipiepy)
+│   │   ├── summary.py        # 4줄 요약 온디맨드 생성 (OpenAI)
+│   │   ├── textutils.py      # 제목/미리보기/법령인용 추출 등 순수 함수
+│   │   └── schemas.py        # Pydantic 응답 모델
+│   ├── tests/                # pytest (DB/모델 없이 동작, requirements-test.txt)
+│   ├── requirements.txt / requirements-test.txt
+│   └── Procfile               # Railway 배포용 실행 명령
+├── frontend/                # React (Vite) SPA
+│   └── src/
+│       ├── pages/             # SearchPage, DetailPage, InstitutionPage, NotFoundPage
+│       ├── components/        # ResultCard, ConfidenceBadge, FilterSidebar, YearChart 등
+│       └── api.js, App.jsx, useTheme.js 등
+├── scripts/                 # 오프라인 배치 스크립트 (파싱→청킹→임베딩, 데이터 품질 조사/복구 60개+)
+├── docs/
+│   ├── architecture.md       # 상세 설계 문서
+│   └── development-plan.md   # 개발 일정(WBS)
+├── STATUS.md                 # 매 세션 작업 로그 — 이 프로젝트의 실질적 변경 이력
+└── README.md
+```
+
+---
+
+## 🏗 아키텍처 개요
 
 ```
 오프라인 배치(1회 실행): 파싱 → 청킹 → 임베딩(BGE-m3, Colab GPU)
@@ -53,7 +150,7 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
         │
 사용자 검색어
   → 쿼리 임베딩(BGE-m3, FastAPI 상시 로드) + 벡터검색(chunks, 코사인) 100건
-  → 키워드검색(ts_rank, plainto_tsquery) 100건
+  → 키워드검색(형태소 토큰화 후 ts_rank, plainto_tsquery) 100건
   → RRF(순위 기반 융합) → document_id 단위 dedup(카드 중복 방지) → Top-40
   → 검색결과 카드(React/Vercel)
       │ 클릭
@@ -62,39 +159,75 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
       → summary_point/cause/action/result + summary_freeform을 documents에 캐싱
 ```
 
-> 전체 설계 다이어그램(리랭커·형태소토큰화를 포함한 원안, §3.7)은 `docs/architecture.md` 참고. 위 다이어그램은 **실제로 배포된 파이프라인** 기준으로 리랭커/형태소토큰화 단계를 뺀 버전입니다.
+> 전체 설계 다이어그램(리랭커를 포함한 원안, §3.7)은 `docs/architecture.md` 참고. 위 다이어그램은 **실제로 배포된 파이프라인** 기준입니다.
 
-### 기술 스택
-
-| 레이어 | 선택 | 왜 |
-|---|---|---|
-| 프론트엔드 | React (Vite) | SSR/SEO가 필요 없는 단순 SPA 구조라 가볍게 |
-| 백엔드 | FastAPI | 검색에 쓰는 AI 모델(BGE-m3)들이 전부 Python 라이브러리라 같은 프로세스에서 상시 로드하기 위해. 라우트는 전부 async로 통일해 DB(asyncpg)/OpenAI 호출은 진짜 비동기로, CPU 연산인 임베딩 인코딩만 `asyncio.to_thread`로 분리 |
-| DB | PostgreSQL + pgvector | 벡터검색 + 키워드검색 + 메타데이터를 DB 하나로 통합 |
-| 임베딩 모델 | BGE-m3 | 오픈소스, 다국어(한국어) 지원 우수, 1회성 배치라 API 반복 비용 없음 |
-| 요약 생성 | OpenAI gpt-4o-mini | 온디맨드 생성(버튼 클릭 시)+DB 캐싱이라 저비용 모델로 충분 |
-| 배포 | Vercel(프론트) + Railway(백엔드/DB) | 개인 프로젝트 규모에 맞는 무료/최소 비용 티어 |
-
-(상세 근거는 `docs/architecture.md` §5.7 참고)
-
----
-
-## 검색은 어떻게 동작하나
+### 검색은 어떻게 동작하나
 
 1. 사용자가 입력한 문장을 BGE-m3로 벡터 변환 (쿼리 인코딩은 검색 시점에 FastAPI 프로세스가 상시 로드해둔 모델로 실시간 수행)
-2. 벡터 검색(의미 기반, 코사인 유사도)과 키워드 검색(`ts_rank`)을 각각 100건씩 수행
+2. 벡터 검색(의미 기반, 코사인 유사도)과 키워드 검색(`ts_rank`, 형태소 토큰화 적용)을 각각 100건씩 수행
 3. 두 결과를 RRF(Reciprocal Rank Fusion, `score = Σ 1/(k+rank)`, k=60)로 합쳐서 스케일 문제 없이 순위 융합
 4. 같은 문서 중복 노출 방지(`document_id` 단위로 최고점 청크 1개만 남기는 dedup) 후 Top-40 반환, 프론트에서 페이지네이션
 
-> 한국어 형태소 토큰화(kiwipiepy)는 2026-08-27 배포 완료 — 검색어와 색인 양쪽 다 조사/어미를 분리해서 매칭합니다. 리랭커(크로스인코더 2차 재채점)는 설계·코드는 완성했지만(`repository.py`의 `rerank()`), 오프라인 eval 결과 개선 효과가 없어(아래 "검색 품질은 어떻게 검증했나" 참고) 의도적으로 미적용(no-op) 상태로 남겨뒀습니다.
+> 리랭커(크로스인코더 2차 재채점)는 설계·코드는 완성했지만(`repository.py`의 `rerank()`), 오프라인 eval 결과 개선 효과가 없어(아래 "검색 품질은 어떻게 검증했나" 참고) 의도적으로 미적용(no-op) 상태로 남겨뒀습니다.
+
+### Postgres 테이블
+
+| 테이블 | 용도 |
+|---|---|
+| `documents` | 사례 1건 = 행 1개. 원문(`raw_text`), 4줄 요약 캐시, 파싱 품질 배지용 컬럼 |
+| `chunks` | 검색 단위(문서를 쪼갠 조각). 텍스트, 임베딩 벡터, 키워드 색인용 tsvector |
+| `error_reports` | 사용자 데이터 오류 신고 (앱 시작 시 자동 생성) |
 
 ---
 
-## 검색 품질은 어떻게 검증했나
+## 📡 API 엔드포인트
+
+| 엔드포인트 | 메소드 | 설명 |
+|---|---|---|
+| `/health` | GET | 서버 상태 확인 |
+| `/search?q=검색어` | GET | 자연어 검색 → 하이브리드 검색 결과 카드 목록 |
+| `/documents/{id}` | GET | 상세 조회(원문 + 이미 캐싱된 요약이 있으면 같이 반환, 없으면 null — 자동 생성 안 함) |
+| `/documents/{id}/summary` | POST | 4줄 요약 온디맨드 생성("요약보기" 버튼용), 최초 호출 시 생성 후 캐싱 |
+| `/documents/{id}/similar` | GET | 관련 사례(같은 문서 임베딩 기준 유사 문서) |
+| `/documents/daily` | GET | 오늘의 사례(홈 화면 노출용) |
+| `/institutions/{name}` | GET | 기관 프로필 미니페이지용 요약 통계 |
+| `/filters` | GET | 검색 필터용 옵션(기관/연도/감사종류 목록) |
+| `/stats/years` | GET | 연도별 사례 분포(홈 화면 막대그래프) |
+| `/reports` | POST | 데이터 오류 신고 제출(로그인 불필요, IP당 속도 제한 적용) |
+| `/admin/reports?token=...` | GET | 신고 목록 조회(`ADMIN_TOKEN` 일치해야만 200, 아니면 항상 403) |
+
+서버 실행 후 `http://localhost:8000/docs`에서 Swagger UI로 요청/응답 스키마까지 직접 확인 가능.
+
+---
+
+## 🔧 환경 변수
+
+### 백엔드 (`backend/.env`, `backend/.env.example` 참고)
+
+| 변수명 | 설명 |
+|---|---|
+| `DATABASE_URL` | Postgres 접속 문자열 (Railway Connect 탭 → `DATABASE_PUBLIC_URL`) |
+| `OPENAI_API_KEY` | 4줄 요약 온디맨드 생성용 |
+| `FRONTEND_ORIGIN` | 배포된 프론트엔드(Vercel) origin — CORS 허용용. 로컬 개발(`localhost:5173`)은 기본 허용이라 로컬 전용이면 비워둬도 됨 |
+| `ADMIN_TOKEN` | `/admin/reports` 접근용 비밀 토큰. 비워두면 그 엔드포인트는 항상 403(로그인 시스템이 없어 URL 공유 비밀 토큰 방식을 씀) |
+| `RERANKER_ENABLED` | 리랭커(§3.4) 켜기, 기본 `false`. 오프라인 eval 결과 미적용 결정(위 참고) — 켜지 않는 걸 권장 |
+| `TOKENIZER_ENABLED` | 한국어 형태소 토큰화(§3.6) 켜기, 기본 `false`이지만 운영 배포에는 `true`로 켜져 있음 |
+| `SENTRY_DSN` | 에러 모니터링. 비워두면 완전한 no-op(에러가 나도 API 동작에 영향 없음) |
+| `SENTRY_ENVIRONMENT` | Sentry에서 배포 구분용 이름, 기본 `production` |
+
+### 프론트엔드 (`frontend/.env`, `frontend/.env.example` 참고)
+
+| 변수명 | 설명 |
+|---|---|
+| `VITE_API_BASE_URL` | 백엔드 API 주소. 로컬 기본값 `http://localhost:8000`, 배포 시 Railway 백엔드 URL로 변경 |
+
+---
+
+## 🧪 검색 품질은 어떻게 검증했나
 
 쿼리 24개짜리 오프라인 eval set(`scripts/eval_search_quality.py`)으로 Recall@10/Recall@40/MRR을 실제로 측정했습니다:
 - **형태소 토큰화(§3.6)**: 하이브리드 검색 Recall@10 37.5%→41.67%로 개선 확인 → 배포
-- **리랭커(§3.4)**: RRF 단독(MRR 0.337) 대비 리랭커 추가 시 오히려 MRR 0.260으로 악화(-23%) — 이미 상위권인 정답을 크로스인코더가 재정렬하며 순위를 흩트리는 패턴 확인 → 미적용 결정 (위 "핵심 기능" 참고)
+- **리랭커(§3.4)**: RRF 단독(MRR 0.337) 대비 리랭커 추가 시 오히려 MRR 0.260으로 악화(-23%) — 이미 상위권인 정답을 크로스인코더가 재정렬하며 순위를 흩트리는 패턴 확인 → 미적용 결정
 
 대신 검증 노력의 상당 부분을 **텍스트 추출 파이프라인의 데이터 무결성**에 투자했습니다 — 검색 알고리즘이 아무리 잘 설계돼도 원문 자체가 깨져 있으면 의미가 없다고 판단했기 때문입니다.
 - PDF 2단 레이아웃 재추출 로직: 실제 문서 9~24건을 대상으로 DB 원문과 글자 단위 `difflib` 비교(공백 정규화 후 평균 유사도 93.5%, 이후 버그 수정을 거쳐 자동반영 게이트 통과율 개선)
@@ -102,9 +235,21 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 - 부서/기관명 익명화 심볼 누출: 마스킹 심볼(카드무늬·기하학무늬 등 42종)이 라벨 없이 그대로 새거나 "[부서]"로 잘못 라벨링되는 문제 — 역대 최대 규모(24,920건/67,751건, 36.78%)로 확정 후 `[비공개]`로 통일 반영, `documents`/`chunks` 양쪽 다 완료 확인
 - 4줄 요약의 할루시네이션 리스크: `scripts/summary_smoke_test.py`로 실제 API 35건을 호출해 등급별(신뢰도 배지) 탈출구 문구("불분명/미기재") 사용 비율을 자동 집계, 4줄이 전부 탈출구로만 채워지는 엣지 케이스 확률까지 실측(35건 중 1건)
 
+### 자동화 테스트
+
+원문 파싱 로직(각주/헤딩/불릿/표 분류 휴리스틱)은 실제 문서로 발견한 버그를 고칠 때마다 회귀 테스트로 고정해왔습니다.
+
+```bash
+# 프론트엔드 — splitIntoBlocks() 등 파싱 휴리스틱 유닛테스트
+cd frontend && npm run test
+
+# 백엔드 — 입력검증/인가 로직 등 (DB/임베딩 모델 없이 동작, requirements-test.txt)
+cd backend && pip install -r requirements-test.txt && pytest
+```
+
 ---
 
-## 데이터 품질 문제 대응 (실제로 시간을 가장 많이 쓴 부분)
+## 🧹 데이터 품질 문제 대응 (실제로 시간을 가장 많이 쓴 부분)
 
 원본이 공공기관이 실제로 제출한 PDF/HWP 문서(수만 건, 형식이 제각각)라, 파싱 파이프라인을 한 번 돌리고 끝나는 게 아니라 **운영 사이트에서 실제 문서를 눈으로 확인 → 이상 패턴 발견 → 원인을 재현 가능한 수준까지 추적 → 규모조사(전수 또는 표본) → 안전장치(유사도 게이트)를 건 자동반영 스크립트 → 백업 후 DB 반영**을 반복하는 과정이었습니다. 대표적으로 고친 것들:
 
@@ -113,13 +258,14 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 | PDF 2단 레이아웃 문서에서 좌/우 컬럼이 뒤섞여 저장됨 | 기존 파이프라인이 y좌표 순서로만 텍스트를 이었는데, 2단 인쇄 문서는 왼쪽 컬럼을 다 읽고 오른쪽으로 넘어가야 함 | 페이지 내 컬럼 분할 감지 후 좌→우 순서로 재정렬하는 재추출 로직 작성, 유사도 게이트로 신뢰 못 할 결과는 자동반영 제외 → 1,424건 반영 |
 | 구버전 `.hwp` 문서 일부가 900~1020자 근처에서 잘려 저장됨 | 원래 파이프라인이 HWP의 "미리보기 텍스트"(길이 제한 있음)를 본문으로 잘못 사용 | 원본 재다운로드 후 전체 텍스트 재추출 → 5,405건 복구 |
 | 구버전 `.hwp` 문서의 표 내용이 통째로 사라짐 | `hwp5txt`가 표 셀 내용을 못 뽑고 `<표>` placeholder만 남기는데, 그 placeholder마저 어딘가에서 필터링됨 | `hwp5html`과 마커 순서를 1:1 병합해 표 내용 복구(진행 중 — 영향 규모 약 50.5%로 확인, 반영 스크립트 작성 완료, DRY_RUN 검증 대기) |
-| HWPX 내부 마크업(`hp:run`, `hc:` 도형/차트 속성 태그 등)이 본문 텍스트에 그대로 노출 | XML 기반 HWPX 파싱 시 특정 태그 계열이 필터링에서 누락 | 여러 차례에 걸쳐 태그 계열 확장(마스킹 기호 정규화 포함) |
+| HWPX 내부 마크업(`hp:run`, `hc:` 도형/차트 속성 태그 등)이 본문 텍스트에 그대로 노출 | XML 기반 HWPX 파싱 시 특정 태그 계열이 필터링에서 누락 | 여러 차례에 걸쳐 태그 계열 확장(마스킹 기호 정규화 포함) — 재조사 결과 처리 대상 0건까지 확인 |
+| 부서/기관명 익명화 심볼이 라벨 없이 그대로 노출(♣♧▩ 등) | 원본 HWP의 사설 마스킹 폰트를 정규화하는 로직이 42종 심볼을 못 다룸 | 역대 최대 규모(24,920건/67,751건, 36.78%)로 확정 후 `[비공개]` 토큰으로 통일 반영 완료 |
 
 이 외에도 제목 콜론 표기 통일(34,764건 재임베딩), 텍스트 오염 1·2차 수정, 원문자(◯1, ◯2…) 서식 버그, 번호 항목 헤딩 오탐 등 다수. 자세한 시행착오는 [`STATUS.md`](STATUS.md)에 매 세션 기록해뒀습니다(스크립트 작성 → 실제 문서 검증 → 규모조사 → 반영까지 전 과정).
 
 ---
 
-## 주요 설계 결정 (왜 이렇게 만들었나)
+## 💡 주요 설계 결정 (왜 이렇게 만들었나)
 
 전체 목록은 `docs/architecture.md` §5.6 ADR 표 참고. 대표적인 것들:
 
@@ -129,10 +275,35 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 - **4줄 요약을 미리 다 안 만들고 온디맨드로 만든 이유**: 전체 문서(약 6.8만 건)를 미리 배치로 요약하면 실제로 조회되지 않을 문서까지 비용·시간(실측 약 7.2시간)을 쓰게 됨. "요약보기" 버튼을 눌렀을 때만 생성해서 DB에 저장(캐싱)하고, 그다음부터는 캐시된 값을 재사용
 - **요약 생성을 상세페이지 진입 시점이 아니라 버튼 클릭 시점으로 한 번 더 미룬 이유**: 상세페이지 첫 진입(원문 열람)까지 LLM 호출 지연이 끼어들지 않게 하기 위해 — 원문은 사용자가 가장 먼저, 가장 빨리 보고 싶어할 정보이기 때문
 - **요약 실패를 `summary_failed`로 캐싱하는 이유**: 캐싱 안 하면 정말로 요약할 내용이 없는 문서는 조회될 때마다 매번 1차+재시도 2번씩 API를 호출하게 되어, 캐싱의 이점이 이 케이스에서만 사라짐
+- **인증/로그인 시스템을 안 넣은 이유**: 로그인 없이 누구나 쓰는 공개 검색 서비스가 목표라, 관리자 전용 화면(`/admin/reports`)만 URL 공유 비밀 토큰(`ADMIN_TOKEN`)으로 최소한으로 지킴
 
 ---
 
-## 한계와 다음 계획
+## 🔄 CI/CD
+
+`.github/workflows/ci.yml` — 커밋/PR마다 GitHub Actions에서 자동 실행:
+
+| 잡 | 내용 |
+|---|---|
+| `frontend` | `npm ci` → `npm run lint`(oxlint) → `npm run test`(Vitest) → `npm run build` |
+| `backend-syntax` | `python -m py_compile`로 백엔드+스크립트 전체 문법 확인 |
+| `backend-test` | `requirements-test.txt`(torch/sentence-transformers 제외한 경량 의존성) 설치 → `pytest` |
+
+무거운 ML 의존성(torch/sentence-transformers, kiwipiepy)은 CI에서 일부러 제외했습니다 — `embedding.py`/`reranker.py`/`tokenizer.py`가 실제 모델 로딩을 `load_model()` 함수 안에서만 import하도록 설계돼 있어서, 그 함수를 호출하지 않는 라우트(`/health`, `/reports`, `/admin/reports`의 입력검증·인가 로직 등)는 무거운 패키지 설치 없이도 빠르게(약 10~15초) 테스트할 수 있습니다.
+
+---
+
+## 🚀 배포
+
+| 컴포넌트 | 플랫폼 | 참고 |
+|---|---|---|
+| 프론트엔드 | Vercel | GitHub 연동, `main` 브랜치 푸시 시 자동 배포. 환경변수 `VITE_API_BASE_URL`을 Railway 백엔드 URL로 설정 |
+| 백엔드 | Railway | `Procfile`(`uvicorn app.main:app --host 0.0.0.0 --port $PORT`)로 실행. 무료 티어라 재배포 때마다 공개 도메인이 바뀔 수 있음 |
+| 데이터베이스 | Railway Postgres (pgvector) | 오프라인 배치(파싱→청킹→임베딩)로 미리 채워둔 데이터를 그대로 운영에 사용 |
+
+---
+
+## 🔭 한계와 다음 계획
 
 **적용 완료**:
 - 한국어 형태소 토큰화(kiwipiepy) — 2026-08-27 배포. 오프라인 eval(쿼리 24개 기준) 상 하이브리드 검색 Recall@10 37.5%→41.67%로 개선 확인
@@ -154,7 +325,7 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 
 ---
 
-## 비용
+## 💰 비용
 
 - **임베딩 생성(BGE-m3)**: Colab GPU 1회성 배치, 비용 없음(무료 티어)
 - **4줄 요약(온디맨드, gpt-4o-mini)**: 전체를 미리 만들지 않으므로 총 비용은 실제 조회량에 비례. 스모크 테스트 실측 기준 건당 평균 약 1.77초·약 $0.0002 — 이론상 전체 문서(약 6.8만 건)가 한 번씩 다 조회돼도 약 $15 수준(상한선), 실사용 조회량은 이보다 훨씬 적을 것으로 예상
@@ -163,8 +334,24 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 
 ---
 
-## 로컬에서 실행하기
+## 🤝 기여하기
 
-- 백엔드: [`backend/README.md`](backend/README.md) 참고 (가상환경 설정, `.env` 구성, `uvicorn` 실행)
-- 프론트엔드: [`frontend/README.md`](frontend/README.md) 참고 (`npm install`, `.env` 구성, `npm run dev`)
-- 로컬에서 둘 다 띄우면 프론트(`:5173`)가 백엔드(`:8000`)를 자동으로 호출하도록 CORS가 기본 설정되어 있음
+개인 포트폴리오 프로젝트라 정식 기여 프로세스를 갖추고 있진 않지만, 이슈 제보나 PR은 환영합니다.
+
+1. 저장소를 Fork
+2. 기능/수정 브랜치 생성 (`git checkout -b fix/이슈-설명`)
+3. 변경 전 로컬에서 검증
+   ```bash
+   cd frontend && npm run lint && npm run test && npm run build
+   cd backend && pip install -r requirements-test.txt && pytest
+   ```
+4. 명확한 커밋 메시지로 커밋 (무엇을, 왜 바꿨는지)
+5. Pull Request 제출 — 변경 이유와 확인 방법을 설명
+
+버그를 발견했다면 원인을 재현할 수 있는 문서 ID나 검색어를 같이 남겨주시면 훨씬 빨리 확인할 수 있습니다(이 프로젝트 대부분의 수정이 실제 문서 사례에서 출발했습니다 — `STATUS.md` 참고).
+
+---
+
+## 📜 라이선스
+
+이 프로젝트는 [MIT 라이선스](LICENSE)를 따릅니다.
