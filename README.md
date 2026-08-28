@@ -168,7 +168,7 @@ PostgreSQL + pgvector (Railway)  ← documents(원문+요약 캐시), chunks(텍
 3. 두 결과를 RRF(Reciprocal Rank Fusion, `score = Σ 1/(k+rank)`, k=60)로 합쳐서 스케일 문제 없이 순위 융합
 4. 같은 문서 중복 노출 방지(`document_id` 단위로 최고점 청크 1개만 남기는 dedup) 후 Top-40 반환, 프론트에서 페이지네이션
 
-> 리랭커(크로스인코더 2차 재채점)는 설계·코드는 완성했지만(`repository.py`의 `rerank()`), 오프라인 eval 결과 개선 효과가 없어(아래 "검색 품질은 어떻게 검증했나" 참고) 의도적으로 미적용(no-op) 상태로 남겨뒀습니다.
+> 한국어 형태소 토큰화(kiwipiepy)는 2026-08-27 배포 완료 — 검색어와 색인 양쪽 다 조사/어미를 분리해서 매칭합니다. 리랭커(크로스인코더 2차 재채점)는 설계·코드는 완성했지만(`repository.py`의 `rerank()`), 오프라인 eval 결과 개선 효과가 없어(아래 "검색 품질은 어떻게 검증했나" 참고) 의도적으로 미적용(no-op) 상태로 남겨뒀습니다.
 
 ### Postgres 테이블
 
