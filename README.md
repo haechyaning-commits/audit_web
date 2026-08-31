@@ -1,6 +1,31 @@
 # 공공감사데이터 RAG 검색 포트폴리오
 
+[![CI](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml/badge.svg)](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/demo-audit--web--phi.vercel.app-1a73e8)](https://audit-web-phi.vercel.app)
+
 > 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일의 작업 로그(시행착오 포함, 사실상의 변경 이력)는 [`STATUS.md`](STATUS.md) 참고.
+
+## 목차
+
+- [📖 프로젝트 소개](#-프로젝트-소개)
+- [📸 스크린샷](#-스크린샷)
+- [✨ 주요 기능](#-주요-기능)
+- [🛠 기술 스택](#-기술-스택)
+- [🚀 빠른 시작](#-빠른-시작)
+- [📁 폴더 구조](#-폴더-구조)
+- [🏗 아키텍처 개요](#-아키텍처-개요)
+- [📡 API 엔드포인트](#-api-엔드포인트)
+- [🔧 환경 변수](#-환경-변수)
+- [🧪 검색 품질은 어떻게 검증했나](#-검색-품질은-어떻게-검증했나)
+- [🧹 데이터 품질 문제 대응](#-데이터-품질-문제-대응-실제로-시간을-가장-많이-쓴-부분)
+- [💡 주요 설계 결정](#-주요-설계-결정-왜-이렇게-만들었나)
+- [🔄 CI/CD](#-cicd)
+- [🚀 배포](#-배포)
+- [🔭 한계와 다음 계획](#-한계와-다음-계획)
+- [💰 비용](#-비용)
+- [🤝 기여하기](#-기여하기)
+- [📜 라이선스](#-라이선스)
 
 ## 📖 프로젝트 소개
 
@@ -53,7 +78,7 @@
 
 ---
 
-## 주요 기능
+## ✨ 주요 기능
 
 **실제로 동작하는 것**:
 - 🔍 자연어 질문 입력 → 하이브리드 검색(벡터 검색 + 키워드 검색을 RRF로 융합, 키워드 검색은 한국어 형태소 토큰화(kiwipiepy) 적용 — 조사/어미 분리로 정확 매칭 개선, 2026-08-27 배포) → 문서(사례) 단위로 중복 제거해 Top-40 카드를 2열 그리드+페이지네이션으로 표시
