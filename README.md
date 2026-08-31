@@ -1,13 +1,38 @@
 # 공공감사데이터 RAG 검색 포트폴리오
 
-> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일의 작업 로그(시행착오 포함, 사실상의 변경 이력)는 [`STATUS.md`](STATUS.md) 참고.
+[![CI](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml/badge.svg)](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/demo-audit--web--phi.vercel.app-1a73e8)](https://audit-web-phi.vercel.app)
+
+> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일 무엇을 했는지 날짜별로 압축 요약한 작업 로그는 [`STATUS.md`](STATUS.md) 참고(시행착오 전 과정이 담긴 서술형 원본은 git 히스토리에 남아있음).
+
+## 목차
+
+- [📖 프로젝트 소개](#-프로젝트-소개)
+- [📸 스크린샷](#-스크린샷)
+- [✨ 주요 기능](#-주요-기능)
+- [🛠 기술 스택](#-기술-스택)
+- [🚀 빠른 시작](#-빠른-시작)
+- [📁 폴더 구조](#-폴더-구조)
+- [🏗 아키텍처 개요](#-아키텍처-개요)
+- [📡 API 엔드포인트](#-api-엔드포인트)
+- [🔧 환경 변수](#-환경-변수)
+- [🧪 검색 품질은 어떻게 검증했나](#-검색-품질은-어떻게-검증했나)
+- [🧹 데이터 품질 문제 대응](#-데이터-품질-문제-대응-실제로-시간을-가장-많이-쓴-부분)
+- [💡 주요 설계 결정](#-주요-설계-결정-왜-이렇게-만들었나)
+- [🔄 CI/CD](#-cicd)
+- [🚀 배포](#-배포)
+- [🔭 한계와 다음 계획](#-한계와-다음-계획)
+- [💰 비용](#-비용)
+- [🤝 기여하기](#-기여하기)
+- [📜 라이선스](#-라이선스)
 
 ## 📖 프로젝트 소개
 
 감사실 실무자가 궁금한 사안을 자연어로 입력하면, RAG(검색+생성)로 유사한 공공감사 사례를 자동 추천하고 4줄 요약까지 보여주는 검색 서비스입니다.
 
 - 🔗 프론트엔드(검색 화면): https://audit-web-phi.vercel.app
-- 🔗 백엔드 API: https://auditweb-production-dc51.up.railway.app (2026-08-26 갱신 — Railway 무료 티어 특성상 GitHub 연동을 재연결할 때마다 공개 도메인이 바뀜. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것)
+- 🔗 백엔드 API: https://auditweb-production-5455.up.railway.app (2026-08-31 갱신 — Railway 무료 티어 특성상 GitHub 연동을 재연결할 때마다 공개 도메인이 바뀜. 커스텀 도메인은 아직 안 걸어놔서, 이 값이 언젠가 다시 바뀌면 Railway 대시보드에서 확인 후 갱신할 것)
 
 ### 왜 만들었나
 
@@ -21,11 +46,39 @@
 
 ## 📸 스크린샷
 
-작업이 다 마무리되면 실제 검색화면/상세페이지 스크린샷을 첨부할 예정입니다.
+**홈 — 자연어 검색창**
+
+문장으로 질문을 입력하면 유사 사례를 찾아줍니다. 감사실 실무자가 실제로 물어볼 법한 예시 검색어를 버튼으로도 제공합니다.
+
+![홈 화면](frontend/public/screenshots/home.png)
+
+**검색 결과 — 하이브리드 검색 + 관련 법령 모아보기**
+
+검색어와 매칭된 부분이 하이라이팅되고, 감사유형/기관/연도로 필터링할 수 있습니다. 결과에 등장하는 법령을 자동으로 모아 보여줍니다.
+
+![검색 결과](frontend/public/screenshots/search-results.png)
+
+**상세페이지 — 원문 + 검색 매칭 근거**
+
+원문은 즉시 로딩되며, 어떤 문장이 검색어와 매칭됐는지 상단에 표시합니다.
+
+![상세페이지](frontend/public/screenshots/detail-top.png)
+
+**"요약보기" 클릭 → AI 4줄 요약 (지적사항/원인/조치/결과)**
+
+버튼을 눌렀을 때만 온디맨드로 생성되며, 이후에는 캐싱된 값을 재사용합니다.
+
+![4줄 요약](frontend/public/screenshots/detail-summary.png)
+
+**기관 프로필 — 연도별/감사종류별 통계**
+
+기관별로 전체 감사 이력을 한눈에 볼 수 있는 미니페이지입니다.
+
+![기관 프로필](frontend/public/screenshots/institution-profile.png)
 
 ---
 
-## 주요 기능
+## ✨ 주요 기능
 
 **실제로 동작하는 것**:
 - 🔍 자연어 질문 입력 → 하이브리드 검색(벡터 검색 + 키워드 검색을 RRF로 융합, 키워드 검색은 한국어 형태소 토큰화(kiwipiepy) 적용 — 조사/어미 분리로 정확 매칭 개선, 2026-08-27 배포) → 문서(사례) 단위로 중복 제거해 Top-40 카드를 2열 그리드+페이지네이션으로 표시
@@ -128,11 +181,11 @@ audit_web/
 │       ├── pages/             # SearchPage, DetailPage, InstitutionPage, NotFoundPage
 │       ├── components/        # ResultCard, ConfidenceBadge, FilterSidebar, YearChart 등
 │       └── api.js, App.jsx, useTheme.js 등
-├── scripts/                 # 오프라인 배치 스크립트 (파싱→청킹→임베딩, 데이터 품질 조사/복구 60개+)
+├── scripts/                 # 오프라인 배치 스크립트 (파싱→청킹→임베딩, 데이터 품질 조사/복구 60개+, scripts/README.md에 색인)
 ├── docs/
 │   ├── architecture.md       # 상세 설계 문서
 │   └── development-plan.md   # 개발 일정(WBS)
-├── STATUS.md                 # 매 세션 작업 로그 — 이 프로젝트의 실질적 변경 이력
+├── STATUS.md                 # 날짜별 작업 로그 압축 요약(원본은 git 히스토리)
 └── README.md
 ```
 
@@ -261,7 +314,7 @@ cd backend && pip install -r requirements-test.txt && pytest
 | HWPX 내부 마크업(`hp:run`, `hc:` 도형/차트 속성 태그 등)이 본문 텍스트에 그대로 노출 | XML 기반 HWPX 파싱 시 특정 태그 계열이 필터링에서 누락 | 여러 차례에 걸쳐 태그 계열 확장(마스킹 기호 정규화 포함) — 재조사 결과 처리 대상 0건까지 확인 |
 | 부서/기관명 익명화 심볼이 라벨 없이 그대로 노출(♣♧▩ 등) | 원본 HWP의 사설 마스킹 폰트를 정규화하는 로직이 42종 심볼을 못 다룸 | 역대 최대 규모(24,920건/67,751건, 36.78%)로 확정 후 `[비공개]` 토큰으로 통일 반영 완료 |
 
-이 외에도 제목 콜론 표기 통일(34,764건 재임베딩), 텍스트 오염 1·2차 수정, 원문자(◯1, ◯2…) 서식 버그, 번호 항목 헤딩 오탐 등 다수. 자세한 시행착오는 [`STATUS.md`](STATUS.md)에 매 세션 기록해뒀습니다(스크립트 작성 → 실제 문서 검증 → 규모조사 → 반영까지 전 과정).
+이 외에도 제목 콜론 표기 통일(34,764건 재임베딩), 텍스트 오염 1·2차 수정, 원문자(◯1, ◯2…) 서식 버그, 번호 항목 헤딩 오탐 등 다수. 날짜별 요약은 [`STATUS.md`](STATUS.md), 스크립트 작성 → 실제 문서 검증 → 규모조사 → 반영까지의 시행착오 전 과정은 git 히스토리에 남아있습니다.
 
 ---
 
