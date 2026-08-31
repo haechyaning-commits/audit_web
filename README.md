@@ -1,7 +1,6 @@
 # 공공감사데이터 RAG 검색 포트폴리오
 
 [![CI](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml/badge.svg)](https://github.com/haechyaning-commits/audit_web/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Live Demo](https://img.shields.io/badge/demo-audit--web--phi.vercel.app-1a73e8)](https://audit-web-phi.vercel.app)
 
 > 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일 무엇을 했는지 날짜별로 압축 요약한 작업 로그는 [`STATUS.md`](STATUS.md) 참고(시행착오 전 과정이 담긴 서술형 원본은 git 히스토리에 남아있음).
@@ -25,7 +24,6 @@
 - [🔭 한계와 다음 계획](#-한계와-다음-계획)
 - [💰 비용](#-비용)
 - [🤝 기여하기](#-기여하기)
-- [📜 라이선스](#-라이선스)
 
 ## 📖 프로젝트 소개
 
@@ -407,4 +405,4 @@ cd backend && pip install -r requirements-test.txt && pytest
 
 ## 📜 라이선스
 
-이 프로젝트는 [MIT 라이선스](LICENSE)를 따릅니다.
+별도 오픈소스 라이선스 없이 모든 권리를 보유합니다(개인 포트폴리오 프로젝트). 코드 열람은 자유롭게 하실 수 있지만, 재사용·재배포는 별도로 문의해주세요.
