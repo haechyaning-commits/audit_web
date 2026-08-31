@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Live Demo](https://img.shields.io/badge/demo-audit--web--phi.vercel.app-1a73e8)](https://audit-web-phi.vercel.app)
 
-> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일의 작업 로그(시행착오 포함, 사실상의 변경 이력)는 [`STATUS.md`](STATUS.md) 참고.
+> 상세 설계는 [`docs/architecture.md`](docs/architecture.md), 개발 일정은 [`docs/development-plan.md`](docs/development-plan.md), 매일 무엇을 했는지 날짜별로 압축 요약한 작업 로그는 [`STATUS.md`](STATUS.md) 참고(시행착오 전 과정이 담긴 서술형 원본은 git 히스토리에 남아있음).
 
 ## 목차
 
@@ -185,7 +185,7 @@ audit_web/
 ├── docs/
 │   ├── architecture.md       # 상세 설계 문서
 │   └── development-plan.md   # 개발 일정(WBS)
-├── STATUS.md                 # 매 세션 작업 로그 — 이 프로젝트의 실질적 변경 이력
+├── STATUS.md                 # 날짜별 작업 로그 압축 요약(원본은 git 히스토리)
 └── README.md
 ```
 
@@ -314,7 +314,7 @@ cd backend && pip install -r requirements-test.txt && pytest
 | HWPX 내부 마크업(`hp:run`, `hc:` 도형/차트 속성 태그 등)이 본문 텍스트에 그대로 노출 | XML 기반 HWPX 파싱 시 특정 태그 계열이 필터링에서 누락 | 여러 차례에 걸쳐 태그 계열 확장(마스킹 기호 정규화 포함) — 재조사 결과 처리 대상 0건까지 확인 |
 | 부서/기관명 익명화 심볼이 라벨 없이 그대로 노출(♣♧▩ 등) | 원본 HWP의 사설 마스킹 폰트를 정규화하는 로직이 42종 심볼을 못 다룸 | 역대 최대 규모(24,920건/67,751건, 36.78%)로 확정 후 `[비공개]` 토큰으로 통일 반영 완료 |
 
-이 외에도 제목 콜론 표기 통일(34,764건 재임베딩), 텍스트 오염 1·2차 수정, 원문자(◯1, ◯2…) 서식 버그, 번호 항목 헤딩 오탐 등 다수. 자세한 시행착오는 [`STATUS.md`](STATUS.md)에 매 세션 기록해뒀습니다(스크립트 작성 → 실제 문서 검증 → 규모조사 → 반영까지 전 과정).
+이 외에도 제목 콜론 표기 통일(34,764건 재임베딩), 텍스트 오염 1·2차 수정, 원문자(◯1, ◯2…) 서식 버그, 번호 항목 헤딩 오탐 등 다수. 날짜별 요약은 [`STATUS.md`](STATUS.md), 스크립트 작성 → 실제 문서 검증 → 규모조사 → 반영까지의 시행착오 전 과정은 git 히스토리에 남아있습니다.
 
 ---
 
