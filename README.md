@@ -128,7 +128,7 @@ audit_web/
 │       ├── pages/             # SearchPage, DetailPage, InstitutionPage, NotFoundPage
 │       ├── components/        # ResultCard, ConfidenceBadge, FilterSidebar, YearChart 등
 │       └── api.js, App.jsx, useTheme.js 등
-├── scripts/                 # 오프라인 배치 스크립트 (파싱→청킹→임베딩, 데이터 품질 조사/복구 60개+)
+├── scripts/                 # 오프라인 배치 스크립트 (파싱→청킹→임베딩, 데이터 품질 조사/복구 60개+, scripts/README.md에 색인)
 ├── docs/
 │   ├── architecture.md       # 상세 설계 문서
 │   └── development-plan.md   # 개발 일정(WBS)

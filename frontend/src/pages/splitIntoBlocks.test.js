@@ -1,4 +1,4 @@
-// DetailPage.jsx의 splitIntoBlocks() 유닛테스트.
+// rawTextParsing.jsx의 splitIntoBlocks() 유닛테스트.
 //
 // 이 프로젝트는 지금까지 자동화된 테스트가 없었고(STATUS.md 참고), 원문 파싱
 // 로직(splitIntoBlocks/classifyLine 등 각주·헤딩·불릿 분류 휴리스틱) 수정마다
@@ -6,10 +6,10 @@
 // 수동 검증 과정을 반복 가능한 유닛테스트로 옮겨서, 앞으로 이 휴리스틱을 건드릴
 // 때 회귀를 바로 잡아낼 수 있게 함.
 //
-// splitIntoBlocks는 DetailPage.jsx에서 named export로 노출돼 있음(컴포넌트
-// 자체는 default export로 그대로 둠, 동작 변경 없음).
+// splitIntoBlocks는 원래 DetailPage.jsx 안에 있었으나, 컴포넌트와 무관한 순수
+// 파싱 로직이라 rawTextParsing.jsx로 분리됨(동작 변경 없음, named export로 노출).
 import { describe, expect, it } from "vitest";
-import { splitIntoBlocks } from "./DetailPage.jsx";
+import { splitIntoBlocks } from "./rawTextParsing.jsx";
 
 describe("splitIntoBlocks", () => {
   it("빈 줄로 구분된 두 문단을 별도 body 블록으로 나눔", () => {
